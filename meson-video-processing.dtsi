@@ -1,0 +1,147 @@
+/vpu@c883a000 {
+    compatible = "amlogic,s905x-vpu";
+    reg = <0x0 0xc883a000 0x0 0x1000>; /* Base address and size */
+    interrupts = <GIC_SPI 32 IRQ_TYPE_LEVEL_HIGH>;
+    clocks = <&clkc CLKID_VPU>;
+    power-domains = <&pwrc VPU>;
+    
+    vpu_h264_dec: h264-decoder@0 {
+        reg = <0x0 0x00 0x0 0x04>; /* Offset and size */
+    };
+    
+    vpu_hevc_dec: hevc-decoder@4 {
+        reg = <0x0 0x04 0x0 0x04>; /* Offset and size */
+    };
+    
+    vpu_vp9_dec: vp9-decoder@8 {
+        reg = <0x0 0x08 0x0 0x04>; /* Offset and size */
+    };
+    
+    vpu_av1_dec: av1-decoder@c {
+        reg = <0x0 0x0c 0x0 0x04>; /* Offset and size */
+    };
+    
+    vpu_vc1_dec: vc1-decoder@10 {
+        reg = <0x0 0x10 0x0 0x04>; /* Offset and size */
+    };
+    
+    vpu_mpeg_dec: mpeg-decoder@14 {
+        reg = <0x0 0x14 0x0 0x04>; /* Offset and size */
+    };
+    
+    vpu_real_dec: real-decoder@18 {
+        reg = <0x0 0x18 0x0 0x04>; /* Offset and size */
+    };
+    
+    vpu_mjpeg_dec: mjpeg-decoder@1c {
+        reg = <0x0 0x1c 0x0 0x04>; /* Offset and size */
+    };
+    
+    vpu_yuv_proc: yuv-processor@20 {
+        reg = <0x0 0x20 0x0 0x04>; /* Offset and size */
+    };
+    
+    vpu_nv12_proc: nv12-processor@24 {
+        reg = <0x0 0x24 0x0 0x04>; /* Offset and size */
+    };
+    
+    vpu_nv21_proc: nv21-processor@28 {
+        reg = <0x0 0x28 0x0 0x04>; /* Offset and size */
+    };
+    
+    vpu_jpeg_dec: jpeg-decoder@2c {
+        reg = <0x0 0x2c 0x0 0x04>; /* Offset and size */
+    };
+    
+    vpu_h264_enc: h264-encoder@30 {
+        reg = <0x0 0x30 0x0 0x04>; /* Offset and size */
+    };
+    
+    vpu_jpeg_enc: jpeg-encoder@34 {
+        reg = <0x0 0x34 0x0 0x04>; /* Offset and size */
+    };
+};
+
+dos@c8820000 {
+    compatible = "amlogic,s905x-dos";
+    reg = <0x0 0xc8820000 0x0 0x1000>; /* Base address and size */
+    interrupts = <GIC_SPI 33 IRQ_TYPE_LEVEL_HIGH>;
+    clocks = <&clkc CLKID_DOS>;
+    power-domains = <&pwrc DOS>;
+    
+    dos_sw_reset0: sw-reset0@0 {
+        reg = <0x0 0x00 0x0 0x04>; /* Offset and size */
+    };
+    
+    dos_gen_ctrl: gen-ctrl@4 {
+        reg = <0x0 0x04 0x0 0x04>; /* Offset and size */
+    };
+    
+    dos_status: status@8 {
+        reg = <0x0 0x08 0x0 0x04>; /* Offset and size */
+    };
+    
+    dos_int_en: int-en@c {
+        reg = <0x0 0x0c 0x0 0x04>; /* Offset and size */
+    };
+    
+    dos_int_status: int-status@10 {
+        reg = <0x0 0x10 0x0 0x04>; /* Offset and size */
+    };
+};
+
+parser@c8838000 {
+    compatible = "amlogic,s905x-parser";
+    reg = <0x0 0xc8838000 0x0 0x1000>; /* Base address and size */
+    interrupts = <GIC_SPI 34 IRQ_TYPE_LEVEL_HIGH>;
+    clocks = <&clkc CLKID_PARSER>;
+    power-domains = <&pwrc PARSER>;
+    
+    parser_ctrl: ctrl@0 {
+        reg = <0x0 0x00 0x0 0x04>; /* Offset and size */
+    };
+    
+    parser_status: status@4 {
+        reg = <0x0 0x04 0x0 0x04>; /* Offset and size */
+    };
+    
+    parser_int_en: int-en@8 {
+        reg = <0x0 0x08 0x0 0x04>; /* Offset and size */
+    };
+    
+    parser_int_status: int-status@c {
+        reg = <0x0 0x0c 0x0 0x04>; /* Offset and size */
+    };
+    
+    parser_video_format: video-format@10 {
+        reg = <0x0 0x10 0x0 0x04>; /* Offset and size */
+    };
+    
+    parser_hdr_ctrl: hdr-ctrl@14 {
+        reg = <0x0 0x14 0x0 0x04>; /* Offset and size */
+    };
+    
+    parser_sdr_ctrl: sdr-ctrl@18 {
+        reg = <0x0 0x18 0x0 0x04>; /* Offset and size */
+    };
+    
+    parser_envelope: envelope@1c {
+        reg = <0x0 0x1c 0x0 0x04>; /* Offset and size */
+    };
+    
+    parser_error_status: error-status@20 {
+        reg = <0x0 0x20 0x0 0x04>; /* Offset and size */
+    };
+    
+    mailbox0: mailbox0@24 {
+        reg = <0x0 0x24 0x0 0x04>; /* Offset and size */
+    };
+    
+    mailbox1: mailbox1@28 {
+        reg = <0x0 0x28 0x0 0x04>; /* Offset and size */
+    };
+    
+    mailbox2: mailbox2@2c {
+        reg = <0x0 0x2c 0x0 0x04>; /* Offset and size */
+    };
+};
