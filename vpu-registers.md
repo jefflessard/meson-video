@@ -65,6 +65,17 @@ All instances (DOS, Parser, VPU) use the same set of clocks. Each instance does 
 | NV12            | VPU_NV12_PROC    | [1:0]    | 0: NV12                                         | NV12 format processing    |
 | NV21            | VPU_NV21_PROC    | [3:2]    | 0: NV21                                         | NV21 format processing    |
 
+### Decoder Destination
+| **Register**       | **Bits** | **Values**                                      | **Description**           |
+|--------------------|----------|-------------------------------------------------|---------------------------|
+| VPU_DEC_OUT_CTRL   | [1:0]    | 0: Output to memory<br>1: Output to HDMI<br>2: Output to CVBS | Control decoding output destination |
+|                    | [31:2]   | Reserved                                        | Unused bits               |
+| VPU_HDMI_CTRL      | [3:2]    | 0: Disable HDMI output<br>1: Enable HDMI output | Control HDMI output       |
+|                    | [31:4]   | Reserved                                        | Unused bits               |
+| VPU_CVBS_CTRL      | [5:4]    | 0: Disable CVBS output<br>1: Enable CVBS output | Control CVBS output       |
+|                    | [31:6]   | Reserved                                        | Unused bits               |
+
+
 ---
 
 ## Encoder Configuration
@@ -84,6 +95,16 @@ All instances (DOS, Parser, VPU) use the same set of clocks. Each instance does 
 | H.264 Encoder   | VPU_H264_ENC     | [7:0]    | 0: Start encoding<br>1: Stop encoding<br>2: Reset encoder | H.264 video encoding      | VENC_CLK<br>HCODEC_CLK    |
 | JPEG Encoder    | VPU_JPEG_ENC     | [7:0]    | 0: Start encoding<br>1: Stop encoding<br>2: Reset encoder | JPEG image encoding       | VENC_CLK                  |
 | HEVC Encoder (A311D only) | VPU_HEVC_ENC | [7:0] | 0: Start encoding<br>1: Stop encoding<br>2: Reset encoder | HEVC video encoding       | VENC_CLK<br>HEVC_CLK      |
+
+### Encoder Source
+| **Register**       | **Bits** | **Values**                                      | **Description**           |
+|--------------------|----------|-------------------------------------------------|---------------------------|
+| VPU_ENC_IN_CTRL    | [1:0]    | 0: Memory input<br>1: TV input<br>2: HDMI input | Control encoding input source |
+|                    | [31:2]   | Reserved                                        | Unused bits               |
+| VPU_TVIN_CTRL      | [3:2]    | 0: Disable TV input<br>1: Enable TV input       | Control TV input          |
+|                    | [31:4]   | Reserved                                        | Unused bits               |
+| VPU_HDMI_IN_CTRL   | [5:4]    | 0: Disable HDMI input<br>1: Enable HDMI input   | Control HDMI input        |
+|                    | [31:6]   | Reserved                                        | Unused bits               |
 
 ---
 
