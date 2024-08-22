@@ -1,6 +1,41 @@
-### Decoder Configuration
+# Amlogic Meson SoCs Video Codec
 
-#### Decoder Supported Input Codecs
+## Instances Offsets
+
+The SoC can handle multiple concurrent video encoding and decoding operations. Specifically, it can encode and decode up to three videos concurrently, leveraging the three independent VPU, DOS and parser instances.
+
+All instances (DOS, Parser, VPU) use the same set of clocks. Each instance does not have its own dedicated clock but shares the common clocks configured for the SoC.
+
+| **Instance** | **Component** | **Base Address** | **Offset Range** | **Interrupts**         |
+|--------------|---------------|------------------|------------------|------------------------|
+| **1**        | DOS           | 0xC1100000       | 0x0000 - 0x0FFF  | DOS_MBOX_INT1          |
+|              | Parser        | 0xC1103000       | 0x3000 - 0x3FFF  | PARSER_INT1            |
+|              | VPU           | 0xC1106000       | 0x6000 - 0x6FFF  | VPU_INT1               |
+| **2**        | DOS           | 0xC1101000       | 0x1000 - 0x1FFF  | DOS_MBOX_INT2          |
+|              | Parser        | 0xC1104000       | 0x4000 - 0x4FFF  | PARSER_INT2            |
+|              | VPU           | 0xC1107000       | 0x7000 - 0x7FFF  | VPU_INT2               |
+| **3**        | DOS           | 0xC1102000       | 0x2000 - 0x2FFF  | DOS_MBOX_INT3          |
+|              | Parser        | 0xC1105000       | 0x5000 - 0x5FFF  | PARSER_INT3            |
+|              | VPU           | 0xC1108000       | 0x8000 - 0x8FFF  | VPU_INT3               |
+
+---
+
+## Clocks
+| **Clock**       | **Description**                                                                 | **Recommended Configuration**                                                                 |
+|-----------------|---------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------|
+| HCODEC_CLK      | High-performance video codec clock.                                             | Enable for H.264, MPEG-1/2/4, VC-1 decoding.                                                |
+| HEVC_CLK        | HEVC (H.265) codec clock.                                                       | Enable for HEVC decoding and encoding (A311D only).                                         |
+| VDEC_CLK        | General video decoder clock.                                                    | Enable for all decoding operations.                                                         |
+| VPU_CLK         | Video processing unit clock.                                                    | Enable for all pixel format processing (YUV420, YUV422, YUV444, NV12, NV21).                |
+| VENC_CLK        | Video encoder clock.                                                            | Enable for all encoding operations.                                                         |
+| DOS_CLK         | Decoder Output Stage clock.                                                     | Enable for all DOS operations.                                                              |
+| PARSER_CLK      | Parser clock.                                                                   | Enable for all parsing operations.                                                          |
+
+---
+
+## Decoder Configuration
+
+### Decoder Supported Input Codecs
 | **Codec**       | **Register**     | **Bits** | **Values**                                      | **Description**           | **Clocks**                |
 |-----------------|------------------|----------|-------------------------------------------------|---------------------------|---------------------------|
 | H.264           | VPU_H264_DEC     | [7:0]    | 0: Start decoding<br>1: Stop decoding<br>2: Reset decoder | H.264 video decoding      | HCODEC_CLK<br>VDEC_CLK    |
@@ -13,7 +48,7 @@
 | MJPEG           | VPU_MJPEG_DEC    | [7:0]    | 0: Start decoding<br>1: Stop decoding<br>2: Reset decoder | MJPEG video decoding      | VDEC_CLK                  |
 | JPEG            | VPU_JPEG_DEC     | [7:0]    | 0: Start decoding<br>1: Stop decoding<br>2: Reset decoder | JPEG image decoding       | VDEC_CLK                  |
 
-#### Decoder Supported Output Formats
+### Decoder Supported Output Formats
 | **Format**      | **Register**     | **Bits** | **Values**                                      | **Description**           |
 |-----------------|------------------|----------|-------------------------------------------------|---------------------------|
 | YUV420          | VPU_YUV_PROC     | [1:0]    | 0: YUV420                                       | YUV420 format processing  |
@@ -22,10 +57,11 @@
 | NV12            | VPU_NV12_PROC    | [1:0]    | 0: NV12                                         | NV12 format processing    |
 | NV21            | VPU_NV21_PROC    | [3:2]    | 0: NV21                                         | NV21 format processing    |
 
+---
 
-### Encoder Configuration
+## Encoder Configuration
 
-#### Encoder Supported Input Formats
+### Encoder Supported Input Formats
 | **Format**      | **Register**     | **Bits** | **Values**                                      | **Description**           |
 |-----------------|------------------|----------|-------------------------------------------------|---------------------------|
 | YUV420          | VPU_VIU_VENC_CTRL| [1:0]    | 0: YUV420                                       | YUV420 format processing  |
@@ -34,25 +70,16 @@
 | NV12            | VPU_VIU_VENC_CTRL| [1:0]    | 0: NV12                                         | NV12 format processing    |
 | NV21            | VPU_VIU_VENC_CTRL| [3:2]    | 0: NV21                                         | NV21 format processing    |
 
-#### Encoder Supported Output Codecs
+### Encoder Supported Output Codecs
 | **Codec**       | **Register**     | **Bits** | **Values**                                      | **Description**           | **Clocks**                |
 |-----------------|------------------|----------|-------------------------------------------------|---------------------------|---------------------------|
 | H.264 Encoder   | VPU_H264_ENC     | [7:0]    | 0: Start encoding<br>1: Stop encoding<br>2: Reset encoder | H.264 video encoding      | VENC_CLK<br>HCODEC_CLK    |
 | JPEG Encoder    | VPU_JPEG_ENC     | [7:0]    | 0: Start encoding<br>1: Stop encoding<br>2: Reset encoder | JPEG image encoding       | VENC_CLK                  |
 | HEVC Encoder (A311D only) | VPU_HEVC_ENC | [7:0] | 0: Start encoding<br>1: Stop encoding<br>2: Reset encoder | HEVC video encoding       | VENC_CLK<br>HEVC_CLK      |
 
+---
 
-### Clocks Description
-| **Clock**       | **Description**                                                                 | **Recommended Configuration**                                                                 |
-|-----------------|---------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------|
-| HCODEC_CLK      | High-performance video codec clock.                                             | Enable for H.264, MPEG-1/2/4, VC-1 decoding.                                                |
-| HEVC_CLK        | HEVC (H.265) codec clock.                                                       | Enable for HEVC decoding and encoding (A311D only).                                         |
-| VDEC_CLK        | General video decoder clock.                                                    | Enable for all decoding operations.                                                         |
-| VPU_CLK         | Video processing unit clock.                                                    | Enable for all pixel format processing (YUV420, YUV422, YUV444, NV12, NV21).                |
-| VENC_CLK        | Video encoder clock.                                                            | Enable for all encoding operations.                                                         |
-
-
-### VPU Configuration Registers
+## VPU Configuration
 
 | Register       | Bits   | Values                                      | Description           |
 |----------------|--------|---------------------------------------------|-----------------------|
@@ -77,23 +104,9 @@
 | VPU_BIT_DEPTH  | [1:0]  | 0: 8-bit<br>1: 10-bit                       | Set bit depth         |
 |                | [31:2] | Reserved                                   | Unused bits           |
 
-### DOS and Parser
+---
 
-#### Instances Offsets
-| **Instance** | **Component** | **Base Address** | **Offset Range** | **Interrupts**         |
-|--------------|---------------|------------------|------------------|------------------------|
-| **1**        | DOS           | 0xC1100000       | 0x0000 - 0x0FFF  | DOS_MBOX_INT1          |
-|              | Parser        | 0xC1103000       | 0x3000 - 0x3FFF  | PARSER_INT1            |
-|              | VPU           | 0xC1106000       | 0x6000 - 0x6FFF  | VPU_INT1               |
-| **2**        | DOS           | 0xC1101000       | 0x1000 - 0x1FFF  | DOS_MBOX_INT2          |
-|              | Parser        | 0xC1104000       | 0x4000 - 0x4FFF  | PARSER_INT2            |
-|              | VPU           | 0xC1107000       | 0x7000 - 0x7FFF  | VPU_INT2               |
-| **3**        | DOS           | 0xC1102000       | 0x2000 - 0x2FFF  | DOS_MBOX_INT3          |
-|              | Parser        | 0xC1105000       | 0x5000 - 0x5FFF  | PARSER_INT3            |
-|              | VPU           | 0xC1108000       | 0x8000 - 0x8FFF  | VPU_INT3               |
-
-
-#### DOS Registers
+## DOS Configuration
 
 | Register       | Bits   | Values                                      | Description                   |
 |----------------|--------|---------------------------------------------|-------------------------------|
@@ -108,8 +121,9 @@
 | DOS_INT_STATUS | [1:0]  | 0: No interrupt<br>1: Interrupt pending     | DOS interrupt status          |
 |                | [31:2] | Reserved                                   | Unused bits                   |
 
+---
 
-#### Parser Registers
+## Parser Configuration
 
 | Register            | Bits   | Values                                      | Description                   |
 |---------------------|--------|---------------------------------------------|-------------------------------|
