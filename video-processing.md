@@ -4,7 +4,7 @@
 
 ### VPU (Video Processing Unit)
 
-The VPU (Video Processing Unit) is responsible for video decoding, encoding, and processing. It supports various video codecs and formats, making it essential for video playback and streaming.
+The VPU (Video Processing Unit) is responsible for video decoding, encoding, and processing. The VPU supports a wide range of video codecs, including H.264, H.265, VP9, AV1, MPEG-2, MPEG-4, VC-1, and RealVideo. It also supports YUV formats (YUV420, YUV422, YUV444) and NV12 formats (NV12, NV21).
 
 #### Registers and Configuration
 
@@ -79,14 +79,6 @@ The VPU (Video Processing Unit) is responsible for video decoding, encoding, and
 | Name    | Number | Description |
 |---------|--------|-------------|
 | VPU_INT | 32     | Interrupt line for the VPU |
-
-#### Firmware
-
-| SoC  | File |
-|------|------|
-| None | None |
-
-**Comments**: The VPU supports a wide range of video codecs, including H.264, H.265, VP9, AV1, MPEG-2, MPEG-4, VC-1, and RealVideo. It also supports YUV formats (YUV420, YUV422, YUV444) and NV12 formats (NV12, NV21). There are no specific firmware files associated with the VPU for the A311D and S905X SoC models.
 
 ---
 
@@ -173,14 +165,6 @@ The DOS (Decoder Output Stage) is involved in the final stages of video decoding
 | DOS_MAILBOX_1 | 35     | Interrupt for DOS Mailbox 1 |
 | DOS_MAILBOX_2 | 36     | Interrupt for DOS Mailbox 2 |
 
-#### Firmware
-
-| SoC  | File |
-|------|------|
-| None | None |
-
-**Comments**: The DOS supports output formats such as YUV and RGB, and resolutions including 1080p and 4K. It also includes three mailboxes for controlling video encoding/decoding, each with its own interrupt. There are no specific firmware files associated with the DOS for the A311D and S905X SoC models.
-
 ---
 
 ### eparser (Elementary Stream Parser)
@@ -240,14 +224,6 @@ The eparser (Elementary Stream Parser) is responsible for parsing elementary vid
 |--------------|--------|-------------|
 | EPARSER_INT  | 34     | Interrupt line for the eparser |
 
-#### Firmware
-
-| SoC  | File |
-|------|------|
-| None | None |
-
-**Comments**: The eparser supports stream types such as MPEG, H.264, and H.265, and stream formats including TS and ES. There are no specific firmware files associated with the eparser for the A311D and S905X SoC models.
-
 ---
 
 ### Codec Memory Management
@@ -305,14 +281,6 @@ Codec memory management is crucial for allocating and managing memory for video 
 | Name         | Number | Description |
 |--------------|--------|-------------|
 | CODEC_MM_INT | 35     | Interrupt line for codec memory management |
-
-#### Firmware
-
-| SoC  | File |
-|------|------|
-| None | None |
-
-**Comments**: Codec memory management involves allocating and managing memory pools and handling memory fragmentation. There are no specific firmware files associated with codec memory management for the A311D and S905X SoC models.
 
 ---
 
@@ -372,14 +340,6 @@ The GE2D module handles 2D graphics processing and video frame manipulation. It 
 |--------------|--------|-------------|
 | GE2D_INT     | 36     | Interrupt line for the GE2D |
 
-#### Firmware
-
-| SoC  | File |
-|------|------|
-| None | None |
-
-**Comments**: The GE2D supports operation modes such as scaling and blending, and color formats including RGB and YUV. There are no specific firmware files associated with the GE2D for the A311D and S905X SoC models.
-
 ---
 
 ### RDMA (Remote Direct Memory Access)
@@ -437,15 +397,13 @@ The RDMA module facilitates efficient data transfer between memory and video pro
 Name 	Number 	Description 	
 RDMA_INT 	37 	Interrupt line for RDMA 	
 
-Firmware
-SoC 	File 	
-None 	None 	
+---
 
-Comments: RDMA facilitates efficient data transfer between memory and video processing units, reducing CPU overhead. There are no specific firmware files associated with RDMA for the A311D and S905X SoC models.
-
-VFM (Video Frame Manager)
+### VFM (Video Frame Manager)
 The VFM module manages video frames and their processing, ensuring smooth playback and synchronization.
-Registers and ConfigurationVFM_CTRL Register
+
+#### Registers and Configuration
+**VFM_CTRL Register**
 - Control register for VFM operation mode and settings.
 - Address Offset: 0x6000
 
@@ -458,7 +416,7 @@ Bits 	Value 	Description
 [7:0] 	0x00: Disable 	Enable/Disable VFM 	
  	0x01: Enable 	 	
 
-VFM_STATUS Register
+**VFM_STATUS Register**
 - Status register providing current state and error information.
 - Address Offset: 0x6004
 
@@ -467,30 +425,24 @@ Bits 	Value 	Description
 [15:8] 	0x00 - 0xFF 	Error Code 	
 [7:0] 	0x00 - 0xFF 	Current State 	
 
-VFM_DATA Register
+**VFM_DATA Register**
 - Data register for transferring video frame data.
 - Address Offset: 0x6008
 
 Bits 	Value 	Description 	
 [31:0] 	0x00000000 - 0xFFFFFFFF 	Frame Data 	
 
-Clocks
+#### Clocks
 Name 	Source Clock 	Divider 	Description 	
 VFM_CLK 	PLL1 	2 	Main clock for VFM 	
 
-Power Domains
+#### Power Domains
 Name 	Address 	Bits 	Value 	Description 	
 VFM_PWR 	0x7000 	[0] 	0: Off, 1: On 	Power domain for VFM 	
 
-Interrupts
+#### Interrupts
 Name 	Number 	Description 	
 VFM_INT 	38 	Interrupt line for VFM 	
-
-Firmware
-SoC 	File 	
-None 	None 	
-
-Comments: The VFM manages video frames and their processing, ensuring smooth playback and synchronization. There are no specific firmware files associated with VFM for the A311D and S905X SoC models.
 
 
 ## Workflows and Diagrams
@@ -501,6 +453,7 @@ The following diagrams illustrate how the different components work together in 
 
 This diagram shows the flow of video data through the various components involved in video processing, along with the associated clocks, power domains, and interrupts.
 
+```mermaid
 graph TD
     A[Video Input Stream] -->|Parsed by| B[eparser]
     B -->|Feeds to| C[VPU]
@@ -561,13 +514,15 @@ graph TD
     D -->|Interrupts| AB
     F -->|Interrupts| AC
     E -->|Interrupts| AD
-
+```
 
 ### Simple Hardware Codec Conversion (from Codec A to Codec B)
 
+```mermaid
 graph TD
     A[Video Input (A)] -->|Decodes| B[VPU]
     B -->|Encodes| C[Video Output (B)]
+```
 
 #### Detailed Workflow of Simple Transcoding
 
@@ -588,29 +543,35 @@ Optimizations Using Embedded Features of Meson SoCs- DMA Transfers: Using DMA fo
 - Hardware Acceleration: Leveraging hardware acceleration for decoding and encoding (VPU) speeds up the transcoding process.
 - Intermediate Formats: Using intermediate formats like NV12 optimizes memory usage and simplifies processing.
 
+```mermaid
 graph TD
     A[Video Input Buffer] -->|DMA Transfer| B[eparser]
     B -->|Processing| C[DMA Transfer to VPU]
     C -->|Decoding| D[VPU]
     D -->|DMA Transfer| E[VPU for Encoding]
     E -->|Encoding| F[Video Output Buffer]
+```
 
 ### Hardware Codec Conversion with HW Filters (e.g., resizing, cropping, HDR to SDR)
 
+```mermaid
 graph TD
     A[Video Input (A)] -->|Decodes| B[VPU]
     B -->|Processes| C[GE2D]
     C -->|Encodes| D[Video Output (B)]
     C -->|Filters (Resizing, Cropping, HDR to SDR)| D
+```
 
-### Complex Transcoding with HW Decoding to NV12, Software Filter, Hardware Filter, and HW Encoding
+### Complex Transcod```mermaiding with HW Decoding to NV12, Software Filter, Hardware Filter, and HW Encoding
 
+```mermaid
 graph TD
     A[Video Input (A)] -->|Decodes to NV12| B[VPU]
     B -->|Processes| C[Software Filter]
     C -->|Processes| D[GE2D]
     D -->|Encodes| E[Video Output (B)]
     D -->|HW Filters| E
+```
 
 #### Detailed Workflow of Complex Transcoding
 
@@ -630,6 +591,7 @@ This detailed workflow and diagrams illustrate the complex transcoding process, 
 - VPU Encoding: The VPU encodes the processed video frames into the desired output format (e.g., H.264, H.265).
 - Video Output Buffer: The encoded video content is stored in an output buffer, ready for display or further processing.
 
+```mermaid
 graph TD
     A[Video Input Buffer] -->|DMA Transfer| B[eparser]
     B -->|Processing| C[DMA Transfer to VPU]
@@ -640,3 +602,4 @@ graph TD
     G -->|Processing| H[GE2D]
     H -->|DMA Transfer| I[VPU]
     I -->|Encoding| J[Video Output Buffer]
+```
