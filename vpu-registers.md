@@ -77,8 +77,23 @@
 | VPU_BIT_DEPTH  | [1:0]  | 0: 8-bit<br>1: 10-bit                       | Set bit depth         |
 |                | [31:2] | Reserved                                   | Unused bits           |
 
+### DOS and Parser
 
-### DOS Registers
+#### Instances Offsets
+| **Instance** | **Component** | **Base Address** | **Offset Range** | **Interrupts**         |
+|--------------|---------------|------------------|------------------|------------------------|
+| **1**        | DOS           | 0xC1100000       | 0x0000 - 0x0FFF  | DOS_MBOX_INT1          |
+|              | Parser        | 0xC1103000       | 0x3000 - 0x3FFF  | PARSER_INT1            |
+|              | VPU           | 0xC1106000       | 0x6000 - 0x6FFF  | VPU_INT1               |
+| **2**        | DOS           | 0xC1101000       | 0x1000 - 0x1FFF  | DOS_MBOX_INT2          |
+|              | Parser        | 0xC1104000       | 0x4000 - 0x4FFF  | PARSER_INT2            |
+|              | VPU           | 0xC1107000       | 0x7000 - 0x7FFF  | VPU_INT2               |
+| **3**        | DOS           | 0xC1102000       | 0x2000 - 0x2FFF  | DOS_MBOX_INT3          |
+|              | Parser        | 0xC1105000       | 0x5000 - 0x5FFF  | PARSER_INT3            |
+|              | VPU           | 0xC1108000       | 0x8000 - 0x8FFF  | VPU_INT3               |
+
+
+#### DOS Registers
 
 | Register       | Bits   | Values                                      | Description                   |
 |----------------|--------|---------------------------------------------|-------------------------------|
@@ -94,7 +109,7 @@
 |                | [31:2] | Reserved                                   | Unused bits                   |
 
 
-### Parser Registers
+#### Parser Registers
 
 | Register            | Bits   | Values                                      | Description                   |
 |---------------------|--------|---------------------------------------------|-------------------------------|
