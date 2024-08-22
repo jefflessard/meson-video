@@ -18,6 +18,14 @@ All instances (DOS, Parser, VPU) use the same set of clocks. Each instance does 
 |              | Parser        | 0xC1105000       | 0x5000 - 0x5FFF  | PARSER_INT3            |
 |              | VPU           | 0xC1108000       | 0x8000 - 0x8FFF  | VPU_INT3               |
 
+### Instances Interrupts
+| **Interrupt**    | **Function**                                                                 | **Registers to Check**               | **Values to Check**                  |
+|------------------|------------------------------------------------------------------------------|--------------------------------------|--------------------------------------|
+| DOS_MBOX_INTn    | Handles communication and control signals for DOS instance n.                | DOS_MBOXn_STATUS                     | Check for specific status flags.     |
+| PARSER_INTn      | Manages parsing operations and signals for Parser instance n.                | PARSERn_STATUS                       | Check for parsing completion or errors. |
+| VPU_INTn         | Controls video processing unit operations for VPU instance n.                | VPUn_STATUS                          | Check for processing completion or errors. |
+
+
 ---
 
 ## Clocks
