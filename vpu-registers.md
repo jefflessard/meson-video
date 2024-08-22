@@ -22,7 +22,7 @@ All instances (DOS, Parser, VPU) use the same set of clocks. Each instance does 
 | **Interrupt**    | **Function**                                                                 | **Registers to Check**               | **Values to Check**                  |
 |------------------|------------------------------------------------------------------------------|--------------------------------------|--------------------------------------|
 | DOS_MBOX_INTn    | Handles communication and control signals for DOS instance n.                | DOS_MBOXn_STATUS                     | Check for specific status flags.     |
-| PARSER_INTn      | Manages parsing operations and signals for Parser instance n.                | PARSERn_STATUS                       | Check for parsing completion or errors. |
+| PARSER_INTn      | Manages parsing operations and signals for Parser instance n.                | PARSERn_STATUS<br>PARSERn_ERROR_STATUS                       | Check for parsing completion or errors. |
 | VPU_INTn         | Controls video processing unit operations for VPU instance n.                | VPUn_STATUS                          | Check for processing completion or errors. |
 
 
