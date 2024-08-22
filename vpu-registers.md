@@ -1,46 +1,55 @@
-### Decoder Supported Codecs and Formats
+### Decoder Configuration
 
-| Codec/Format | Register      | Bits   | Values                                      | Description           |
-|--------------|---------------|--------|---------------------------------------------|-----------------------|
-| H.264        | VPU_H264_DEC  | [7:0]  | 0: Start decoding<br>1: Stop decoding<br>2: Reset decoder | H.264 video decoding  |
-|              |               | [31:8] | Reserved                                   | Unused bits           |
-| H.265 (HEVC) | VPU_HEVC_DEC  | [7:0]  | 0: Start decoding<br>1: Stop decoding<br>2: Reset decoder | H.265 video decoding  |
-|              |               | [31:8] | Reserved                                   | Unused bits           |
-| VP9          | VPU_VP9_DEC   | [7:0]  | 0: Start decoding<br>1: Stop decoding<br>2: Reset decoder | VP9 video decoding    |
-|              |               | [31:8] | Reserved                                   | Unused bits           |
-| AV1          | VPU_AV1_DEC   | [7:0]  | 0: Start decoding<br>1: Stop decoding<br>2: Reset decoder | AV1 video decoding    |
-|              |               | [31:8] | Reserved                                   | Unused bits           |
-| VC-1         | VPU_VC1_DEC   | [7:0]  | 0: Start decoding<br>1: Stop decoding<br>2: Reset decoder | VC-1 video decoding   |
-|              |               | [31:8] | Reserved                                   | Unused bits           |
-| MPEG-1/2/4   | VPU_MPEG_DEC  | [7:0]  | 0: Start decoding<br>1: Stop decoding<br>2: Reset decoder | MPEG-1/2/4 video decoding |
-|              |               | [31:8] | Reserved                                   | Unused bits           |
-| RealVideo    | VPU_REAL_DEC  | [7:0]  | 0: Start decoding<br>1: Stop decoding<br>2: Reset decoder | RealVideo decoding    |
-|              |               | [31:8] | Reserved                                   | Unused bits           |
-| MJPEG        | VPU_MJPEG_DEC | [7:0]  | 0: Start decoding<br>1: Stop decoding<br>2: Reset decoder | MJPEG video decoding  |
-|              |               | [31:8] | Reserved                                   | Unused bits           |
-| YUV420       | VPU_YUV_PROC  | [1:0]  | 0: YUV420                                  | YUV420 format processing |
-|              |               | [31:2] | Reserved                                   | Unused bits           |
-| YUV422       | VPU_YUV_PROC  | [3:2]  | 0: YUV422                                  | YUV422 format processing |
-|              |               | [31:4] | Reserved                                   | Unused bits           |
-| YUV444       | VPU_YUV_PROC  | [5:4]  | 0: YUV444                                  | YUV444 format processing |
-|              |               | [31:6] | Reserved                                   | Unused bits           |
-| NV12         | VPU_NV12_PROC | [1:0]  | 0: NV12                                    | NV12 format processing |
-|              |               | [31:2] | Reserved                                   | Unused bits           |
-| NV21         | VPU_NV21_PROC | [3:2]  | 0: NV21                                    | NV21 format processing |
-|              |               | [31:4] | Reserved                                   | Unused bits           |
-| JPEG         | VPU_JPEG_DEC  | [7:0]  | 0: Start decoding<br>1: Stop decoding<br>2: Reset decoder | JPEG image decoding   |
-|              |               | [31:8] | Reserved                                   | Unused bits           |
+#### Decoder Supported Input Codecs
+| **Codec**       | **Register**     | **Bits** | **Values**                                      | **Description**           | **Clocks**                |
+|-----------------|------------------|----------|-------------------------------------------------|---------------------------|---------------------------|
+| H.264           | VPU_H264_DEC     | [7:0]    | 0: Start decoding<br>1: Stop decoding<br>2: Reset decoder | H.264 video decoding      | HCODEC_CLK<br>VDEC_CLK    |
+| H.265 (HEVC)    | VPU_HEVC_DEC     | [7:0]    | 0: Start decoding<br>1: Stop decoding<br>2: Reset decoder | H.265 video decoding      | HEVC_CLK<br>VDEC_CLK      |
+| VP9             | VPU_VP9_DEC      | [7:0]    | 0: Start decoding<br>1: Stop decoding<br>2: Reset decoder | VP9 video decoding        | VDEC_CLK                  |
+| AV1             | VPU_AV1_DEC      | [7:0]    | 0: Start decoding<br>1: Stop decoding<br>2: Reset decoder | AV1 video decoding        | VDEC_CLK                  |
+| VC-1            | VPU_VC1_DEC      | [7:0]    | 0: Start decoding<br>1: Stop decoding<br>2: Reset decoder | VC-1 video decoding       | HCODEC_CLK<br>VDEC_CLK    |
+| MPEG-1/2/4      | VPU_MPEG_DEC     | [7:0]    | 0: Start decoding<br>1: Stop decoding<br>2: Reset decoder | MPEG-1/2/4 video decoding | HCODEC_CLK<br>VDEC_CLK    |
+| RealVideo       | VPU_REAL_DEC     | [7:0]    | 0: Start decoding<br>1: Stop decoding<br>2: Reset decoder | RealVideo decoding        | VDEC_CLK                  |
+| MJPEG           | VPU_MJPEG_DEC    | [7:0]    | 0: Start decoding<br>1: Stop decoding<br>2: Reset decoder | MJPEG video decoding      | VDEC_CLK                  |
+| JPEG            | VPU_JPEG_DEC     | [7:0]    | 0: Start decoding<br>1: Stop decoding<br>2: Reset decoder | JPEG image decoding       | VDEC_CLK                  |
+
+#### Decoder Supported Output Formats
+| **Format**      | **Register**     | **Bits** | **Values**                                      | **Description**           |
+|-----------------|------------------|----------|-------------------------------------------------|---------------------------|
+| YUV420          | VPU_YUV_PROC     | [1:0]    | 0: YUV420                                       | YUV420 format processing  |
+| YUV422          | VPU_YUV_PROC     | [3:2]    | 0: YUV422                                       | YUV422 format processing  |
+| YUV444          | VPU_YUV_PROC     | [5:4]    | 0: YUV444                                       | YUV444 format processing  |
+| NV12            | VPU_NV12_PROC    | [1:0]    | 0: NV12                                         | NV12 format processing    |
+| NV21            | VPU_NV21_PROC    | [3:2]    | 0: NV21                                         | NV21 format processing    |
 
 
-### Encoder Supported Codecs and Formats
+### Encoder Configuration
 
-| Codec/Format   | Register      | Bits   | Values                                      | Description           |
-|----------------|---------------|--------|---------------------------------------------|-----------------------|
-| H.264 Encoder  | VPU_H264_ENC  | [7:0]  | 0: Start encoding<br>1: Stop encoding<br>2: Reset encoder | H.264 video encoding  |
-|                |               | [31:8] | Reserved                                   | Unused bits           |
-| JPEG Encoder   | VPU_JPEG_ENC  | [7:0]  | 0: Start encoding<br>1: Stop encoding<br>2: Reset encoder | JPEG image encoding   |
-|                |               | [31:8] | Reserved                                   | Unused bits           |
+#### Encoder Supported Input Formats
+| **Format**      | **Register**     | **Bits** | **Values**                                      | **Description**           |
+|-----------------|------------------|----------|-------------------------------------------------|---------------------------|
+| YUV420          | VPU_VIU_VENC_CTRL| [1:0]    | 0: YUV420                                       | YUV420 format processing  |
+| YUV422          | VPU_VIU_VENC_CTRL| [3:2]    | 0: YUV422                                       | YUV422 format processing  |
+| YUV444          | VPU_VIU_VENC_CTRL| [5:4]    | 0: YUV444                                       | YUV444 format processing  |
+| NV12            | VPU_VIU_VENC_CTRL| [1:0]    | 0: NV12                                         | NV12 format processing    |
+| NV21            | VPU_VIU_VENC_CTRL| [3:2]    | 0: NV21                                         | NV21 format processing    |
 
+#### Encoder Supported Output Codecs
+| **Codec**       | **Register**     | **Bits** | **Values**                                      | **Description**           | **Clocks**                |
+|-----------------|------------------|----------|-------------------------------------------------|---------------------------|---------------------------|
+| H.264 Encoder   | VPU_H264_ENC     | [7:0]    | 0: Start encoding<br>1: Stop encoding<br>2: Reset encoder | H.264 video encoding      | VENC_CLK<br>HCODEC_CLK    |
+| JPEG Encoder    | VPU_JPEG_ENC     | [7:0]    | 0: Start encoding<br>1: Stop encoding<br>2: Reset encoder | JPEG image encoding       | VENC_CLK                  |
+| HEVC Encoder (A311D only) | VPU_HEVC_ENC | [7:0] | 0: Start encoding<br>1: Stop encoding<br>2: Reset encoder | HEVC video encoding       | VENC_CLK<br>HEVC_CLK      |
+
+
+### Clocks Description
+| **Clock**       | **Description**                                                                 | **Recommended Configuration**                                                                 |
+|-----------------|---------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------|
+| HCODEC_CLK      | High-performance video codec clock.                                             | Enable for H.264, MPEG-1/2/4, VC-1 decoding.                                                |
+| HEVC_CLK        | HEVC (H.265) codec clock.                                                       | Enable for HEVC decoding and encoding (A311D only).                                         |
+| VDEC_CLK        | General video decoder clock.                                                    | Enable for all decoding operations.                                                         |
+| VPU_CLK         | Video processing unit clock.                                                    | Enable for all pixel format processing (YUV420, YUV422, YUV444, NV12, NV21).                |
+| VENC_CLK        | Video encoder clock.                                                            | Enable for all encoding operations.                                                         |
 
 
 ### VPU Configuration Registers
