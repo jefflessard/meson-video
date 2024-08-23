@@ -176,3 +176,43 @@ All instances (DOS, Parser, VPU) use the same set of clocks. Each instance does 
 |                     | [31:8] | Reserved                                   | Unused bits                   |
 | PARSER_ERROR_STATUS      | [0:7]    | 0: No error<br>1: Buffer overflow<br>2: Timeout | Parsing error status      |
 |                          | [31:8]   | Reserved                                        | Unused bits               |
+
+
+## Registers Offsets
+
+*TO BE REVIEWED*
+
+| **Register**           | **Device**       | **Offset**   |
+|------------------------|------------------|--------------|
+| DMA_CTRL               | DMA              | 0x0400       |
+| DMA_STATUS             | DMA              | 0x0410       |
+| DOS_MBOX1_STATUS       | DOS              | 0x0200       |
+| DOS_MBOX2_STATUS       | DOS              | 0x0210       |
+| DOS_MBOX3_STATUS       | DOS              | 0x0220       |
+| PARSER_STATUS          | Parser           | 0x0100       |
+| PARSER_ERROR_STATUS    | Parser           | 0x0110       |
+| RDMA_CTRL              | RDMA             | 0x0500       |
+| RDMA_STATUS            | RDMA             | 0x0510       |
+| VPU_AV1_DEC            | VPU              | 0x0760       |
+| VPU_CVBS_CTRL          | VPU              | 0x0320       |
+| VPU_DEC_OUT_CTRL       | VPU              | 0x0020       |
+| VPU_ENC_IN_CTRL        | VPU              | 0x0030       |
+| VPU_HEVC_DEC           | VPU              | 0x0010       |
+| VPU_HEVC_ENC           | VPU              | 0x0050       |
+| VPU_H264_DEC           | VPU              | 0x0000       |
+| VPU_H264_ENC           | VPU              | 0x0040       |
+| VPU_HDMI_CTRL          | VPU              | 0x0310       |
+| VPU_HDMI_IN_CTRL       | VPU              | 0x0340       |
+| VPU_JPEG_DEC           | VPU              | 0x0740       |
+| VPU_JPEG_ENC           | VPU              | 0x0060       |
+| VPU_MJPEG_DEC          | VPU              | 0x07A0       |
+| VPU_MPEG_DEC           | VPU              | 0x0780       |
+| VPU_NV12_PROC          | VPU              | 0x0710       |
+| VPU_NV21_PROC          | VPU              | 0x0720       |
+| VPU_REAL_DEC           | VPU              | 0x0790       |
+| VPU_TVIN_CTRL          | VPU              | 0x0330       |
+| VPU_VC1_DEC            | VPU              | 0x0770       |
+| VPU_VIU_VENC_CTRL      | VPU              | 0x0730       |
+| VPU_VP9_DEC            | VPU              | 0x0750       |
+| VPU_YUV_PROC           | VPU              | 0x0700       |
+| VPU_CTRL               | VPU              | 0x0300       |
