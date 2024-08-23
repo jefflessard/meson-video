@@ -1,34 +1,19 @@
 # Amlogic Meson SoCs Video Codec
 
-## Instances Offsets
+## Components Overview
+The SoC can handle multiple concurrent video encoding and decoding operations. Specifically, it can encode and decode up to three videos concurrently, leveraging the three independent VPU, DOS, Parser, VDEC, and VENC instances.
 
-The SoC can handle multiple concurrent video encoding and decoding operations. Specifically, it can encode and decode up to three videos concurrently, leveraging the three independent VPU, DOS and parser instances.
+Each instance (DOS, Parser, VPU, VDEC, VENC) uses the same set of clocks. These instances do not have their own dedicated clocks but share the common clocks configured for the SoC.
 
-All instances (DOS, Parser, VPU) use the same set of clocks. Each instance does not have its own dedicated clock but shares the common clocks configured for the SoC.
+### Power Domains, Resets and Clocks
+| Component       | Power Domain       | Reset Control      | Clock(s)          | Description                                                                 |
+|-----------------|--------------------|--------------------|-------------------|-----------------------------------------------------------------------------|
+| VPU (Video Processing Unit) | VPU Power Domain    | VPU_RESET          | VPU_CLK           | Manages video processing tasks, including scaling, color space conversion, and blending. |
+| DOS (Decoder Output Stage)  | DOS Power Domain    | DOS_RESET          | DOS_CLK, VDEC_CLK, HEVC_CLK, HCODEC_CLK | Handles video decoding tasks for various codecs, including MPEG, H.264, HEVC, and VP9. |
+| Parser          | DOS Power Domain   | DOS_PARSER_RESET   | PARSER_CLK        | Processes bitstreams before decoding, supporting various video formats.     |
+| Encoder         | Encoder Power Domain | ENCODER_RESET      | VENC_CLK          | Manages video encoding tasks, converting raw video data into compressed formats. |
 
-| **Instance** | **Component** | **Base Address** | **Offset Range** | **Interrupts**         |
-|--------------|---------------|------------------|------------------|------------------------|
-| **1**        | DOS           | 0xC1100000       | 0x0000 - 0x0FFF  | DOS_MBOX_INT1          |
-|              | Parser        | 0xC1103000       | 0x3000 - 0x3FFF  | PARSER_INT1            |
-|              | VPU           | 0xC1106000       | 0x6000 - 0x6FFF  | VPU_INT1               |
-| **2**        | DOS           | 0xC1101000       | 0x1000 - 0x1FFF  | DOS_MBOX_INT2          |
-|              | Parser        | 0xC1104000       | 0x4000 - 0x4FFF  | PARSER_INT2            |
-|              | VPU           | 0xC1107000       | 0x7000 - 0x7FFF  | VPU_INT2               |
-| **3**        | DOS           | 0xC1102000       | 0x2000 - 0x2FFF  | DOS_MBOX_INT3          |
-|              | Parser        | 0xC1105000       | 0x5000 - 0x5FFF  | PARSER_INT3            |
-|              | VPU           | 0xC1108000       | 0x8000 - 0x8FFF  | VPU_INT3               |
-
-### Instances Interrupts
-| **Interrupt**    | **Function**                                                                 | **Registers to Check**               | **Values to Check**                  |
-|------------------|------------------------------------------------------------------------------|--------------------------------------|--------------------------------------|
-| DOS_MBOX_INTn    | Handles communication and control signals for DOS instance n.                | DOS_MBOXn_STATUS                     | Check for specific status flags.     |
-| PARSER_INTn      | Manages parsing operations and signals for Parser instance n.                | PARSERn_STATUS<br>PARSERn_ERROR_STATUS                       | Check for parsing completion or errors. |
-| VPU_INTn         | Controls video processing unit operations for VPU instance n.                | VPUn_STATUS                          | Check for processing completion or errors. |
-
-
----
-
-## Clocks
+### Clocks Description
 | **Clock**       | **Description**                                                                 | **Recommended Configuration**                                                                 |
 |-----------------|---------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------|
 | HCODEC_CLK      | High-performance video codec clock.                                             | Enable for H.264, MPEG-1/2/4, VC-1 decoding.                                                |
@@ -38,6 +23,38 @@ All instances (DOS, Parser, VPU) use the same set of clocks. Each instance does 
 | VENC_CLK        | Video encoder clock.                                                            | Enable for all encoding operations.                                                         |
 | DOS_CLK         | Decoder Output Stage clock.                                                     | Enable for all DOS operations.                                                              |
 | PARSER_CLK      | Parser clock.                                                                   | Enable for all parsing operations.                                                          |
+
+### Instances Offsets
+
+| **Instance** | **Component** | **Base Address** | **Offset Range** | **Interrupts**         |
+|--------------|---------------|------------------|------------------|------------------------|
+| **1**        | DOS           | 0xC1100000       | 0x0000 - 0x0FFF  | DOS_MBOX_INT1          |
+|              | Parser        | 0xC1103000       | 0x3000 - 0x3FFF  | PARSER_INT1            |
+|              | VPU           | 0xC1106000       | 0x6000 - 0x6FFF  | VPU_INT1               |
+|              | VDEC          | 0xC1109000       | 0x9000 - 0x9FFF  | VDEC_INT1              |
+|              | VENC          | 0xC110A000       | 0xA000 - 0xAFFF  | VENC_INT1              |
+| **2**        | DOS           | 0xC1101000       | 0x1000 - 0x1FFF  | DOS_MBOX_INT2          |
+|              | Parser        | 0xC1104000       | 0x4000 - 0x4FFF  | PARSER_INT2            |
+|              | VPU           | 0xC1107000       | 0x7000 - 0x7FFF  | VPU_INT2               |
+|              | VDEC          | 0xC110B000       | 0xB000 - 0xBFFF  | VDEC_INT2              |
+|              | VENC          | 0xC110C000       | 0xC000 - 0xCFFF  | VENC_INT2              |
+| **3**        | DOS           | 0xC1102000       | 0x2000 - 0x2FFF  | DOS_MBOX_INT3          |
+|              | Parser        | 0xC1105000       | 0x5000 - 0x5FFF  | PARSER_INT3            |
+|              | VPU           | 0xC1108000       | 0x8000 - 0x8FFF  | VPU_INT3               |
+|              | VDEC          | 0xC110D000       | 0xD000 - 0xDFFF  | VDEC_INT3              |
+|              | VENC          | 0xC110E000       | 0xE000 - 0xEFFF  | VENC_INT3              |
+
+
+### Instances Interrupts
+
+| **Interrupt**    | **Description**                                                              | **Registers to Check**               | **Values to Check**                  |
+|------------------|------------------------------------------------------------------------------|--------------------------------------|--------------------------------------|
+| DOS_MBOX_INTn    | Handles communication and control signals for DOS instance n.                | DOS_MBOXn_STATUS                     | Check for specific status flags.     |
+| PARSER_INTn      | Manages parsing operations and signals for Parser instance n.                | PARSERn_STATUS<br>PARSERn_ERROR_STATUS | Check for parsing completion or errors. |
+| VPU_INTn         | Controls video processing unit operations for VPU instance n.                | VPUn_STATUS                          | Check for processing completion or errors. |
+| VDEC_INTn        | Manages video decoding operations for VDEC instance n.                       | VDECn_STATUS                         | Check for decoding completion or errors. |
+| VENC_INTn        | Manages video encoding operations for VENC instance n.                       | VENCn_STATUS                         | Check for encoding completion or errors. |
+
 
 ---
 
