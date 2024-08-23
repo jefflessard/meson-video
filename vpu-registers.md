@@ -149,6 +149,8 @@ All instances (DOS, Parser, VPU) use the same set of clocks. Each instance does 
 |                | [31:2] | Reserved                                   | Unused bits                   |
 | DOS_INT_STATUS | [1:0]  | 0: No interrupt<br>1: Interrupt pending     | DOS interrupt status          |
 |                | [31:2] | Reserved                                   | Unused bits                   |
+| DOS_MBOXn_STATUS   | [0:7]    | 0: Idle<br>1: Busy<br>2: Error                  | DOS mailbox status        |
+|                    | [31:8]   | Reserved                                        | Unused bits               |
 
 ---
 
@@ -158,8 +160,8 @@ All instances (DOS, Parser, VPU) use the same set of clocks. Each instance does 
 |---------------------|--------|---------------------------------------------|-------------------------------|
 | PARSER_CTRL         | [1:0]  | 0: Enable parser<br>1: Disable parser       | Control parser operations     |
 |                     | [31:2] | Reserved                                   | Unused bits                   |
-| PARSER_STATUS       | [1:0]  | 0: Idle<br>1: Busy                          | Parser status                 |
-|                     | [31:2] | Reserved                                   | Unused bits                   |
+| PARSER_STATUS      | [0:15]   | 0: Idle<br>1: Busy<br>2: Error                  | Parsing status            |
+|                    | [31:16]  | Reserved                                        | Unused bits               |
 | PARSER_INT_EN       | [1:0]  | 0: Disable interrupts<br>1: Enable interrupts | Parser interrupt enable       |
 |                     | [31:2] | Reserved                                   | Unused bits                   |
 | PARSER_INT_STATUS   | [1:0]  | 0: No interrupt<br>1: Interrupt pending     | Parser interrupt status       |
@@ -172,5 +174,5 @@ All instances (DOS, Parser, VPU) use the same set of clocks. Each instance does 
 |                     | [31:2] | Reserved                                   | Unused bits                   |
 | PARSER_ENVELOPE     | [7:0]  | 0: Disable envelope<br>1: Enable envelope   | Parser envelope control       |
 |                     | [31:8] | Reserved                                   | Unused bits                   |
-| PARSER_ERROR_STATUS | [7:0]  | 0: No error<br>1: Bitstream error<br>2: Syntax error<br>3: Buffer overflow | Parser error status           |
-|                     | [31:8] | Reserved                                   | Unused bits                   |
+| PARSER_ERROR_STATUS      | [0:7]    | 0: No error<br>1: Buffer overflow<br>2: Timeout | Parsing error status      |
+|                          | [31:8]   | Reserved                                        | Unused bits               |
