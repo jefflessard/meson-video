@@ -45,24 +45,21 @@ Each instance (DOS, Parser, VPU, VDEC, VENC) uses the same set of clocks. These 
 |              | VENC          | 0xC110E000       | 0xE000 - 0xEFFF  | VENC_INT3              |
 
 
-### Instances
-
-| Interrupt              | Value | Comments                          | Function Description                                                                 |
-|------------------------|-------|-----------------------------------|--------------------------------------------------------------------------------------|
-| INT_DOS_MAILBOX_0      | 75    |                                   | Used for handling commands and status updates between the CPU and the DOS hardware. This interrupt ensures that the CPU is aware of the current state and any changes in the DOS hardware. |
-| INT_DOS_MAILBOX_1      | 76    |                                   | Manages data flow and buffer control within the DOS. This interrupt is crucial for maintaining the integrity and efficiency of data processing by controlling the flow of data and managing buffer states. |
-| INT_DOS_MAILBOX_2      | 77    |                                   | Handles error reporting and recovery mechanisms in the DOS. This interrupt is responsible for alerting the CPU to any errors in the DOS hardware and initiating recovery procedures to maintain system stability. |
-| INT_VIU_VSYNC          | 35    |                                   | Triggers on vertical synchronization signal for video input unit (VIU). This interrupt is essential for synchronizing video frames to ensure smooth playback. |
-| INT_DEMUX              | 55    |                                   | Manages interrupts from the demultiplexer, which separates multiplexed data streams. This interrupt helps in processing and routing different data streams efficiently. |
-| INT_DEMUX_1            | 37    |                                   | Manages interrupts from the first demultiplexer unit. This interrupt is used for handling specific data streams processed by the first demultiplexer. |
-| INT_DEMUX_2            | 85    |                                   | Manages interrupts from the second demultiplexer unit. This interrupt is used for handling specific data streams processed by the second demultiplexer. |
-| INT_ASYNC_FIFO_FILL    | 50    |                                   | Indicates that the asynchronous FIFO buffer is filled. This interrupt ensures that the CPU can process the data in the FIFO buffer before it overflows. |
-| INT_ASYNC_FIFO_FLUSH   | 51    |                                   | Indicates that the asynchronous FIFO buffer has been flushed. This interrupt ensures that the CPU is aware that the buffer is empty and ready for new data. |
-| INT_ASYNC_FIFO2_FILL   | 56    |                                   | Indicates that the second asynchronous FIFO buffer is filled. This interrupt ensures that the CPU can process the data in the second FIFO buffer before it overflows. |
-| INT_ASYNC_FIFO2_FLUSH  | 57    |                                   | Indicates that the second asynchronous FIFO buffer has been flushed. This interrupt ensures that the CPU is aware that the second buffer is empty and ready for new data. |
-| INT_PARSER             | 64    |                                   | Signals the CPU when the parser has processed a data packet or encountered an error. This interrupt ensures that the CPU can promptly handle parsed data or address any issues that arise during parsing. |
-| INT_VDEC               | 76    | same as INT_DOS_MAILBOX_1         | Manages interrupts from the video decoder, same as INT_DOS_MAILBOX_1. This interrupt is crucial for handling video decoding tasks efficiently. |
-| INT_VDEC2              | 75    | same as INT_DOS_MAILBOX_0         | Manages interrupts from the second video decoder, same as INT_DOS_MAILBOX_0. This interrupt is crucial for handling video decoding tasks efficiently. |
+### Interrupts 
+| Interrupt              | Value | Function Description                                                                 |
+|------------------------|-------|--------------------------------------------------------------------------------------|
+| INT_DOS_MAILBOX_0      | 75    | Used for handling commands and status updates between the CPU and the DOS hardware. This interrupt ensures that the CPU is aware of the current state and any changes in the DOS hardware. Aliased as INT_VDEC2. |
+| INT_DOS_MAILBOX_1      | 76    | Manages data flow and buffer control within the DOS. This interrupt is crucial for maintaining the integrity and efficiency of data processing by controlling the flow of data and managing buffer states. Aliased as INT_VDEC. |
+| INT_DOS_MAILBOX_2      | 77    | Handles error reporting and recovery mechanisms in the DOS. This interrupt is responsible for alerting the CPU to any errors in the DOS hardware and initiating recovery procedures to maintain system stability. |
+| INT_VIU_VSYNC          | 35    | Triggers on vertical synchronization signal for video input unit (VIU). This interrupt is essential for synchronizing video frames to ensure smooth playback. |
+| INT_DEMUX              | 55    | Manages interrupts from the demultiplexer, which separates multiplexed data streams. This interrupt helps in processing and routing different data streams efficiently. |
+| INT_DEMUX_1            | 37    | Manages interrupts from the first demultiplexer unit. This interrupt is used for handling specific data streams processed by the first demultiplexer. |
+| INT_DEMUX_2            | 85    | Manages interrupts from the second demultiplexer unit. This interrupt is used for handling specific data streams processed by the second demultiplexer. |
+| INT_ASYNC_FIFO_FILL    | 50    | Indicates that the asynchronous FIFO buffer is filled. This interrupt ensures that the CPU can process the data in the FIFO buffer before it overflows. |
+| INT_ASYNC_FIFO_FLUSH   | 51    | Indicates that the asynchronous FIFO buffer has been flushed. This interrupt ensures that the CPU is aware that the buffer is empty and ready for new data. |
+| INT_ASYNC_FIFO2_FILL   | 56    | Indicates that the second asynchronous FIFO buffer is filled. This interrupt ensures that the CPU can process the data in the second FIFO buffer before it overflows. |
+| INT_ASYNC_FIFO2_FLUSH  | 57    | Indicates that the second asynchronous FIFO buffer has been flushed. This interrupt ensures that the CPU is aware that the second buffer is empty and ready for new data. |
+| INT_PARSER             | 64    | Signals the CPU when the parser has processed a data packet or encountered an error. This interrupt ensures that the CPU can promptly handle parsed data or address any issues that arise during parsing. |
 
 
 ---
