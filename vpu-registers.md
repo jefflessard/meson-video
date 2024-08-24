@@ -47,13 +47,12 @@ Each instance (DOS, Parser, VPU, VDEC, VENC) uses the same set of clocks. These 
 
 ### Instances Interrupts
 
-| **Interrupt**    | **Description**                                                              | **Registers to Check**               | **Values to Check**                  |
-|------------------|------------------------------------------------------------------------------|--------------------------------------|--------------------------------------|
-| DOS_MBOX_INTn    | Handles communication and control signals for DOS instance n.                | DOS_MBOXn_STATUS                     | Check for specific status flags.     |
-| PARSER_INTn      | Manages parsing operations and signals for Parser instance n.                | PARSERn_STATUS<br>PARSERn_ERROR_STATUS | Check for parsing completion or errors. |
-| VPU_INTn         | Controls video processing unit operations for VPU instance n.                | VPUn_STATUS                          | Check for processing completion or errors. |
-| VDEC_INTn        | Manages video decoding operations for VDEC instance n.                       | VDECn_STATUS                         | Check for decoding completion or errors. |
-| VENC_INTn        | Manages video encoding operations for VENC instance n.                       | VENCn_STATUS                         | Check for encoding completion or errors. |
+| **Interrupt**      | **Number** | **Description**                                      |
+|--------------------|------------|------------------------------------------------------|
+| **DOS_MBOX_INT1**  | 75         | Used for handling commands and status updates between the CPU and the DOS hardware.                              |
+| **DOS_MBOX_INT2**  | 76         | Manages data flow and buffer control within the DOS.                              |
+| **DOS_MBOX_INT3**  | 77         | Handles error reporting and recovery mechanisms in the DOS.                              |
+| **PARSER_INT**     | 64         | Signals the CPU when the parser has processed a data packet or encountered an error.
 
 
 ---
