@@ -1,3 +1,87 @@
+### Table III.16.1 S905X Memory Map
+
+| Start       | End         | Region       | CCI/NIC Arbitor |
+|-------------|-------------|--------------|-----------------|
+| 0x00000000  | 0xBFFFFFFF  | DDR          | DDR             |
+| 0xC0000000  | 0xC01FFFFF  | USB          | CAPB3           |
+| 0xC0200000  | 0xC03FFFFF  | DAP          |                 |
+| 0xC0400000  | 0xC07FFFFF  | CSSYS        |                 |
+| 0xC0800000  | 0xC08043FF  |              |                 |
+| 0xC0804400  | 0xC08044FF  | RESET        |                 |
+| 0xC0804500  | 0xC08047FF  |              |                 |
+| 0xC0804800  | 0xC08048FF  | VDIN         |                 |
+| 0xC0804900  | 0xC08053FF  |              |                 |
+| 0xC0805400  | 0xC08054FF  | AIU          |                 |
+| 0xC0805500  | 0xC08057FF  |              |                 |
+| 0xC0805800  | 0xC08058FF  | STB          |                 |
+| 0xC0805900  | 0xC0807BFF  |              |                 |
+| 0xC0807C00  | 0xC0807CFF  | ASSIST       |                 |
+| 0xC0807D00  | 0xC08083FF  |              |                 |
+| 0xC0808400  | 0xC08084FF  | PERIPHS      |                 |
+| 0xC0808500  | 0xC0808BFF  |              |                 |
+| 0xC0808C00  | 0xC0808CFF  | PERIPHS      |                 |
+| 0xC0808D00  | 0xC08097FF  |              |                 |
+| 0xC0809800  | 0xC08098FF  | ISA          |                 |
+| 0xC0809900  | 0xC080BFFF  |              |                 |
+| 0xC080A000  | 0xC080A0FF  | AUDIN        |                 |
+| 0xC080A100  | 0xC080A3FF  |              |                 |
+| 0xC080A400  | 0xC080A4FF  | PARSER       |                 |
+| 0xC080A500  | 0xC12FFFFF  |              |                 |
+| 0xC1300000  | 0xC13FFFFF  | GPV          | GPV             |
+| 0xC1400000  | 0xC42FFFFF  |              |                 |
+| 0xC4300000  | 0xC4307FFF  | GIC          | GIC             |
+| 0xC4308FFF  | 0xC7FFFFFF  |              |                 |
+| 0xC8000000  | 0xC8013FFF  | AHB SRAM     | SEC AHB         |
+| 0xC8014000  | 0xC80FFFFF  |              |                 |
+| 0xC8100000  | 0xC81FFFFF  | RTI          |                 |
+| 0xC8200000  | 0xC881FFFF  |              |                 |
+| 0xC8820000  | 0xC882FFFF  | DOS          |                 |
+| 0xC8832000  | 0xC8833FFF  | ACODEC       |                 |
+| 0xC8834000  | 0xC8835FFF  | PERIPHS      |                 |
+| 0xC8836000  | 0xC8837FFF  | DDR TOP      |                 |
+| 0xC8838000  | 0xC8839FFF  | DMC          |                 |
+| 0xC883A000  | 0xC883BFFF  | HDMITX       |                 |
+| 0xC883C000  | 0xC883DFFF  | HIU          |                 |
+| 0xC883E000  | 0xC8FFFFFF  |              |                 |
+| 0xC9000000  | 0xC90FFFFF  | USB0         |                 |
+| 0xC9100000  | 0xC91FFFFF  | USB1         |                 |
+| 0xC9200000  | 0xC940FFFF  |              |                 |
+| 0xC9410000  | 0xC941FFFF  | ETHERNET     |                 |
+| 0xCC000000  | 0xCFFFFFFF  | SPI          |                 |
+| 0xD0000000  | 0xD0041FFF  | CAPB3        |                 |
+| 0xD0042000  | 0xD0043FFF  | PDM          |                 |
+| 0xD0044000  | 0xD00440FF  | HDCP22       |                 |
+| 0xD0044100  | 0xD0047FFF  |              |                 |
+| 0xD0048000  | 0xD004FFFF  | BT656        |                 |
+| 0xD0050000  | 0xD005FFFF  |              |                 |
+| 0xD0060000  | 0xD006FFFF  |              |                 |
+| 0xD0070000  | 0xD0071FFF  | SD_EMMC_A    |                 |
+| 0xD0072000  | 0xD0073FFF  | SD_EMMC_B    |                 |
+| 0xD0074000  | 0xD0075FFF  | SD_EMMC_C    |                 |
+| 0xD0076000  | 0xD00BFFFF  |              |                 |
+| 0xD00C0000  | 0xD00FFFFF  | MALI APB     |                 |
+| 0xD0100000  | 0xD013FFFF  | VPU          | VAPB3           |
+| 0xD0150000  | 0xD015FFFF  |              |                 |
+| 0xD0160000  | 0xD016FFFF  | GE2D         |                 |
+| 0xD0170000  | 0xD01FFFFF  |              |                 |
+| 0xD0200000  | 0xD8FFFFFF  |              |                 |
+| 0xD9000000  | 0xD9013FFF  | AHB SRAM     | SEC AHB         |
+| 0xD9014000  | 0xD903FFFF  |              |                 |
+| 0xD9040000  | 0xD907FFFF  | BOOT ROM     |                 |
+| 0xD9080000  | 0xDA0FFFFF  |              |                 |
+| 0xDA100000  | 0xDA1FFFFF  | RTI          |                 |
+| 0xDA200000  | 0xDA81FFFF  |              |                 |
+| 0xDA820000  | 0xDA82FFFF  | DOS          |                 |
+| 0xDA830000  | 0xDA831FFF  | EFUSE        |                 |
+| 0xDA832000  | 0xDA833FFF  | ACODEC       |                 |
+| 0xDA834000  | 0xDA835FFF  | PERIPHS      |                 |
+| 0xDA836000  | 0xDA837FFF  | DDR TOP      |                 |
+| 0xDA838000  | 0xDA839FFF  | DMC          |                 |
+| 0xDA83A000  | 0xDA83BFFF  | HDMITX       |                 |
+| 0xDA83C000  | 0xDA83DFFF  | HIU          |                 |
+| 0xDA83E000  | 0xEFFFFFFF  |              |                 |
+
+
 ### Table III.21.2 EE Clock
  
  | Conditionals | name | destination | gate | N | sel |
