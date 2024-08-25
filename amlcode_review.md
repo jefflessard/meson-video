@@ -1,5 +1,42 @@
 # Findings from amlogic code
 
+## Hardware Revision IDs
+| CPU ID Macro                  | Value | Note                                                                 |
+|-------------------------------|-------|----------------------------------------------------------------------|
+| `MESON_CPU_MAJOR_ID_M6`       | `0x16`|                                                                      |
+| `MESON_CPU_MAJOR_ID_M6TV`     | `0x17`|                                                                      |
+| `MESON_CPU_MAJOR_ID_M6TVL`    | `0x18`|                                                                      |
+| `MESON_CPU_MAJOR_ID_M8`       | `0x19`|                                                                      |
+| `MESON_CPU_MAJOR_ID_M8M2`     | `0x1D`| Readback value same as M8 (0x19), changed to 0x1D in software        |
+| `MESON_CPU_MAJOR_ID_MTVD`     | `0x1A`|                                                                      |
+| `MESON_CPU_MAJOR_ID_M8B`      | `0x1B`|                                                                      |
+| `MESON_CPU_MAJOR_ID_MG9TV`    | `0x1C`|                                                                      |
+| `MESON_CPU_MAJOR_ID_GXBB`     | `0x1F`|                                                                      |
+| `MESON_CPU_MAJOR_ID_GXTVBB`   | `0x20`|                                                                      |
+| `MESON_CPU_MAJOR_ID_GXL`      | `0x21`|                                                                      |
+| `MESON_CPU_MAJOR_ID_GXM`      | `0x22`|                                                                      |
+| `MESON_CPU_MAJOR_ID_TXL`      | `0x23`|                                                                      |
+| `MESON_CPU_MAJOR_ID_TXLX`     | `0x24`|                                                                      |
+| `MESON_CPU_MAJOR_ID_AXG`      | `0x25`|                                                                      |
+| `MESON_CPU_MAJOR_ID_GXLX`     | `0x26`|                                                                      |
+| `MESON_CPU_MAJOR_ID_TXHD`     | `0x27`|                                                                      |
+| `MESON_CPU_MAJOR_ID_G12A`     | `0x28`|                                                                      |
+| `MESON_CPU_MAJOR_ID_G12B`     | `0x29`|                                                                      |
+| `MESON_CPU_MAJOR_ID_SM1`      | `0x2B`|                                                                      |
+| `MESON_CPU_MAJOR_ID_TL1`      | `0x2E`|                                                                      |
+| `MESON_CPU_MAJOR_ID_TM2`      | `0x2F`|                                                                      |
+| `MESON_CPU_MAJOR_ID_C1`       | `0x30`|                                                                      |
+| `MESON_CPU_MAJOR_ID_SC2`      | `0x32`|                                                                      |
+| `MESON_CPU_MAJOR_ID_T5`       | `0x34`|                                                                      |
+| `MESON_CPU_MAJOR_ID_T5D`      | `0x35`|                                                                      |
+| `MESON_CPU_MAJOR_ID_T7`       | `0x36`|                                                                      |
+| `MESON_CPU_MAJOR_ID_S4`       | `0x37`|                                                                      |
+| `MESON_CPU_MAJOR_ID_T3`       | `0x38`|                                                                      |
+| `MESON_CPU_MAJOR_ID_S4D`      | `0x3a`|                                                                      |
+| `MESON_CPU_MAJOR_ID_T5W`      | `0x3b`|                                                                      |
+| `MESON_CPU_MAJOR_ID_UNKNOWN`  | `0x3c`|                                                                      |
+
+
 ## Register macro to address block mapping
 
 | Macro                | IO BUS       | CODECIO BASE       | Special Cases                                                                 |
