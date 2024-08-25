@@ -1,9 +1,6 @@
 # Amlogic Meson SoCs Video Codec
 
 ## Components Overview
-The SoC can handle multiple concurrent video encoding and decoding operations. Specifically, it can encode and decode up to three videos concurrently, leveraging the three independent VPU, DOS, Parser, VDEC, and VENC instances.
-
-Each instance (DOS, Parser, VPU, VDEC, VENC) uses the same set of clocks. These instances do not have their own dedicated clocks but share the common clocks configured for the SoC.
 
 ### Power Domains, Resets and Clocks
 | Component | Power Domain | Reset Control | Clock(s) | Description |
@@ -23,27 +20,6 @@ Each instance (DOS, Parser, VPU, VDEC, VENC) uses the same set of clocks. These 
 | VENC_CLK | Video encoder clock. | Enable for all encoding operations. |
 | DOS_CLK | Decoder Output Stage clock. | Enable for all DOS operations. |
 | PARSER_CLK | Parser clock. | Enable for all parsing operations. |
-
-### Instances Offsets
-
-| **Instance** | **Component** | **Base Address** | **Offset Range** | **Interrupts** |
-|--------------|---------------|------------------|------------------|------------------------|
-| **1** | DOS | 0xC1100000 | 0x0000 - 0x0FFF | DOS_MBOX_INT1 |
-| | Parser | 0xC1103000 | 0x3000 - 0x3FFF | PARSER_INT1 |
-| | VPU | 0xC1106000 | 0x6000 - 0x6FFF | VPU_INT1 |
-| | VDEC | 0xC1109000 | 0x9000 - 0x9FFF | VDEC_INT1 |
-| | VENC | 0xC110A000 | 0xA000 - 0xAFFF | VENC_INT1 |
-| **2** | DOS | 0xC1101000 | 0x1000 - 0x1FFF | DOS_MBOX_INT2 |
-| | Parser | 0xC1104000 | 0x4000 - 0x4FFF | PARSER_INT2 |
-| | VPU | 0xC1107000 | 0x7000 - 0x7FFF | VPU_INT2 |
-| | VDEC | 0xC110B000 | 0xB000 - 0xBFFF | VDEC_INT2 |
-| | VENC | 0xC110C000 | 0xC000 - 0xCFFF | VENC_INT2 |
-| **3** | DOS | 0xC1102000 | 0x2000 - 0x2FFF | DOS_MBOX_INT3 |
-| | Parser | 0xC1105000 | 0x5000 - 0x5FFF | PARSER_INT3 |
-| | VPU | 0xC1108000 | 0x8000 - 0x8FFF | VPU_INT3 |
-| | VDEC | 0xC110D000 | 0xD000 - 0xDFFF | VDEC_INT3 |
-| | VENC | 0xC110E000 | 0xE000 - 0xEFFF | VENC_INT3 |
-
 
 ### Interrupts 
 | Interrupt | Value | Function Description |
@@ -67,36 +43,31 @@ Each instance (DOS, Parser, VPU, VDEC, VENC) uses the same set of clocks. These 
 ## Decoder Configuration
 
 ### Decoder Supported Input Codecs
-| **Codec** | **Register** | **Bits** | **Values** | **Description** | **Clocks** |
-|-----------------|------------------|----------|-------------------------------------------------|---------------------------|---------------------------|
-| H.264 | VPU_H264_DEC | [7:0] | 0: Start decoding<br>1: Stop decoding<br>2: Reset decoder | H.264 video decoding | HCODEC_CLK<br>VDEC_CLK |
-| H.265 (HEVC) | VPU_HEVC_DEC | [7:0] | 0: Start decoding<br>1: Stop decoding<br>2: Reset decoder | H.265 video decoding | HEVC_CLK<br>VDEC_CLK |
-| VP9 | VPU_VP9_DEC | [7:0] | 0: Start decoding<br>1: Stop decoding<br>2: Reset decoder | VP9 video decoding | VDEC_CLK |
-| AV1 | VPU_AV1_DEC | [7:0] | 0: Start decoding<br>1: Stop decoding<br>2: Reset decoder | AV1 video decoding | VDEC_CLK |
-| VC-1 | VPU_VC1_DEC | [7:0] | 0: Start decoding<br>1: Stop decoding<br>2: Reset decoder | VC-1 video decoding | HCODEC_CLK<br>VDEC_CLK |
-| MPEG-1/2/4 | VPU_MPEG_DEC | [7:0] | 0: Start decoding<br>1: Stop decoding<br>2: Reset decoder | MPEG-1/2/4 video decoding | HCODEC_CLK<br>VDEC_CLK |
-| RealVideo | VPU_REAL_DEC | [7:0] | 0: Start decoding<br>1: Stop decoding<br>2: Reset decoder | RealVideo decoding | VDEC_CLK |
-| MJPEG | VPU_MJPEG_DEC | [7:0] | 0: Start decoding<br>1: Stop decoding<br>2: Reset decoder | MJPEG video decoding | VDEC_CLK |
-| JPEG | VPU_JPEG_DEC | [7:0] | 0: Start decoding<br>1: Stop decoding<br>2: Reset decoder | JPEG image decoding | VDEC_CLK |
+| **Codec** | **Clocks** |
+|-----------------|---------------------------|
+| H.264 | HCODEC_CLK<br>VDEC_CLK |
+| H.265 (HEVC) |  HEVC_CLK<br>VDEC_CLK |
+| VP9 | VDEC_CLK |
+| AV1 | VDEC_CLK |
+| VC-1 | HCODEC_CLK<br>VDEC_CLK |
+| MPEG-1/2/4 | HCODEC_CLK<br>VDEC_CLK |
+| RealVideo | VDEC_CLK |
+| MJPEG | VDEC_CLK |
+| JPEG | VDEC_CLK |
 
 ### Decoder Supported Output Formats
-| **Format** | **Register** | **Bits** | **Values** | **Description** |
-|-----------------|------------------|----------|-------------------------------------------------|---------------------------|
-| YUV420 | VPU_YUV_PROC | [1:0] | 0: YUV420 | YUV420 format processing |
-| YUV422 | VPU_YUV_PROC | [3:2] | 0: YUV422 | YUV422 format processing |
-| YUV444 | VPU_YUV_PROC | [5:4] | 0: YUV444 | YUV444 format processing |
-| NV12 | VPU_NV12_PROC | [1:0] | 0: NV12 | NV12 format processing |
-| NV21 | VPU_NV21_PROC | [3:2] | 0: NV21 | NV21 format processing |
+| **Format** |
+|-----------------|
+| YUV420 |
+| YUV422 |
+| YUV444 |
+| NV12 |
+| NV21 |
 
 ### Decoder Destination
-| **Register** | **Bits** | **Values** | **Description** |
-|--------------------|----------|-------------------------------------------------|---------------------------|
-| VPU_DEC_OUT_CTRL | [1:0] | 0: Output to memory<br>1: Output to HDMI<br>2: Output to CVBS | Control decoding output destination |
-| | [31:2] | Reserved | Unused bits |
-| VPU_HDMI_CTRL | [3:2] | 0: Disable HDMI output<br>1: Enable HDMI output | Control HDMI output |
-| | [31:4] | Reserved | Unused bits |
-| VPU_CVBS_CTRL | [5:4] | 0: Disable CVBS output<br>1: Enable CVBS output | Control CVBS output |
-| | [31:6] | Reserved | Unused bits |
+- HDMI
+- CVBS
+- Memory
 
 
 ---
@@ -104,13 +75,14 @@ Each instance (DOS, Parser, VPU, VDEC, VENC) uses the same set of clocks. These 
 ## Encoder Configuration
 
 ### Encoder Supported Input Formats
-| **Format** | **Register** | **Bits** | **Values** | **Description** |
-|-----------------|------------------|----------|-------------------------------------------------|---------------------------|
-| YUV420 | VPU_VIU_VENC_CTRL| [1:0] | 0: YUV420 | YUV420 format processing |
-| YUV422 | VPU_VIU_VENC_CTRL| [3:2] | 0: YUV422 | YUV422 format processing |
-| YUV444 | VPU_VIU_VENC_CTRL| [5:4] | 0: YUV444 | YUV444 format processing |
-| NV12 | VPU_VIU_VENC_CTRL| [1:0] | 0: NV12 | NV12 format processing |
-| NV21 | VPU_VIU_VENC_CTRL| [3:2] | 0: NV21 | NV21 format processing |
+| **Format** |
+|-----------------|
+| YUV420 |
+| YUV422 |
+| YUV444 |
+| NV12 |
+| NV21 |
+
 
 ### Encoder Supported Output Codecs
 | **Codec** | **Register** | **Bits** | **Values** | **Description** | **Clocks** |
@@ -120,16 +92,15 @@ Each instance (DOS, Parser, VPU, VDEC, VENC) uses the same set of clocks. These 
 | HEVC Encoder (A311D only) | VPU_HEVC_ENC | [7:0] | 0: Start encoding<br>1: Stop encoding<br>2: Reset encoder | HEVC video encoding | VENC_CLK<br>HEVC_CLK |
 
 ### Encoder Source
-| **Register** | **Bits** | **Values** | **Description** |
-|--------------------|----------|-------------------------------------------------|---------------------------|
-| VPU_ENC_IN_CTRL | [1:0] | 0: Memory input<br>1: TV input<br>2: HDMI input | Control encoding input source |
-| | [31:2] | Reserved | Unused bits |
-| VPU_TVIN_CTRL | [3:2] | 0: Disable TV input<br>1: Enable TV input | Control TV input |
-| | [31:4] | Reserved | Unused bits |
-| VPU_HDMI_IN_CTRL | [5:4] | 0: Disable HDMI input<br>1: Enable HDMI input | Control HDMI input |
-| | [31:6] | Reserved | Unused bits |
+- HDMI-in
+- TVIN
+- Memory
+
 
 ---
+# *TO BE REVIEWED*
+---
+
 
 ## VPU Configuration
 
@@ -199,43 +170,3 @@ Each instance (DOS, Parser, VPU, VDEC, VENC) uses the same set of clocks. These 
 | | [31:8] | Reserved | Unused bits |
 | PARSER_ERROR_STATUS | [0:7] | 0: No error<br>1: Buffer overflow<br>2: Timeout | Parsing error status |
 | | [31:8] | Reserved | Unused bits |
-
-
-## Registers Offsets
-
-*TO BE REVIEWED*
-
-| **Register** | **Device** | **Offset** |
-|------------------------|------------------|--------------|
-| DMA_CTRL | DMA | 0x0400 |
-| DMA_STATUS | DMA | 0x0410 |
-| DOS_MBOX1_STATUS | DOS | 0x0200 |
-| DOS_MBOX2_STATUS | DOS | 0x0210 |
-| DOS_MBOX3_STATUS | DOS | 0x0220 |
-| PARSER_STATUS | Parser | 0x0100 |
-| PARSER_ERROR_STATUS | Parser | 0x0110 |
-| RDMA_CTRL | RDMA | 0x0500 |
-| RDMA_STATUS | RDMA | 0x0510 |
-| VPU_AV1_DEC | VPU | 0x0760 |
-| VPU_CVBS_CTRL | VPU | 0x0320 |
-| VPU_DEC_OUT_CTRL | VPU | 0x0020 |
-| VPU_ENC_IN_CTRL | VPU | 0x0030 |
-| VPU_HEVC_DEC | VPU | 0x0010 |
-| VPU_HEVC_ENC | VPU | 0x0050 |
-| VPU_H264_DEC | VPU | 0x0000 |
-| VPU_H264_ENC | VPU | 0x0040 |
-| VPU_HDMI_CTRL | VPU | 0x0310 |
-| VPU_HDMI_IN_CTRL | VPU | 0x0340 |
-| VPU_JPEG_DEC | VPU | 0x0740 |
-| VPU_JPEG_ENC | VPU | 0x0060 |
-| VPU_MJPEG_DEC | VPU | 0x07A0 |
-| VPU_MPEG_DEC | VPU | 0x0780 |
-| VPU_NV12_PROC | VPU | 0x0710 |
-| VPU_NV21_PROC | VPU | 0x0720 |
-| VPU_REAL_DEC | VPU | 0x0790 |
-| VPU_TVIN_CTRL | VPU | 0x0330 |
-| VPU_VC1_DEC | VPU | 0x0770 |
-| VPU_VIU_VENC_CTRL | VPU | 0x0730 |
-| VPU_VP9_DEC | VPU | 0x0750 |
-| VPU_YUV_PROC | VPU | 0x0700 |
-| VPU_CTRL | VPU | 0x0300 |
