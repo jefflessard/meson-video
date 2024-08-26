@@ -41,6 +41,100 @@ The driver initializes and configures these hardware components, loads microcode
 - Uses canvas for managing frame buffers
 
 
+## Encoding Process
+
+1. Power-on and Clock Setup:
+   - Enable HCODEC power domain (AO_RTI_GEN_PWR_SLEEP0)
+   - Configure and enable HCODEC clock (HHI_VDEC_CLK_CNTL)
+   - Enable DOS internal clock gating
+
+2. Hardware Reset:
+   - Assert and de-assert software reset (DOS_SW_RESET1)
+   - Remove HCODEC isolation (AO_RTI_GEN_PWR_ISO0)
+
+3. Memory Power-up:
+   - Power up HCODEC memories (DOS_MEM_PD_HCODEC)
+
+4. Interrupt Setup:
+   - Clear mailbox interrupt (HCODEC_IRQ_MBOX_CLR)
+   - Enable mailbox interrupt (HCODEC_IRQ_MBOX_MASK)
+
+5. Initialization:
+   - Configure HCODEC_ASSIST_MMC_CTRL1 (0x32)
+   - Set up VLC configuration (HCODEC_VLC_CONFIG)
+   - Initialize HCODEC_MPSR and HCODEC_CPSR
+
+6. Microcode Loading:
+   - Configure and start IMEM DMA for microcode loading
+   - Wait for DMA completion (poll HCODEC_IMEM_DMA_CTRL)
+
+7. Encoder Configuration:
+   - Set up frame-related registers (IDR_PIC_ID, FRAME_NUMBER, PIC_ORDER_CNT_LSB, etc.)
+   - Configure encoding parameters (LOG2_MAX_PIC_ORDER_CNT_LSB, LOG2_MAX_FRAME_NUM, QPPICTURE, etc.)
+
+8. Memory Buffer Setup:
+   - Configure canvas for input, reference, and output buffers
+   - Set up DCT buffer (HCODEC_QDCT_MB_START_PTR, HCODEC_QDCT_MB_END_PTR, etc.)
+   - Configure VLC buffer (HCODEC_VLC_VB_START_PTR, HCODEC_VLC_VB_END_PTR, etc.)
+   - Set up other internal buffers
+
+9. Quantization and VLC Setup:
+   - Configure quantization tables
+   - Set up VLC parameters (HCODEC_QDCT_VLC_QUANT_CTL_0, HCODEC_QDCT_VLC_QUANT_CTL_1, etc.)
+
+10. ME/IE Parameter Setup:
+    - Configure ME/IE weights, SAD controls, MV controls
+    - Set up advanced ME parameters
+
+11. QDCT Configuration:
+    - Set up QDCT parameters for I and P frames
+    - Configure ignore conditions (HCODEC_IGNORE_CONFIG, HCODEC_IGNORE_CONFIG_2)
+
+12. MB Control Setup:
+    - Configure HCODEC_QDCT_MB_CONTROL
+
+13. IE/ME/VLC Control Setup:
+    - Set up SAD control, IE control, ME skip lines, MV merge control
+    - Configure VLC picture size and position
+
+14. Slice Configuration (if applicable):
+    - Set up FIXED_SLICE_CFG for multi-slice encoding
+
+15. Version-specific Setup:
+    - Configure V5-specific registers if applicable (HCODEC_V5_SIMPLE_MB_CTL, etc.)
+
+16. Rate Control Setup (if CBR enabled):
+    - Configure CBR-related registers (H264_ENC_CBR_TABLE_ADDR, H264_ENC_CBR_CTL, etc.)
+
+17. Start Encoding:
+    - Set ENCODER_STATUS to the current encoding command
+    - Start encoding by writing to HCODEC_MPSR
+
+18. Encoding Process:
+    - Hardware performs encoding based on configuration
+    - Driver monitors ENCODER_STATUS
+    - Process interrupts (IRQ from HCODEC block) as encoding progresses
+
+19. Output Retrieval:
+    - Read HCODEC_VLC_TOTAL_BYTES for output size
+    - Retrieve encoded data from output buffer
+
+20. Clean-up and Reset:
+    - Reset or clear registers for next encoding task
+    - Optionally power down or clock gate hardware if no immediate tasks
+
+21. Error Handling:
+    - Monitor for timeout or error conditions
+    - Implement light reset procedure if necessary (resetting specific blocks)
+
+Throughout the process:
+- The driver may dynamically adjust parameters based on encoding mode and enabled features.
+- Interrupts are handled to manage the encoding process and data flow.
+- Clock gating may be applied to unused blocks for power efficiency.
+- Memory buffers are flushed or invalidated as necessary to ensure cache coherency.
+
+
+
 ## Registers
 
 1. Control Registers
