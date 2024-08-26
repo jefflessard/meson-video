@@ -40,7 +40,80 @@ The driver initializes and configures these hardware components, loads microcode
 8. Canvas:
 - Uses canvas for managing frame buffers
 
+
 ## Registers
+
+1. Control Registers
+These registers are used to control the operation of the encoder.
+
+- HCODEC_MPSR
+- HCODEC_CPSR
+- HCODEC_IMEM_DMA_CTRL
+- HCODEC_IE_CONTROL
+- HCODEC_SAD_CONTROL
+- HCODEC_QDCT_MB_CONTROL
+- HCODEC_VLC_CONFIG
+- HCODEC_ADV_MV_CTL0
+- HCODEC_ADV_MV_CTL1
+- HCODEC_ME_SKIP_LINE
+- HCODEC_ME_MV_MERGE_CTL
+- HCODEC_V5_SIMPLE_MB_CTL
+
+2. Status Registers
+These registers provide status information about the encoder.
+
+- ENCODER_STATUS
+- HCODEC_VLC_TOTAL_BYTES
+
+3. I/O Registers
+These registers are used for data input and output operations.
+
+- HCODEC_IMEM_DMA_ADR
+- HCODEC_IMEM_DMA_COUNT
+- HCODEC_IE_RESULT_BUFFER
+- HCODEC_QUANT_TABLE_DATA
+
+4. Configuration Registers
+These registers are used to configure various aspects of the encoding process.
+
+- HCODEC_ASSIST_MMC_CTRL1
+- IDR_PIC_ID
+- FRAME_NUMBER
+- PIC_ORDER_CNT_LSB
+- LOG2_MAX_PIC_ORDER_CNT_LSB
+- LOG2_MAX_FRAME_NUM
+- ANC0_BUFFER_ID
+- QPPICTURE
+- HCODEC_IE_WEIGHT
+- HCODEC_ME_WEIGHT
+- HCODEC_SAD_CONTROL_0
+- HCODEC_SAD_CONTROL_1
+- HCODEC_Q_QUANT_CONTROL
+- HCODEC_QDCT_VLC_QUANT_CTL_0
+- HCODEC_QDCT_VLC_QUANT_CTL_1
+- HCODEC_VLC_PIC_SIZE
+- HCODEC_VLC_PIC_POSITION
+- HCODEC_QDCT_Q_QUANT_I
+- HCODEC_QDCT_Q_QUANT_P
+- HCODEC_IGNORE_CONFIG
+- HCODEC_IGNORE_CONFIG_2
+- HCODEC_ME_STEP0_CLOSE_MV
+- HCODEC_ME_SAD_ENOUGH_01
+- HCODEC_ME_SAD_ENOUGH_23
+- HCODEC_ME_F_SKIP_SAD
+- HCODEC_ME_F_SKIP_WEIGHT
+- HCODEC_ME_MV_WEIGHT_01
+- HCODEC_ME_MV_WEIGHT_23
+- HCODEC_ME_SAD_RANGE_INC
+- HCODEC_V5_MB_DIFF_SUM
+- HCODEC_V5_SMALL_DIFF_CNT
+- HCODEC_V5_SIMPLE_MB_DQUANT
+- HCODEC_V5_SIMPLE_MB_ME_WEIGHT
+- HCODEC_QDCT_CONFIG
+
+
+
+## Registers Description
 
 Certainly. I'll provide a comprehensive analysis of all the registers used in the code, creating documentation tables where possible and describing registers where complete information isn't available.
 
