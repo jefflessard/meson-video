@@ -1,53 +1,3 @@
-/*
-
-Functions that are referenced but not fully implemented:
-
-1. `aml_vcodec_job_ready(void *priv)`
-   - This function should check if a job is ready to be processed by the encoder.
-   - It should return 1 if a job is ready, 0 otherwise.
-
-2. `aml_vcodec_job_abort(void *priv)`
-   - This function should abort the current encoding job.
-   - It should clean up any resources associated with the current job.
-
-3. `aml_vcodec_queue_init(void *priv, struct vb2_queue *src_vq, struct vb2_queue *dst_vq)`
-   - This function should initialize the source and destination vb2_queues.
-   - It should set up the queue type, memory type, and ops for each queue.
-
-4. `encode_wq_add_request(struct encode_wq_s *wq)`
-   - This function should add an encoding request to the work queue.
-   - It should prepare the hardware for encoding and start the process.
-
-5. `avc_init_encoder(struct encode_wq_s *wq, bool idr)`
-   - This function should initialize the AVC encoder hardware.
-   - It should set up the encoder parameters based on the current context.
-
-6. `avc_init_input_buffer(void *info)`
-   - This function should initialize the input buffer for the encoder.
-   - It should set up the necessary memory mappings or DMA transfers.
-
-7. `avc_init_output_buffer(void *info)`
-   - This function should initialize the output buffer for the encoder.
-   - It should prepare the buffer to receive encoded data.
-
-8. `enc_isr(s32 irq_number, void *para)`
-   - This is the interrupt service routine for the encoder.
-   - It should handle encoder interrupts and update the encoding status.
-
-9. `amvenc_avc_stop()`
-   - This function should stop the AVC encoder.
-   - It should clean up any resources and put the hardware in a known state.
-
-10. `select_ucode(u32 ucode_index)`
-    - This function should select the appropriate microcode for the encoder.
-    - It should return a pointer to the selected microcode.
-
-11. `amvenc_loadmc(const char *p, struct encode_wq_s *wq)`
-    - This function should load the microcode into the encoder hardware.
-    - It should handle any necessary memory transfers or register configurations.
-
-*/
-
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/of.h>
@@ -93,6 +43,218 @@ struct aml_vcodec_dev {
     void __iomem *enc_base;
     struct meson_canvas *canvas;
 };
+
+static int aml_vcodec_queue_init(void *priv, struct vb2_queue *src_vq, struct vb2_queue *dst_vq)
+{
+    struct aml_vcodec_ctx *ctx = priv;
+    int ret;
+
+    src_vq->type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
+    src_vq->io_modes = VB2_MMAP | VB2_DMABUF;
+    src_vq->drv_priv = ctx;
+    src_vq->buf_struct_size = sizeof(struct aml_video_buf);
+    src_vq->ops = &aml_vcodec_vb2_ops;
+    src_vq->mem_ops = &vb2_dma_contig_memops;
+    src_vq->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_COPY;
+    src_vq->lock = &ctx->dev->dev_mutex;
+    src_vq->dev = ctx->dev->v4l2_dev.dev;
+
+    ret = vb2_queue_init(src_vq);
+    if (ret)
+        return ret;
+
+    dst_vq->type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+    dst_vq->io_modes = VB2_MMAP | VB2_DMABUF;
+    dst_vq->drv_priv = ctx;
+    dst_vq->buf_struct_size = sizeof(struct aml_video_buf);
+    dst_vq->ops = &aml_vcodec_vb2_ops;
+    dst_vq->mem_ops = &vb2_dma_contig_memops;
+    dst_vq->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_COPY;
+    dst_vq->lock = &ctx->dev->dev_mutex;
+    dst_vq->dev = ctx->dev->v4l2_dev.dev;
+
+    return vb2_queue_init(dst_vq);
+}
+
+static int encode_wq_add_request(struct encode_wq_s *wq)
+{
+    struct aml_vcodec_ctx *ctx = container_of(wq, struct aml_vcodec_ctx, wq);
+    struct encode_queue_item_s *pitem;
+
+    pitem = kzalloc(sizeof(*pitem), GFP_KERNEL);
+    if (!pitem)
+        return -ENOMEM;
+
+    memcpy(&pitem->request, &ctx->request, sizeof(struct encode_request_s));
+
+    spin_lock(&ctx->dev->encode_manager.event.sem_lock);
+    list_add_tail(&pitem->list, &ctx->dev->encode_manager.process_queue);
+    spin_unlock(&ctx->dev->encode_manager.event.sem_lock);
+
+    complete(&ctx->dev->encode_manager.event.request_in_com);
+
+    return 0;
+}
+
+static void avc_init_input_buffer(void *info)
+{
+    struct encode_wq_s *wq = info;
+    
+    WRITE_HREG(HCODEC_QDCT_MB_START_PTR, wq->mem.dct_buff_start_addr);
+    WRITE_HREG(HCODEC_QDCT_MB_END_PTR, wq->mem.dct_buff_end_addr);
+    WRITE_HREG(HCODEC_QDCT_MB_WR_PTR, wq->mem.dct_buff_start_addr);
+    WRITE_HREG(HCODEC_QDCT_MB_RD_PTR, wq->mem.dct_buff_start_addr);
+    WRITE_HREG(HCODEC_QDCT_MB_BUFF, 0);
+}
+
+static void avc_init_output_buffer(void *info)
+{
+    struct encode_wq_s *wq = info;
+    
+    WRITE_HREG(HCODEC_VLC_VB_MEM_CTL, 
+        (1 << 31) | (0x3f << 24) | (0x20 << 16) | (2 << 0));
+    WRITE_HREG(HCODEC_VLC_VB_START_PTR, wq->mem.BitstreamStart);
+    WRITE_HREG(HCODEC_VLC_VB_WR_PTR, wq->mem.BitstreamStart);
+    WRITE_HREG(HCODEC_VLC_VB_SW_RD_PTR, wq->mem.BitstreamStart);
+    WRITE_HREG(HCODEC_VLC_VB_END_PTR, wq->mem.BitstreamEnd);
+    WRITE_HREG(HCODEC_VLC_VB_CONTROL, 1);
+    WRITE_HREG(HCODEC_VLC_VB_CONTROL, 
+        (0 << 14) | (7 << 3) | (1 << 1) | (0 << 0));
+}
+
+static void avc_init_encoder(struct encode_wq_s *wq, bool idr)
+{
+    struct aml_vcodec_ctx *ctx = container_of(wq, struct aml_vcodec_ctx, wq);
+    
+    WRITE_HREG(HCODEC_ASSIST_MMC_CTRL1, 0x32);
+    
+    avc_canvas_init(wq);
+    avc_init_input_buffer(wq);
+    avc_init_output_buffer(wq);
+    
+    WRITE_HREG(ENCODER_STATUS, 0);
+    WRITE_HREG(HCODEC_ASSIST_AMR1_INT0, 0x15);
+    WRITE_HREG(HCODEC_ASSIST_AMR1_INT1, 0x8);
+    WRITE_HREG(HCODEC_ASSIST_AMR1_INT3, 0x14);
+    
+    WRITE_HREG(IDR_PIC_ID, wq->pic.idr_pic_id);
+    WRITE_HREG(FRAME_NUMBER, (idr) ? 0 : wq->pic.frame_number);
+    WRITE_HREG(PIC_ORDER_CNT_LSB, (idr) ? 0 : wq->pic.pic_order_cnt_lsb);
+    
+    // Add more register writes as needed...
+    
+    avc_init_encoder_ie(wq, ctx->request.quant);
+}
+
+static irqreturn_t enc_isr(int irq_number, void *para)
+{
+    struct aml_vcodec_dev *dev = para;
+    
+    WRITE_HREG(HCODEC_IRQ_MBOX_CLR, 1);
+    
+    dev->encode_manager.encode_hw_status = READ_HREG(ENCODER_STATUS);
+    
+    if (dev->encode_manager.encode_hw_status == ENCODER_IDR_DONE ||
+        dev->encode_manager.encode_hw_status == ENCODER_NON_IDR_DONE ||
+        dev->encode_manager.encode_hw_status == ENCODER_SEQUENCE_DONE ||
+        dev->encode_manager.encode_hw_status == ENCODER_PICTURE_DONE) {
+        dev->encode_manager.process_irq = true;
+        wake_up_interruptible(&dev->encode_manager.event.hw_complete);
+    }
+    
+    return IRQ_HANDLED;
+}
+
+static void amvenc_avc_stop(void)
+{
+    ulong timeout = jiffies + HZ;
+
+    WRITE_HREG(HCODEC_MPSR, 0);
+    WRITE_HREG(HCODEC_CPSR, 0);
+    
+    while (READ_HREG(HCODEC_IMEM_DMA_CTRL) & 0x8000) {
+        if (time_after(jiffies, timeout))
+            break;
+    }
+    
+    WRITE_VREG(DOS_SW_RESET1, 
+        (1 << 12) | (1 << 11) | (1 << 2) | (1 << 6) | 
+        (1 << 7) | (1 << 8) | (1 << 14) | (1 << 16) | (1 << 17));
+    WRITE_VREG(DOS_SW_RESET1, 0);
+}
+
+static int aml_vcodec_job_ready(void *priv)
+{
+    struct aml_vcodec_ctx *ctx = priv;
+    
+    if (v4l2_m2m_num_src_bufs_ready(ctx->fh.m2m_ctx) > 0 &&
+        v4l2_m2m_num_dst_bufs_ready(ctx->fh.m2m_ctx) > 0)
+        return 1;
+    
+    return 0;
+}
+
+static void aml_vcodec_job_abort(void *priv)
+{
+    struct aml_vcodec_ctx *ctx = priv;
+    
+    // Stop encoding process
+    amvenc_avc_stop();
+    
+    // Clear any pending buffers
+    v4l2_m2m_job_finish(ctx->dev->m2m_dev, ctx->fh.m2m_ctx);
+}
+
+
+static const char *select_ucode(u32 ucode_index)
+{
+    switch (ucode_index) {
+    case UCODE_MODE_FULL:
+        if (get_cpu_type() >= MESON_CPU_MAJOR_ID_G12A)
+            return "ga_h264_enc_cabac";
+        else if (get_cpu_type() >= MESON_CPU_MAJOR_ID_TXL)
+            return "txl_h264_enc_cavlc";
+        else
+            return "gxl_h264_enc";
+    default:
+        return "gxl_h264_enc";
+    }
+}
+
+static s32 amvenc_loadmc(const char *p, struct encode_wq_s *wq)
+{
+    ulong timeout;
+    s32 ret = 0;
+
+    if (!wq->mem.assit_buffer_offset) {
+        pr_err("amvenc_loadmc: assit_buffer is not allocated\n");
+        return -ENOMEM;
+    }
+
+    WRITE_HREG(HCODEC_MPSR, 0);
+    WRITE_HREG(HCODEC_CPSR, 0);
+
+    timeout = READ_HREG(HCODEC_MPSR);
+    timeout = READ_HREG(HCODEC_MPSR);
+
+    timeout = jiffies + HZ;
+
+    WRITE_HREG(HCODEC_IMEM_DMA_ADR, wq->mem.assit_buffer_offset);
+    WRITE_HREG(HCODEC_IMEM_DMA_COUNT, 0x1000);
+    WRITE_HREG(HCODEC_IMEM_DMA_CTRL, (0x8000 | (7 << 16)));
+
+    while (READ_HREG(HCODEC_IMEM_DMA_CTRL) & 0x8000) {
+        if (time_before(jiffies, timeout))
+            schedule();
+        else {
+            pr_err("hcodec load mc error\n");
+            ret = -EBUSY;
+            break;
+        }
+    }
+
+    return ret;
+}
 
 static int avc_init(struct aml_vcodec_dev *dev)
 {
