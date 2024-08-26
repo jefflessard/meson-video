@@ -122,28 +122,198 @@ static void avc_init_output_buffer(void *info)
         (0 << 14) | (7 << 3) | (1 << 1) | (0 << 0));
 }
 
+static void avc_canvas_init(struct encode_wq_s *wq)
+{
+    u32 canvas_width, canvas_height;
+    u32 start_addr = wq->mem.buf_start;
+
+    canvas_width = ((wq->pic.encoder_width + 31) >> 5) << 5;
+    canvas_height = ((wq->pic.encoder_height + 15) >> 4) << 4;
+
+    canvas_config(ENC_CANVAS_OFFSET,
+        start_addr + wq->mem.bufspec.dec0_y.buf_start,
+        canvas_width, canvas_height,
+        CANVAS_ADDR_NOWRAP, CANVAS_BLKMODE_LINEAR);
+    canvas_config(1 + ENC_CANVAS_OFFSET,
+        start_addr + wq->mem.bufspec.dec0_uv.buf_start,
+        canvas_width, canvas_height / 2,
+        CANVAS_ADDR_NOWRAP, CANVAS_BLKMODE_LINEAR);
+    canvas_config(2 + ENC_CANVAS_OFFSET,
+        start_addr + wq->mem.bufspec.dec0_uv.buf_start,
+        canvas_width, canvas_height / 2,
+        CANVAS_ADDR_NOWRAP, CANVAS_BLKMODE_LINEAR);
+
+    canvas_config(3 + ENC_CANVAS_OFFSET,
+        start_addr + wq->mem.bufspec.dec1_y.buf_start,
+        canvas_width, canvas_height,
+        CANVAS_ADDR_NOWRAP, CANVAS_BLKMODE_LINEAR);
+    canvas_config(4 + ENC_CANVAS_OFFSET,
+        start_addr + wq->mem.bufspec.dec1_uv.buf_start,
+        canvas_width, canvas_height / 2,
+        CANVAS_ADDR_NOWRAP, CANVAS_BLKMODE_LINEAR);
+    canvas_config(5 + ENC_CANVAS_OFFSET,
+        start_addr + wq->mem.bufspec.dec1_uv.buf_start,
+        canvas_width, canvas_height / 2,
+        CANVAS_ADDR_NOWRAP, CANVAS_BLKMODE_LINEAR);
+}
+
 static void avc_init_encoder(struct encode_wq_s *wq, bool idr)
 {
     struct aml_vcodec_ctx *ctx = container_of(wq, struct aml_vcodec_ctx, wq);
     
-    WRITE_HREG(HCODEC_ASSIST_MMC_CTRL1, 0x32);
-    
-    avc_canvas_init(wq);
-    avc_init_input_buffer(wq);
-    avc_init_output_buffer(wq);
-    
-    WRITE_HREG(ENCODER_STATUS, 0);
+    WRITE_HREG(HCODEC_VLC_TOTAL_BYTES, 0);
+    WRITE_HREG(HCODEC_VLC_CONFIG, 0x07);
+    WRITE_HREG(HCODEC_VLC_INT_CONTROL, 0);
+
     WRITE_HREG(HCODEC_ASSIST_AMR1_INT0, 0x15);
     WRITE_HREG(HCODEC_ASSIST_AMR1_INT1, 0x8);
     WRITE_HREG(HCODEC_ASSIST_AMR1_INT3, 0x14);
-    
+
     WRITE_HREG(IDR_PIC_ID, wq->pic.idr_pic_id);
-    WRITE_HREG(FRAME_NUMBER, (idr) ? 0 : wq->pic.frame_number);
-    WRITE_HREG(PIC_ORDER_CNT_LSB, (idr) ? 0 : wq->pic.pic_order_cnt_lsb);
-    
-    // Add more register writes as needed...
-    
+    WRITE_HREG(FRAME_NUMBER,
+        (idr == true) ? 0 : wq->pic.frame_number);
+    WRITE_HREG(PIC_ORDER_CNT_LSB,
+        (idr == true) ? 0 : wq->pic.pic_order_cnt_lsb);
+
+    WRITE_HREG(LOG2_MAX_PIC_ORDER_CNT_LSB,
+        wq->pic.log2_max_pic_order_cnt_lsb);
+    WRITE_HREG(LOG2_MAX_FRAME_NUM,
+        wq->pic.log2_max_frame_num);
+    WRITE_HREG(ANC0_BUFFER_ID, 0);
+    WRITE_HREG(QPPICTURE, wq->pic.init_qppicture);
+
     avc_init_encoder_ie(wq, ctx->request.quant);
+
+    WRITE_HREG(ENCODER_STATUS, 0);
+    WRITE_HREG(HCODEC_ASSIST_MMC_CTRL1, 0x32);
+
+    WRITE_HREG(QDCT_MB_CONTROL, 
+        (1 << 9) | /* mb_info_soft_reset */
+        (1 << 0)); /* mb read buffer soft reset */
+
+    WRITE_HREG(QDCT_MB_CONTROL,
+        (1 << 28) | /* ignore_t_p8x8 */
+        (0 << 27) | /* zero_mc_out_null_non_skipped_mb */
+        (0 << 26) | /* no_mc_out_null_non_skipped_mb */
+        (0 << 25) | /* mc_out_even_skipped_mb */
+        (0 << 24) | /* mc_out_wait_cbp_ready */
+        (0 << 23) | /* mc_out_wait_mb_type_ready */
+        (1 << 29) | /* ie_start_int_enable */
+        (1 << 19) | /* i_pred_enable */
+        (1 << 20) | /* ie_sub_enable */
+        (1 << 18) | /* iq_enable */
+        (1 << 17) | /* idct_enable */
+        (1 << 14) | /* mb_pause_enable */
+        (1 << 13) | /* q_enable */
+        (1 << 12) | /* dct_enable */
+        (1 << 10) | /* mb_info_en */
+        (0 << 3) | /* endian */
+        (0 << 1) | /* mb_read_en */
+        (0 << 0)); /* soft reset */
+
+    WRITE_HREG(HCODEC_CURR_CANVAS_CTRL, 0);
+    WRITE_HREG(HCODEC_VLC_CONFIG, READ_HREG(HCODEC_VLC_CONFIG) | (1 << 0)); // set pop_coeff_even_all_zero
+
+    WRITE_HREG(HCODEC_IGNORE_CONFIG,
+        (1 << 31) | /* ignore_lac_coeff_en */
+        (1 << 26) | /* ignore_lac_coeff_else (<1) */
+        (1 << 21) | /* ignore_lac_coeff_2 (<1) */
+        (2 << 16) | /* ignore_lac_coeff_1 (<2) */
+        (1 << 15) | /* ignore_cac_coeff_en */
+        (1 << 10) | /* ignore_cac_coeff_else (<1) */
+        (1 << 5)  | /* ignore_cac_coeff_2 (<1) */
+        (3 << 0));  /* ignore_cac_coeff_1 (<2) */
+
+    if (get_cpu_type() >= MESON_CPU_MAJOR_ID_GXTVBB)
+        WRITE_HREG(HCODEC_IGNORE_CONFIG_2,
+            (1 << 31) | /* ignore_t_lac_coeff_en */
+            (1 << 26) | /* ignore_t_lac_coeff_else (<1) */
+            (2 << 21) | /* ignore_t_lac_coeff_2 (<2) */
+            (6 << 16) | /* ignore_t_lac_coeff_1 (<6) */
+            (1 << 15) | /* ignore_cdc_coeff_en */
+            (0 << 14) | /* ignore_t_lac_coeff_else_le_3 */
+            (1 << 13) | /* ignore_t_lac_coeff_else_le_4 */
+            (1 << 12) | /* ignore_cdc_only_when_empty_cac_inter */
+            (1 << 11) | /* ignore_cdc_only_when_one_empty_inter */
+            (2 << 9) |  /* ignore_cdc_range_max_inter 0-0, 1-1, 2-2, 3-3 */
+            (0 << 7) |  /* ignore_cdc_abs_max_inter 0-1, 1-2, 2-3, 3-4 */
+            (1 << 5) |  /* ignore_cdc_only_when_empty_cac_intra */
+            (1 << 4) |  /* ignore_cdc_only_when_one_empty_intra */
+            (1 << 2) |  /* ignore_cdc_range_max_intra 0-0, 1-1, 2-2, 3-3 */
+            (0 << 0));  /* ignore_cdc_abs_max_intra 0-1, 1-2, 2-3, 3-4 */
+    else
+        WRITE_HREG(HCODEC_IGNORE_CONFIG_2,
+            (1 << 31) | /* ignore_t_lac_coeff_en */
+            (1 << 26) | /* ignore_t_lac_coeff_else (<1) */
+            (1 << 21) | /* ignore_t_lac_coeff_2 (<1) */
+            (5 << 16) | /* ignore_t_lac_coeff_1 (<5) */
+            (0 << 0));
+
+    WRITE_HREG(HCODEC_QDCT_MB_CONTROL, 1 << 8); // mb_info_state_reset
+}
+
+static void avc_init_encoder_ie(struct encode_wq_s *wq, u32 quant)
+{
+    WRITE_HREG(HCODEC_IE_CONTROL,
+        (1 << 30) | /* active_ul_block */
+        (0 << 1) | /* ie_enable */
+        (1 << 0)); /* ie soft reset */
+
+    WRITE_HREG(HCODEC_IE_CONTROL,
+        (1 << 30) | /* active_ul_block */
+        (0 << 1) | /* ie_enable */
+        (0 << 0)); /* ie soft reset */
+
+    WRITE_HREG(HCODEC_IE_WEIGHT,
+        (wq->i16_weight << 16) |
+        (wq->i4_weight << 0));
+    WRITE_HREG(HCODEC_ME_WEIGHT,
+        (wq->me_weight << 0));
+    WRITE_HREG(HCODEC_SAD_CONTROL_0,
+        (wq->i16_weight << 16) |
+        (wq->i4_weight << 0));
+    WRITE_HREG(HCODEC_SAD_CONTROL_1,
+        (IE_SAD_SHIFT_I16 << 24) |
+        (IE_SAD_SHIFT_I4 << 20) |
+        (ME_SAD_SHIFT_INTER << 16) |
+        (wq->me_weight << 0));
+
+    WRITE_HREG(HCODEC_IE_DATA_FEED_BUFF_INFO, 0);
+
+    WRITE_HREG(HCODEC_QDCT_Q_QUANT_I,
+        (quant << 22) |
+        (quant << 16) |
+        ((quant % 6) << 12) |
+        ((quant / 6) << 8) |
+        ((quant % 6) << 4) |
+        ((quant / 6) << 0));
+
+    WRITE_HREG(HCODEC_QDCT_Q_QUANT_P,
+        (quant << 22) |
+        (quant << 16) |
+        ((quant % 6) << 12) |
+        ((quant / 6) << 8) |
+        ((quant % 6) << 4) |
+        ((quant / 6) << 0));
+
+    WRITE_HREG(HCODEC_SAD_CONTROL_0,
+        (wq->i16_weight << 16) |
+        (wq->i4_weight << 0));
+    WRITE_HREG(HCODEC_SAD_CONTROL_1,
+        (IE_SAD_SHIFT_I16 << 24) |
+        (IE_SAD_SHIFT_I4 << 20) |
+        (ME_SAD_SHIFT_INTER << 16) |
+        (wq->me_weight << 0));
+
+    WRITE_HREG(HCODEC_ADV_MV_CTL0,
+        (ADV_MV_LARGE_16x8 << 31) |
+        (ADV_MV_LARGE_8x16 << 30) |
+        (ADV_MV_8x8_WEIGHT << 16) |
+        (ADV_MV_4x4x4_WEIGHT << 0));
+    WRITE_HREG(HCODEC_ADV_MV_CTL1,
+        (ADV_MV_16x16_WEIGHT << 16) |
+        (ADV_MV_LARGE_16x16 << 15) |
+        (ADV_MV_16_8_WEIGHT << 0));
 }
 
 static irqreturn_t enc_isr(int irq_number, void *para)
