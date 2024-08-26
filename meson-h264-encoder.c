@@ -1,3 +1,53 @@
+/*
+
+Functions that are referenced but not fully implemented:
+
+1. `aml_vcodec_job_ready(void *priv)`
+   - This function should check if a job is ready to be processed by the encoder.
+   - It should return 1 if a job is ready, 0 otherwise.
+
+2. `aml_vcodec_job_abort(void *priv)`
+   - This function should abort the current encoding job.
+   - It should clean up any resources associated with the current job.
+
+3. `aml_vcodec_queue_init(void *priv, struct vb2_queue *src_vq, struct vb2_queue *dst_vq)`
+   - This function should initialize the source and destination vb2_queues.
+   - It should set up the queue type, memory type, and ops for each queue.
+
+4. `encode_wq_add_request(struct encode_wq_s *wq)`
+   - This function should add an encoding request to the work queue.
+   - It should prepare the hardware for encoding and start the process.
+
+5. `avc_init_encoder(struct encode_wq_s *wq, bool idr)`
+   - This function should initialize the AVC encoder hardware.
+   - It should set up the encoder parameters based on the current context.
+
+6. `avc_init_input_buffer(void *info)`
+   - This function should initialize the input buffer for the encoder.
+   - It should set up the necessary memory mappings or DMA transfers.
+
+7. `avc_init_output_buffer(void *info)`
+   - This function should initialize the output buffer for the encoder.
+   - It should prepare the buffer to receive encoded data.
+
+8. `enc_isr(s32 irq_number, void *para)`
+   - This is the interrupt service routine for the encoder.
+   - It should handle encoder interrupts and update the encoding status.
+
+9. `amvenc_avc_stop()`
+   - This function should stop the AVC encoder.
+   - It should clean up any resources and put the hardware in a known state.
+
+10. `select_ucode(u32 ucode_index)`
+    - This function should select the appropriate microcode for the encoder.
+    - It should return a pointer to the selected microcode.
+
+11. `amvenc_loadmc(const char *p, struct encode_wq_s *wq)`
+    - This function should load the microcode into the encoder hardware.
+    - It should handle any necessary memory transfers or register configurations.
+
+*/
+
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/of.h>
