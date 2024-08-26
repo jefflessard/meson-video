@@ -1,3 +1,16 @@
+/*
+
+To complete the driver:
+    1. Implement the full encoding process in 'aml_vcodec_device_run'.
+    2. Add power management and clock control.
+    3. Implement rate control and quality settings.
+    4. Add more comprehensive logging and debugging facilities.
+    5. Implement any missing V4L2 controls and events.
+    6. Add support for different pixel formats and encoder profiles/levels.
+    7. Implement any hardware-specific optimizations or features.
+
+*/
+
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/of.h>
@@ -5,6 +18,7 @@
 #include <linux/of_reserved_mem.h>
 #include <linux/dma-mapping.h>
 #include <linux/cma.h>
+#include <linux/slab.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-ioctl.h>
 #include <media/v4l2-ctrls.h>
@@ -15,10 +29,6 @@
 
 #define DRIVER_NAME "meson-h264-encoder"
 #define MIN_SIZE amvenc_buffspec[0].min_buffsize
-
-#define HCODEC_BASE = 0xff; //To be replaced with the device tree node register
-#define WRITE_HREG(reg,val) writel((val), (HCODEC_BASE + reg))
-#define READ_HREG(reg) readl(ctx->HCODEC_BASE + (reg))
 
 struct encode_request_s {
     u32 cmd;
@@ -73,6 +83,7 @@ struct aml_vcodec_ctx {
     struct encode_request_s request;
     struct meson_canvas *canvas;
     u8 canvas_index;
+    void __iomem *reg_base;
 };
 
 struct aml_vcodec_dev {
@@ -82,7 +93,20 @@ struct aml_vcodec_dev {
     struct v4l2_m2m_dev *m2m_dev;
     void __iomem *enc_base;
     struct meson_canvas *canvas;
+    struct mutex dev_mutex;
+    spinlock_t irqlock;
+    struct encode_manager encode_manager;
 };
+
+static inline u32 aml_read_reg(struct aml_vcodec_ctx *ctx, u32 reg)
+{
+    return readl(ctx->reg_base + reg);
+}
+
+static inline void aml_write_reg(struct aml_vcodec_ctx *ctx, u32 reg, u32 val)
+{
+    writel(val, ctx->reg_base + reg);
+}
 
 static void avc_canvas_init(struct encode_wq_s *wq)
 {
@@ -107,37 +131,37 @@ static void avc_init_encoder(struct encode_wq_s *wq, bool idr)
 {
     struct aml_vcodec_ctx *ctx = container_of(wq, struct aml_vcodec_ctx, wq);
     
-    WRITE_HREG(HCODEC_VLC_TOTAL_BYTES, 0);
-    WRITE_HREG(HCODEC_VLC_CONFIG, 0x07);
-    WRITE_HREG(HCODEC_VLC_INT_CONTROL, 0);
+    aml_write_reg(ctx, HCODEC_VLC_TOTAL_BYTES, 0);
+    aml_write_reg(ctx, HCODEC_VLC_CONFIG, 0x07);
+    aml_write_reg(ctx, HCODEC_VLC_INT_CONTROL, 0);
 
-    WRITE_HREG(HCODEC_ASSIST_AMR1_INT0, 0x15);
-    WRITE_HREG(HCODEC_ASSIST_AMR1_INT1, 0x8);
-    WRITE_HREG(HCODEC_ASSIST_AMR1_INT3, 0x14);
+    aml_write_reg(ctx, HCODEC_ASSIST_AMR1_INT0, 0x15);
+    aml_write_reg(ctx, HCODEC_ASSIST_AMR1_INT1, 0x8);
+    aml_write_reg(ctx, HCODEC_ASSIST_AMR1_INT3, 0x14);
 
-    WRITE_HREG(IDR_PIC_ID, wq->pic.idr_pic_id);
-    WRITE_HREG(FRAME_NUMBER,
+    aml_write_reg(ctx, IDR_PIC_ID, wq->pic.idr_pic_id);
+    aml_write_reg(ctx, FRAME_NUMBER,
         (idr == true) ? 0 : wq->pic.frame_number);
-    WRITE_HREG(PIC_ORDER_CNT_LSB,
+    aml_write_reg(ctx, PIC_ORDER_CNT_LSB,
         (idr == true) ? 0 : wq->pic.pic_order_cnt_lsb);
 
-    WRITE_HREG(LOG2_MAX_PIC_ORDER_CNT_LSB,
+    aml_write_reg(ctx, LOG2_MAX_PIC_ORDER_CNT_LSB,
         wq->pic.log2_max_pic_order_cnt_lsb);
-    WRITE_HREG(LOG2_MAX_FRAME_NUM,
+    aml_write_reg(ctx, LOG2_MAX_FRAME_NUM,
         wq->pic.log2_max_frame_num);
-    WRITE_HREG(ANC0_BUFFER_ID, 0);
-    WRITE_HREG(QPPICTURE, wq->pic.init_qppicture);
+    aml_write_reg(ctx, ANC0_BUFFER_ID, 0);
+    aml_write_reg(ctx, QPPICTURE, wq->pic.init_qppicture);
 
     avc_init_encoder_ie(wq, ctx->request.quant);
 
-    WRITE_HREG(ENCODER_STATUS, 0);
-    WRITE_HREG(HCODEC_ASSIST_MMC_CTRL1, 0x32);
+    aml_write_reg(ctx, ENCODER_STATUS, 0);
+    aml_write_reg(ctx, HCODEC_ASSIST_MMC_CTRL1, 0x32);
 
-    WRITE_HREG(QDCT_MB_CONTROL, 
+    aml_write_reg(ctx, QDCT_MB_CONTROL, 
         (1 << 9) | /* mb_info_soft_reset */
         (1 << 0)); /* mb read buffer soft reset */
 
-    WRITE_HREG(QDCT_MB_CONTROL,
+    aml_write_reg(ctx, QDCT_MB_CONTROL,
         (1 << 28) | /* ignore_t_p8x8 */
         (0 << 27) | /* zero_mc_out_null_non_skipped_mb */
         (0 << 26) | /* no_mc_out_null_non_skipped_mb */
@@ -157,10 +181,10 @@ static void avc_init_encoder(struct encode_wq_s *wq, bool idr)
         (0 << 1) | /* mb_read_en */
         (0 << 0)); /* soft reset */
 
-    WRITE_HREG(HCODEC_CURR_CANVAS_CTRL, 0);
-    WRITE_HREG(HCODEC_VLC_CONFIG, READ_HREG(HCODEC_VLC_CONFIG) | (1 << 0)); // set pop_coeff_even_all_zero
+    aml_write_reg(ctx, HCODEC_CURR_CANVAS_CTRL, 0);
+    aml_write_reg(ctx, HCODEC_VLC_CONFIG, aml_read_reg(ctx, HCODEC_VLC_CONFIG) | (1 << 0)); // set pop_coeff_even_all_zero
 
-    WRITE_HREG(HCODEC_IGNORE_CONFIG,
+    aml_write_reg(ctx, HCODEC_IGNORE_CONFIG,
         (1 << 31) | /* ignore_lac_coeff_en */
         (1 << 26) | /* ignore_lac_coeff_else (<1) */
         (1 << 21) | /* ignore_lac_coeff_2 (<1) */
@@ -171,7 +195,7 @@ static void avc_init_encoder(struct encode_wq_s *wq, bool idr)
         (3 << 0));  /* ignore_cac_coeff_1 (<2) */
 
     if (get_cpu_type() >= MESON_CPU_MAJOR_ID_GXTVBB)
-        WRITE_HREG(HCODEC_IGNORE_CONFIG_2,
+        aml_write_reg(ctx, HCODEC_IGNORE_CONFIG_2,
             (1 << 31) | /* ignore_t_lac_coeff_en */
             (1 << 26) | /* ignore_t_lac_coeff_else (<1) */
             (2 << 21) | /* ignore_t_lac_coeff_2 (<2) */
@@ -188,45 +212,47 @@ static void avc_init_encoder(struct encode_wq_s *wq, bool idr)
             (1 << 2) |  /* ignore_cdc_range_max_intra 0-0, 1-1, 2-2, 3-3 */
             (0 << 0));  /* ignore_cdc_abs_max_intra 0-1, 1-2, 2-3, 3-4 */
     else
-        WRITE_HREG(HCODEC_IGNORE_CONFIG_2,
+        aml_write_reg(ctx, HCODEC_IGNORE_CONFIG_2,
             (1 << 31) | /* ignore_t_lac_coeff_en */
             (1 << 26) | /* ignore_t_lac_coeff_else (<1) */
             (1 << 21) | /* ignore_t_lac_coeff_2 (<1) */
             (5 << 16) | /* ignore_t_lac_coeff_1 (<5) */
             (0 << 0));
 
-    WRITE_HREG(HCODEC_QDCT_MB_CONTROL, 1 << 8); // mb_info_state_reset
+    aml_write_reg(ctx, HCODEC_QDCT_MB_CONTROL, 1 << 8); // mb_info_state_reset
 }
 
 static void avc_init_encoder_ie(struct encode_wq_s *wq, u32 quant)
 {
-    WRITE_HREG(HCODEC_IE_CONTROL,
+    struct aml_vcodec_ctx *ctx = container_of(wq, struct aml_vcodec_ctx, wq);
+
+    aml_write_reg(ctx, HCODEC_IE_CONTROL,
         (1 << 30) | /* active_ul_block */
         (0 << 1) | /* ie_enable */
         (1 << 0)); /* ie soft reset */
 
-    WRITE_HREG(HCODEC_IE_CONTROL,
+    aml_write_reg(ctx, HCODEC_IE_CONTROL,
         (1 << 30) | /* active_ul_block */
         (0 << 1) | /* ie_enable */
         (0 << 0)); /* ie soft reset */
 
-    WRITE_HREG(HCODEC_IE_WEIGHT,
+    aml_write_reg(ctx, HCODEC_IE_WEIGHT,
         (wq->i16_weight << 16) |
         (wq->i4_weight << 0));
-    WRITE_HREG(HCODEC_ME_WEIGHT,
+    aml_write_reg(ctx, HCODEC_ME_WEIGHT,
         (wq->me_weight << 0));
-    WRITE_HREG(HCODEC_SAD_CONTROL_0,
+    aml_write_reg(ctx, HCODEC_SAD_CONTROL_0,
         (wq->i16_weight << 16) |
         (wq->i4_weight << 0));
-    WRITE_HREG(HCODEC_SAD_CONTROL_1,
+    aml_write_reg(ctx, HCODEC_SAD_CONTROL_1,
         (IE_SAD_SHIFT_I16 << 24) |
         (IE_SAD_SHIFT_I4 << 20) |
         (ME_SAD_SHIFT_INTER << 16) |
         (wq->me_weight << 0));
 
-    WRITE_HREG(HCODEC_IE_DATA_FEED_BUFF_INFO, 0);
+    aml_write_reg(ctx, HCODEC_IE_DATA_FEED_BUFF_INFO, 0);
 
-    WRITE_HREG(HCODEC_QDCT_Q_QUANT_I,
+    aml_write_reg(ctx, HCODEC_QDCT_Q_QUANT_I,
         (quant << 22) |
         (quant << 16) |
         ((quant % 6) << 12) |
@@ -234,7 +260,7 @@ static void avc_init_encoder_ie(struct encode_wq_s *wq, u32 quant)
         ((quant % 6) << 4) |
         ((quant / 6) << 0));
 
-    WRITE_HREG(HCODEC_QDCT_Q_QUANT_P,
+    aml_write_reg(ctx, HCODEC_QDCT_Q_QUANT_P,
         (quant << 22) |
         (quant << 16) |
         ((quant % 6) << 12) |
@@ -242,21 +268,21 @@ static void avc_init_encoder_ie(struct encode_wq_s *wq, u32 quant)
         ((quant % 6) << 4) |
         ((quant / 6) << 0));
 
-    WRITE_HREG(HCODEC_SAD_CONTROL_0,
+    aml_write_reg(ctx, HCODEC_SAD_CONTROL_0,
         (wq->i16_weight << 16) |
         (wq->i4_weight << 0));
-    WRITE_HREG(HCODEC_SAD_CONTROL_1,
+    aml_write_reg(ctx, HCODEC_SAD_CONTROL_1,
         (IE_SAD_SHIFT_I16 << 24) |
         (IE_SAD_SHIFT_I4 << 20) |
         (ME_SAD_SHIFT_INTER << 16) |
         (wq->me_weight << 0));
 
-    WRITE_HREG(HCODEC_ADV_MV_CTL0,
+    aml_write_reg(ctx, HCODEC_ADV_MV_CTL0,
         (ADV_MV_LARGE_16x8 << 31) |
         (ADV_MV_LARGE_8x16 << 30) |
         (ADV_MV_8x8_WEIGHT << 16) |
         (ADV_MV_4x4x4_WEIGHT << 0));
-    WRITE_HREG(HCODEC_ADV_MV_CTL1,
+    aml_write_reg(ctx, HCODEC_ADV_MV_CTL1,
         (ADV_MV_16x16_WEIGHT << 16) |
         (ADV_MV_LARGE_16x16 << 15) |
         (ADV_MV_16_8_WEIGHT << 0));
@@ -313,7 +339,6 @@ static int aml_vcodec_buf_init(struct vb2_buffer *vb)
     return 0;
 }
 
-
 static int aml_vcodec_buf_prepare(struct vb2_buffer *vb)
 {
     struct aml_vcodec_ctx *ctx = vb2_get_drv_priv(vb->vb2_queue);
@@ -351,7 +376,7 @@ static void aml_vcodec_stop_streaming(struct vb2_queue *q)
     struct aml_vcodec_ctx *ctx = vb2_get_drv_priv(q);
 
     if (q->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE) {
-        amvenc_avc_stop();
+        amvenc_avc_stop(ctx);
     }
 }
 
@@ -380,7 +405,7 @@ static void aml_vcodec_job_abort(void *priv)
     struct aml_vcodec_ctx *ctx = priv;
     
     // Stop encoding process
-    amvenc_avc_stop();
+    amvenc_avc_stop(ctx);
     
     // Clear any pending buffers
     v4l2_m2m_job_finish(ctx->dev->m2m_dev, ctx->fh.m2m_ctx);
@@ -486,90 +511,32 @@ static int encode_wq_add_request(struct encode_wq_s *wq)
     return 0;
 }
 
-static void avc_init_input_buffer(void *info)
-{
-    struct encode_wq_s *wq = info;
-    
-    WRITE_HREG(HCODEC_QDCT_MB_START_PTR, wq->mem.dct_buff_start_addr);
-    WRITE_HREG(HCODEC_QDCT_MB_END_PTR, wq->mem.dct_buff_end_addr);
-    WRITE_HREG(HCODEC_QDCT_MB_WR_PTR, wq->mem.dct_buff_start_addr);
-    WRITE_HREG(HCODEC_QDCT_MB_RD_PTR, wq->mem.dct_buff_start_addr);
-    WRITE_HREG(HCODEC_QDCT_MB_BUFF, 0);
-}
-
-static void avc_init_output_buffer(void *info)
-{
-    struct encode_wq_s *wq = info;
-    
-    WRITE_HREG(HCODEC_VLC_VB_MEM_CTL, 
-        (1 << 31) | (0x3f << 24) | (0x20 << 16) | (2 << 0));
-    WRITE_HREG(HCODEC_VLC_VB_START_PTR, wq->mem.BitstreamStart);
-    WRITE_HREG(HCODEC_VLC_VB_WR_PTR, wq->mem.BitstreamStart);
-    WRITE_HREG(HCODEC_VLC_VB_SW_RD_PTR, wq->mem.BitstreamStart);
-    WRITE_HREG(HCODEC_VLC_VB_END_PTR, wq->mem.BitstreamEnd);
-    WRITE_HREG(HCODEC_VLC_VB_CONTROL, 1);
-    WRITE_HREG(HCODEC_VLC_VB_CONTROL, 
-        (0 << 14) | (7 << 3) | (1 << 1) | (0 << 0));
-}
-
-static irqreturn_t enc_isr(int irq_number, void *para)
-{
-    struct aml_vcodec_dev *dev = para;
-    
-    WRITE_HREG(HCODEC_IRQ_MBOX_CLR, 1);
-    
-    dev->encode_manager.encode_hw_status = READ_HREG(ENCODER_STATUS);
-    
-    if (dev->encode_manager.encode_hw_status == ENCODER_IDR_DONE ||
-        dev->encode_manager.encode_hw_status == ENCODER_NON_IDR_DONE ||
-        dev->encode_manager.encode_hw_status == ENCODER_SEQUENCE_DONE ||
-        dev->encode_manager.encode_hw_status == ENCODER_PICTURE_DONE) {
-        dev->encode_manager.process_irq = true;
-        wake_up_interruptible(&dev->encode_manager.event.hw_complete);
-    }
-    
-    return IRQ_HANDLED;
-}
-
-static void amvenc_avc_stop(void)
+static void amvenc_avc_stop(struct aml_vcodec_ctx *ctx)
 {
     ulong timeout = jiffies + HZ;
 
-    WRITE_HREG(HCODEC_MPSR, 0);
-    WRITE_HREG(HCODEC_CPSR, 0);
+    aml_write_reg(ctx, HCODEC_MPSR, 0);
+    aml_write_reg(ctx, HCODEC_CPSR, 0);
     
-    while (READ_HREG(HCODEC_IMEM_DMA_CTRL) & 0x8000) {
+    while (aml_read_reg(ctx, HCODEC_IMEM_DMA_CTRL) & 0x8000) {
         if (time_after(jiffies, timeout))
             break;
     }
     
-    WRITE_VREG(DOS_SW_RESET1, 
+    aml_write_reg(ctx, DOS_SW_RESET1, 
         (1 << 12) | (1 << 11) | (1 << 2) | (1 << 6) | 
         (1 << 7) | (1 << 8) | (1 << 14) | (1 << 16) | (1 << 17));
-    WRITE_VREG(DOS_SW_RESET1, 0);
+    aml_write_reg(ctx, DOS_SW_RESET1, 0);
 }
 
 static const char *select_ucode(u32 ucode_index)
 {
-#ifdef IGNORE_THIS_CODE
-    switch (ucode_index) {
-    case UCODE_MODE_FULL:
-        if (get_cpu_type() >= MESON_CPU_MAJOR_ID_G12A)
-            return "ga_h264_enc_cabac";
-        else if (get_cpu_type() >= MESON_CPU_MAJOR_ID_TXL)
-            return "txl_h264_enc_cavlc";
-        else
-            return "gxl_h264_enc";
-    default:
-        return "gxl_h264_enc";
-    }
-#else
     return "gxl_h264_enc";
-#endif
 }
 
 static s32 amvenc_loadmc(const char *p, struct encode_wq_s *wq)
 {
+    struct aml_vcodec_ctx *ctx = container_of(wq, struct aml_vcodec_ctx, wq);
     ulong timeout;
     s32 ret = 0;
 
@@ -578,19 +545,19 @@ static s32 amvenc_loadmc(const char *p, struct encode_wq_s *wq)
         return -ENOMEM;
     }
 
-    WRITE_HREG(HCODEC_MPSR, 0);
-    WRITE_HREG(HCODEC_CPSR, 0);
+    aml_write_reg(ctx, HCODEC_MPSR, 0);
+    aml_write_reg(ctx, HCODEC_CPSR, 0);
 
-    timeout = READ_HREG(HCODEC_MPSR);
-    timeout = READ_HREG(HCODEC_MPSR);
+    timeout = aml_read_reg(ctx, HCODEC_MPSR);
+    timeout = aml_read_reg(ctx, HCODEC_MPSR);
 
     timeout = jiffies + HZ;
 
-    WRITE_HREG(HCODEC_IMEM_DMA_ADR, wq->mem.assit_buffer_offset);
-    WRITE_HREG(HCODEC_IMEM_DMA_COUNT, 0x1000);
-    WRITE_HREG(HCODEC_IMEM_DMA_CTRL, (0x8000 | (7 << 16)));
+    aml_write_reg(ctx, HCODEC_IMEM_DMA_ADR, wq->mem.assit_buffer_offset);
+    aml_write_reg(ctx, HCODEC_IMEM_DMA_COUNT, 0x1000);
+    aml_write_reg(ctx, HCODEC_IMEM_DMA_CTRL, (0x8000 | (7 << 16)));
 
-    while (READ_HREG(HCODEC_IMEM_DMA_CTRL) & 0x8000) {
+    while (aml_read_reg(ctx, HCODEC_IMEM_DMA_CTRL) & 0x8000) {
         if (time_before(jiffies, timeout))
             schedule();
         else {
@@ -709,42 +676,65 @@ static void aml_vcodec_canvas_free(struct aml_vcodec_ctx *ctx)
     }
 }
 
-// V4L2 file operations
+static int aml_vcodec_open(struct file *file)
+{
+    struct aml_vcodec_dev *dev = video_drvdata(file);
+    struct aml_vcodec_ctx *ctx = NULL;
+    int ret = 0;
+
+    ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
+    if (!ctx)
+        return -ENOMEM;
+
+    mutex_init(&ctx->lock);
+    ctx->dev = dev;
+
+    v4l2_fh_init(&ctx->fh, video_devdata(file));
+    file->private_data = &ctx->fh;
+    v4l2_fh_add(&ctx->fh);
+
+    ctx->fh.m2m_ctx = v4l2_m2m_ctx_init(dev->m2m_dev, ctx,
+                                        &aml_vcodec_queue_init);
+    if (IS_ERR(ctx->fh.m2m_ctx)) {
+        ret = PTR_ERR(ctx->fh.m2m_ctx);
+        goto err_fh_free;
+    }
+
+    ret = aml_vcodec_ctx_init(ctx);
+    if (ret)
+        goto err_m2m_ctx_release;
+
+    return 0;
+
+err_m2m_ctx_release:
+    v4l2_m2m_ctx_release(ctx->fh.m2m_ctx);
+err_fh_free:
+    v4l2_fh_del(&ctx->fh);
+    v4l2_fh_exit(&ctx->fh);
+    kfree(ctx);
+    return ret;
+}
+
+static int aml_vcodec_release(struct file *file)
+{
+    struct aml_vcodec_ctx *ctx = fh_to_ctx(file->private_data);
+
+    aml_vcodec_ctx_release(ctx);
+    v4l2_m2m_ctx_release(ctx->fh.m2m_ctx);
+    v4l2_fh_del(&ctx->fh);
+    v4l2_fh_exit(&ctx->fh);
+    kfree(ctx);
+
+    return 0;
+}
+
 static const struct v4l2_file_operations aml_vcodec_fops = {
     .owner          = THIS_MODULE,
-    .open           = v4l2_fh_open,
-    .release        = vb2_fop_release,
+    .open           = aml_vcodec_open,
+    .release        = aml_vcodec_release,
     .poll           = v4l2_m2m_fop_poll,
     .unlocked_ioctl = video_ioctl2,
-    .mmap           = vb2_fop_mmap,
-};
-
-// V4L2 ioctl operations
-static const struct v4l2_ioctl_ops aml_vcodec_ioctl_ops = {
-    .vidioc_querycap        = aml_vcodec_querycap,
-    .vidioc_enum_fmt_vid_cap = aml_vcodec_enum_fmt_vid_cap,
-    .vidioc_enum_fmt_vid_out = aml_vcodec_enum_fmt_vid_out,
-    .vidioc_g_fmt_vid_cap_mplane = aml_vcodec_g_fmt,
-    .vidioc_g_fmt_vid_out_mplane = aml_vcodec_g_fmt,
-    .vidioc_s_fmt_vid_cap_mplane = aml_vcodec_s_fmt,
-    .vidioc_s_fmt_vid_out_mplane = aml_vcodec_s_fmt,
-    .vidioc_try_fmt_vid_cap_mplane = aml_vcodec_try_fmt,
-    .vidioc_try_fmt_vid_out_mplane = aml_vcodec_try_fmt,
-    .vidioc_reqbufs         = v4l2_m2m_ioctl_reqbufs,
-    .vidioc_querybuf        = v4l2_m2m_ioctl_querybuf,
-    .vidioc_qbuf            = v4l2_m2m_ioctl_qbuf,
-    .vidioc_dqbuf           = v4l2_m2m_ioctl_dqbuf,
-    .vidioc_streamon        = v4l2_m2m_ioctl_streamon,
-    .vidioc_streamoff       = v4l2_m2m_ioctl_streamoff,
-    .vidioc_subscribe_event = v4l2_ctrl_subscribe_event,
-    .vidioc_unsubscribe_event = v4l2_event_unsubscribe,
-};
-
-// V4L2 M2M operations
-static const struct v4l2_m2m_ops aml_vcodec_m2m_ops = {
-    .device_run = aml_vcodec_device_run,
-    .job_ready  = aml_vcodec_job_ready,
-    .job_abort  = aml_vcodec_job_abort,
+    .mmap           = v4l2_m2m_fop_mmap,
 };
 
 static int aml_vcodec_querycap(struct file *file, void *priv,
@@ -845,105 +835,37 @@ static int aml_vcodec_s_fmt(struct file *file, void *priv,
     return 0;
 }
 
-static int aml_vcodec_ctx_init(struct aml_vcodec_ctx *ctx)
-{
-    int ret;
-
-    ctx->wq = kzalloc(sizeof(*ctx->wq), GFP_KERNEL);
-    if (!ctx->wq)
-        return -ENOMEM;
-
-    ret = aml_vcodec_cma_init(ctx);
-    if (ret)
-        goto free_wq;
-
-    ret = aml_vcodec_canvas_init(ctx);
-    if (ret)
-        goto free_cma;
-
-    return 0;
-
-free_cma:
-    aml_vcodec_cma_free(ctx);
-free_wq:
-    kfree(ctx->wq);
-    return ret;
-}
-
-static void aml_vcodec_ctx_release(struct aml_vcodec_ctx *ctx)
-{
-    aml_vcodec_canvas_free(ctx);
-    aml_vcodec_cma_free(ctx);
-    kfree(ctx->wq);
-}
-
-static int aml_vcodec_open(struct file *file)
-{
-    struct aml_vcodec_dev *dev = video_drvdata(file);
-    struct aml_vcodec_ctx *ctx = NULL;
-    int ret = 0;
-
-    ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
-    if (!ctx)
-        return -ENOMEM;
-
-    mutex_init(&ctx->lock);
-    ctx->dev = dev;
-
-    v4l2_fh_init(&ctx->fh, video_devdata(file));
-    file->private_data = &ctx->fh;
-    v4l2_fh_add(&ctx->fh);
-
-    ctx->fh.m2m_ctx = v4l2_m2m_ctx_init(dev->m2m_dev, ctx,
-                                        &aml_vcodec_queue_init);
-    if (IS_ERR(ctx->fh.m2m_ctx)) {
-        ret = PTR_ERR(ctx->fh.m2m_ctx);
-        goto err_fh_free;
-    }
-
-    ret = aml_vcodec_ctx_init(ctx);
-    if (ret)
-        goto err_m2m_ctx_release;
-
-    return 0;
-
-err_m2m_ctx_release:
-    v4l2_m2m_ctx_release(ctx->fh.m2m_ctx);
-err_fh_free:
-    v4l2_fh_del(&ctx->fh);
-    v4l2_fh_exit(&ctx->fh);
-    kfree(ctx);
-    return ret;
-}
-
-static int aml_vcodec_release(struct file *file)
-{
-    struct aml_vcodec_ctx *ctx = fh_to_ctx(file->private_data);
-
-    aml_vcodec_ctx_release(ctx);
-    v4l2_m2m_ctx_release(ctx->fh.m2m_ctx);
-    v4l2_fh_del(&ctx->fh);
-    v4l2_fh_exit(&ctx->fh);
-    kfree(ctx);
-
-    return 0;
-}
-
-static const struct v4l2_file_operations aml_vcodec_fops = {
-    .owner          = THIS_MODULE,
-    .open           = aml_vcodec_open,
-    .release        = aml_vcodec_release,
-    .poll           = v4l2_m2m_fop_poll,
-    .unlocked_ioctl = video_ioctl2,
-    .mmap           = v4l2_m2m_fop_mmap,
+static const struct v4l2_ioctl_ops aml_vcodec_ioctl_ops = {
+    .vidioc_querycap        = aml_vcodec_querycap,
+    .vidioc_enum_fmt_vid_cap = aml_vcodec_enum_fmt_vid_cap,
+    .vidioc_enum_fmt_vid_out = aml_vcodec_enum_fmt_vid_out,
+    .vidioc_g_fmt_vid_cap_mplane = aml_vcodec_g_fmt,
+    .vidioc_g_fmt_vid_out_mplane = aml_vcodec_g_fmt,
+    .vidioc_s_fmt_vid_cap_mplane = aml_vcodec_s_fmt,
+    .vidioc_s_fmt_vid_out_mplane = aml_vcodec_s_fmt,
+    .vidioc_try_fmt_vid_cap_mplane = aml_vcodec_try_fmt,
+    .vidioc_try_fmt_vid_out_mplane = aml_vcodec_try_fmt,
+    .vidioc_reqbufs         = v4l2_m2m_ioctl_reqbufs,
+    .vidioc_querybuf        = v4l2_m2m_ioctl_querybuf,
+    .vidioc_qbuf            = v4l2_m2m_ioctl_qbuf,
+    .vidioc_dqbuf           = v4l2_m2m_ioctl_dqbuf,
+    .vidioc_streamon        = v4l2_m2m_ioctl_streamon,
+    .vidioc_streamoff       = v4l2_m2m_ioctl_streamoff,
+    .vidioc_subscribe_event = v4l2_ctrl_subscribe_event,
+    .vidioc_unsubscribe_event = v4l2_event_unsubscribe,
 };
 
-
+static const struct v4l2_m2m_ops aml_vcodec_m2m_ops = {
+    .device_run = aml_vcodec_device_run,
+    .job_ready  = aml_vcodec_job_ready,
+    .job_abort  = aml_vcodec_job_abort,
+};
 
 static int aml_vcodec_probe(struct platform_device *pdev)
 {
     struct aml_vcodec_dev *dev;
     struct video_device *vfd;
+    struct resource *res;
     int ret;
 
     dev = devm_kzalloc(&pdev->dev, sizeof(*dev), GFP_KERNEL);
@@ -954,9 +876,10 @@ static int aml_vcodec_probe(struct platform_device *pdev)
     if (ret)
         return ret;
 
-    dev->enc_base = devm_platform_ioremap_resource(pdev, 0);
-    if (IS_ERR(dev->enc_base)) {
-        ret = PTR_ERR(dev->enc_base);
+    res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+    dev->reg_base = devm_ioremap_resource(&pdev->dev, res);
+    if (IS_ERR(dev->reg_base)) {
+        ret = PTR_ERR(dev->reg_base);
         goto err_unregister_v4l2_dev;
     }
 
@@ -983,7 +906,7 @@ static int aml_vcodec_probe(struct platform_device *pdev)
 
     video_set_drvdata(vfd, dev);
 
-    dev->m2m_dev = v4l2_m2m_init(&aml_vcodec_m2m_ops);
+dev->m2m_dev = v4l2_m2m_init(&aml_vcodec_m2m_ops);
     if (IS_ERR(dev->m2m_dev)) {
         ret = PTR_ERR(dev->m2m_dev);
         goto err_free_vfd;
@@ -999,7 +922,6 @@ static int aml_vcodec_probe(struct platform_device *pdev)
     pm_runtime_enable(&pdev->dev);
 
     dev->dev = &pdev->dev;
-    dev->encode_manager = encode_manager;
 
     ret = avc_init(dev);
     if (ret)
