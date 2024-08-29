@@ -533,3 +533,76 @@ void avc_configure_left_small_max_sad(u32 v3_left_small_max_me_sad, u32 v3_left_
         (v3_left_small_max_me_sad << 16) |
         (v3_left_small_max_ie_sad << 0));
 }
+
+void avc_configure_svc_pic_type(struct encode_wq_s *wq, bool is_idr) {
+    if (wq->pic.enable_svc && wq->pic.non_ref_cnt) {
+        WRITE_HREG(H264_ENC_SVC_PIC_TYPE, ENC_SLC_NON_REF);
+    } else {
+        WRITE_HREG(H264_ENC_SVC_PIC_TYPE, ENC_SLC_REF);
+    }
+}
+
+void avc_configure_fixed_slice(struct encode_wq_s *wq) {
+    if (fixed_slice_cfg) {
+        WRITE_HREG(FIXED_SLICE_CFG, fixed_slice_cfg);
+    } else if (wq->pic.rows_per_slice != (wq->pic.encoder_height + 15) >> 4) {
+        u32 mb_per_slice = (wq->pic.encoder_height + 15) >> 4;
+        mb_per_slice = mb_per_slice * wq->pic.rows_per_slice;
+        WRITE_HREG(FIXED_SLICE_CFG, mb_per_slice);
+    } else {
+        WRITE_HREG(FIXED_SLICE_CFG, 0);
+    }
+}
+
+void avc_configure_encoding_mode(struct encode_wq_s *wq, bool is_idr) {
+    u32 data32;
+
+    data32 = READ_HREG(HCODEC_VLC_ADV_CONFIG);
+    if (!is_idr) {
+        // Configure for P frame
+        data32 |= (1 << 10) | (1 << 7) | (1 << 6);
+    } else {
+        // Configure for I frame
+        data32 &= ~((1 << 10) | (1 << 7) | (1 << 6));
+    }
+    WRITE_HREG(HCODEC_VLC_ADV_CONFIG, data32);
+
+    data32 = READ_HREG(HCODEC_QDCT_ADV_CONFIG);
+    if (!is_idr) {
+        // Configure for P frame
+        data32 |= (1 << 23) | (1 << 20) | (1 << 19) | (1 << 16);
+    } else {
+        // Configure for I frame
+        data32 &= ~((1 << 23) | (1 << 20) | (1 << 19) | (1 << 16));
+    }
+    WRITE_HREG(HCODEC_QDCT_ADV_CONFIG, data32);
+
+    if (is_idr) {
+        WRITE_HREG(HCODEC_IE_ME_MODE, ie_me_mode);
+        WRITE_HREG(HCODEC_IE_ME_MB_TYPE, HENC_MB_Type_I4MB);
+    } else {
+        WRITE_HREG(HCODEC_IE_ME_MODE, ie_me_mode |
+                   (HENC_SKIP_RUN_AUTO << 16) |
+                   (HENC_MB_TYPE_AUTO << 18) |
+                   (HENC_COEFF_TOKEN_AUTO << 20));
+        WRITE_HREG(HCODEC_IE_ME_MB_TYPE,
+            (HENC_SKIP_RUN_AUTO << 16) |
+            (HENC_MB_TYPE_AUTO << 4) |
+            (HENC_MB_TYPE_AUTO << 0));
+    }
+}
+
+void avc_configure_cbr_settings(struct encode_wq_s *wq) {
+    if (get_cpu_type() >= MESON_CPU_MAJOR_ID_GXTVBB) {
+        WRITE_HREG(H264_ENC_CBR_TABLE_ADDR, wq->mem.cbr_info_ddr_start_addr);
+        WRITE_HREG(H264_ENC_CBR_MB_SIZE_ADDR, wq->mem.cbr_info_ddr_start_addr + CBR_TABLE_SIZE);
+        WRITE_HREG(H264_ENC_CBR_CTL,
+            (wq->cbr_info.start_tbl_id << 28) |
+            (wq->cbr_info.short_shift << 24) |
+            (wq->cbr_info.long_mb_num << 16) |
+            (wq->cbr_info.long_th << 0));
+        WRITE_HREG(H264_ENC_CBR_REGION_SIZE,
+            (wq->cbr_info.block_w << 16) |
+            (wq->cbr_info.block_h << 0));
+    }
+}
