@@ -176,4 +176,117 @@ void avc_encoder_stop(void);
 void avc_configure_mfdin(u32 input, u8 iformat, u8 oformat, u32 picsize_x, u32 picsize_y,
                          u8 r2y_en, u8 nr, u8 ifmt_extra);
 
+/**
+ * avc_configure_encoder_control - Configure advanced encoder control settings
+ *
+ * This function sets up various advanced control registers for the AVC encoder.
+ * It configures memory management, VLC advanced settings, and QDCT advanced settings.
+ * 
+ * When to use: This should be called once during the encoder initialization,
+ * after setting up basic encoder parameters but before starting the first frame encode.
+ */
+void avc_configure_encoder_control(void);
+
+/**
+ * avc_configure_ie_weight - Configure intra estimation and motion estimation weights
+ * @i16_weight: Weight for I16MB (Intra 16x16 MacroBlock)
+ * @i4_weight: Weight for I4MB (Intra 4x4 MacroBlock)
+ * @me_weight: Weight for motion estimation
+ *
+ * This function sets up the weights for intra estimation (I16MB and I4MB) and
+ * motion estimation. It also configures SAD (Sum of Absolute Differences) control
+ * registers for these estimations.
+ *
+ * When to use: This should be called before encoding each frame, as these weights
+ * might need to be adjusted based on the frame type (I-frame, P-frame) or
+ * other encoding parameters that may change per frame.
+ */
+void avc_configure_ie_weight(u32 i16_weight, u32 i4_weight, u32 me_weight);
+
+/**
+ * avc_configure_mv_merge - Configure motion vector merge control
+ * @me_mv_merge_ctl: Motion vector merge control value
+ *
+ * This function configures the motion vector merge control register, which
+ * affects how motion vectors are merged during the encoding process.
+ *
+ * When to use: This should be called before encoding P-frames or B-frames,
+ * where motion estimation is performed. It's typically set once during
+ * encoder initialization, but may be adjusted if the encoding strategy changes.
+ */
+void avc_configure_mv_merge(u32 me_mv_merge_ctl);
+
+/**
+ * avc_configure_me_parameters - Configure motion estimation parameters
+ * @me_step0_close_mv: Step 0 close MV parameter
+ * @me_f_skip_sad: ME f_skip SAD parameter
+ * @me_f_skip_weight: ME f_skip weight parameter
+ * @me_sad_range_inc: ME SAD range increment parameter
+ * @me_sad_enough_01: ME SAD enough 0-1 parameter
+ * @me_sad_enough_23: ME SAD enough 2-3 parameter
+ *
+ * This function configures various parameters related to motion estimation,
+ * including SAD thresholds, weights, and control values.
+ *
+ * When to use: This should be called before encoding P-frames or B-frames.
+ * These parameters may need to be adjusted based on the encoding quality
+ * requirements or the nature of the video content.
+ */
+void avc_configure_me_parameters(u32 me_step0_close_mv, u32 me_f_skip_sad, 
+                                 u32 me_f_skip_weight, u32 me_sad_range_inc,
+                                 u32 me_sad_enough_01, u32 me_sad_enough_23);
+
+/**
+ * avc_configure_skip_control - Configure skip control for V3 encoding
+ *
+ * This function sets up the skip control registers for V3 encoding, including
+ * enabling various skip features and setting up skip weights and SAD thresholds.
+ *
+ * When to use: This should be called during encoder initialization when using
+ * V3 encoding features. It may also be called before encoding P-frames if
+ * the skip control parameters need to be adjusted dynamically.
+ */
+void avc_configure_skip_control(void);
+
+/**
+ * avc_configure_mv_sad_table - Configure motion vector SAD table
+ * @v3_mv_sad: Pointer to the v3_mv_sad array containing 64 SAD values
+ *
+ * This function populates the motion vector SAD table used in the encoding process.
+ * The table contains 64 SAD values that are used in motion estimation.
+ *
+ * When to use: This should be called during encoder initialization, after
+ * the SAD values have been calculated or predetermined. It typically only
+ * needs to be set once, unless the SAD table needs to be dynamically updated
+ * during the encoding process.
+ */
+void avc_configure_mv_sad_table(u32 *v3_mv_sad);
+
+/**
+ * avc_configure_ipred_weight - Configure intra prediction weights
+ *
+ * This function sets up the weights for various intra prediction modes,
+ * including weights for Chroma, Intra 4x4, and Intra 16x16 prediction modes.
+ *
+ * When to use: This should be called during encoder initialization, before
+ * starting to encode frames. These weights typically remain constant throughout
+ * the encoding process, but may be adjusted if the intra prediction strategy
+ * needs to change.
+ */
+void avc_configure_ipred_weight(void);
+
+/**
+ * avc_configure_left_small_max_sad - Configure max SAD for left small area
+ * @v3_left_small_max_me_sad: Max ME SAD for left small area
+ * @v3_left_small_max_ie_sad: Max IE SAD for left small area
+ *
+ * This function sets the maximum SAD (Sum of Absolute Differences) values
+ * for the left small area in both motion estimation (ME) and intra estimation (IE).
+ *
+ * When to use: This should be called during encoder initialization or before
+ * starting to encode a new sequence. These values may need to be adjusted
+ * based on the video content or encoding quality requirements.
+ */
+void avc_configure_left_small_max_sad(u32 v3_left_small_max_me_sad, u32 v3_left_small_max_ie_sad);
+
 #endif /* __AVC_ENCODER_HW_OPS_H__ */
