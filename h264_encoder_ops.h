@@ -72,7 +72,20 @@ struct encode_wq_s {
  * @wq: Pointer to the encode work queue structure
  *
  * This function configures the quantization tables for intra 4x4, intra 16x16,
- * and inter (motion estimation) blocks in the H.264 encoder hardware.
+ * and inter (motion estimation) blocks in the H.264 encoder hardware. Proper
+ * configuration of these tables is crucial for balancing compression efficiency
+ * and video quality.
+ *
+ * When to use: Call this function in the following scenarios:
+ * 1. During encoder initialization, after setting up the encode work queue.
+ * 2. When changing quantization parameters, which might occur:
+ *    - At the start of a new GOP (Group of Pictures)
+ *    - When adapting to scene changes
+ *    - In response to bitrate control mechanisms
+ * 3. Before encoding each frame if using adaptive quantization strategies.
+ * 
+ * Proper tuning of quantization tables can significantly impact both
+ * the visual quality and the compression ratio of the encoded video.
  */
 void avc_configure_quantization_tables(struct encode_wq_s *wq);
 
@@ -81,7 +94,16 @@ void avc_configure_quantization_tables(struct encode_wq_s *wq);
  * @wq: Pointer to the encode work queue structure
  *
  * This function configures the output bitstream buffer for AVC encoding,
- * setting up start, end, write, and read pointers in the hardware.
+ * setting up start, end, write, and read pointers in the hardware. It ensures
+ * that the encoded bitstream is correctly stored and can be accessed by the system.
+ *
+ * When to use: Call this function in the following scenarios:
+ * 1. During encoder initialization, after allocating the output buffer.
+ * 2. Before starting to encode each frame.
+ * 3. If using dynamic buffer allocation, when switching to a new output buffer.
+ * 
+ * Proper configuration of the output buffer is essential for ensuring that
+ * the encoded bitstream is correctly captured and can be accessed by the system.
  */
 void avc_configure_output_buffer(struct encode_wq_s *wq);
 
@@ -89,8 +111,17 @@ void avc_configure_output_buffer(struct encode_wq_s *wq);
  * avc_configure_input_buffer - Configure input DCT buffer for AVC encoding
  * @wq: Pointer to the encode work queue structure
  *
- * This function configures the input DCT buffer for AVC encoding,
- * setting up start, end, write, and read pointers in the hardware.
+ * This function configures the input DCT (Discrete Cosine Transform) buffer 
+ * for AVC encoding, setting up start, end, write, and read pointers in the hardware.
+ * The DCT buffer is used to store intermediate data during the encoding process.
+ *
+ * When to use: Call this function in the following scenarios:
+ * 1. During encoder initialization, after allocating the DCT buffer.
+ * 2. Before starting to encode each frame.
+ * 3. If using a multi-buffer strategy, when switching between input buffers.
+ * 
+ * Proper configuration of the input DCT buffer is crucial for the encoder's
+ * internal data processing and affects the overall encoding performance.
  */
 void avc_configure_input_buffer(struct encode_wq_s *wq);
 
@@ -99,6 +130,16 @@ void avc_configure_input_buffer(struct encode_wq_s *wq);
  * @canvas: Canvas index for the reference frame
  *
  * This function configures the reference frame buffer for AVC encoding in the hardware.
+ * The reference buffer is used for inter-frame prediction and is crucial for 
+ * efficient compression of P and B frames.
+ *
+ * When to use: Call this function in the following scenarios:
+ * 1. Before encoding each P or B frame, to set up the appropriate reference frame.
+ * 2. When implementing adaptive reference frame selection strategies.
+ * 3. In multi-reference encoding schemes, potentially multiple times per frame.
+ * 
+ * Proper management and configuration of reference buffers is key to achieving
+ * good compression ratios and maintaining video quality in inter-frame coding.
  */
 void avc_configure_ref_buffer(int canvas);
 
@@ -107,6 +148,17 @@ void avc_configure_ref_buffer(int canvas);
  * @wq: Pointer to the encode work queue structure
  *
  * This function configures the assist buffer for AVC encoding in the hardware.
+ * The assist buffer is used for various auxiliary data and intermediate results
+ * during the encoding process.
+ *
+ * When to use: Call this function in the following scenarios:
+ * 1. During encoder initialization, after allocating the assist buffer.
+ * 2. Before starting to encode each frame, if the assist buffer needs to be reset.
+ * 3. When switching between different encoding modes that require different
+ *    assist buffer configurations.
+ * 
+ * Proper setup of the assist buffer ensures smooth operation of various
+ * encoding sub-processes and can impact overall encoding efficiency.
  */
 void avc_configure_assist_buffer(struct encode_wq_s *wq);
 
@@ -115,6 +167,17 @@ void avc_configure_assist_buffer(struct encode_wq_s *wq);
  * @canvas: Canvas index for the deblocking buffer
  *
  * This function configures the deblocking buffer for AVC encoding in the hardware.
+ * The deblocking buffer is used in the process of reducing blocking artifacts,
+ * which is an important step in maintaining video quality.
+ *
+ * When to use: Call this function in the following scenarios:
+ * 1. During encoder initialization, after allocating the deblocking buffer.
+ * 2. Before encoding each frame, to ensure the deblocking buffer is properly set.
+ * 3. When changing deblocking filter parameters, which might occur adaptively
+ *    based on content analysis or encoding mode changes.
+ * 
+ * Proper configuration of the deblocking buffer is crucial for effective
+ * reduction of blocking artifacts and maintaining high visual quality.
  */
 void avc_configure_deblock_buffer(int canvas);
 
@@ -124,7 +187,18 @@ void avc_configure_deblock_buffer(int canvas);
  * @idr: Boolean flag indicating whether this is an IDR frame
  *
  * This function configures various encoder parameters for AVC encoding in the hardware,
- * including frame numbering and picture order count.
+ * including frame numbering, picture order count, and other sequence-related parameters.
+ * It sets up the core encoding parameters that define the structure of the encoded bitstream.
+ *
+ * When to use: Call this function in the following scenarios:
+ * 1. Before encoding each frame, to update frame-specific parameters.
+ * 2. At the start of a new GOP (Group of Pictures), especially for IDR frames.
+ * 3. When changing encoding parameters mid-sequence (e.g., in response to 
+ *    scene changes or adaptive encoding strategies).
+ * 
+ * Proper configuration of these parameters is essential for generating a
+ * valid and efficient H.264 bitstream, and for maintaining the correct
+ * structure of the encoded video sequence.
  */
 void avc_configure_encoder_params(struct encode_wq_s *wq, bool idr);
 
@@ -133,15 +207,41 @@ void avc_configure_encoder_params(struct encode_wq_s *wq, bool idr);
  * @wq: Pointer to the encode work queue structure
  * @quant: Quantization parameter
  *
- * This function configures parameters for Intra Estimation and Motion Estimation
- * in the AVC encoding hardware.
+ * This function configures parameters for Intra Estimation (IE) and Motion Estimation (ME)
+ * in the AVC encoding hardware. It sets up various control registers that govern
+ * how the encoder performs intra prediction and inter-frame motion estimation.
+ *
+ * When to use: Call this function in the following scenarios:
+ * 1. Before encoding each frame, as IE and ME parameters may need adjustment
+ *    based on frame type (I, P, or B) and content characteristics.
+ * 2. When implementing adaptive encoding strategies that modify IE and ME
+ *    behavior based on scene complexity or motion analysis.
+ * 3. When changing encoding quality settings that affect quantization and
+ *    consequently IE and ME decisions.
+ * 
+ * Fine-tuning these parameters can significantly impact both encoding efficiency
+ * and the quality of the resulting video, especially in terms of detail preservation
+ * and motion representation.
  */
 void avc_configure_ie_me(struct encode_wq_s *wq, u32 quant);
 
 /**
  * avc_encoder_reset - Reset the AVC encoder hardware
  *
- * This function resets the AVC encoder hardware, clearing all registers.
+ * This function resets the AVC encoder hardware, clearing all registers and
+ * returning the encoder to its initial state. It's a crucial function for
+ * ensuring the encoder is in a known, clean state before beginning new operations.
+ *
+ * When to use: Call this function in the following scenarios:
+ * 1. At the start of encoding a new video sequence.
+ * 2. After encountering an error condition, to return the encoder to a known state.
+ * 3. When switching between significantly different encoding configurations
+ *    or modes that require a fresh start.
+ * 4. Periodically in long encoding sessions to prevent potential state corruption.
+ * 
+ * Proper use of the reset function is important for maintaining the stability
+ * and reliability of the encoding process, especially in continuous or long-running
+ * encoding scenarios.
  */
 void avc_encoder_reset(void);
 
@@ -149,13 +249,36 @@ void avc_encoder_reset(void);
  * avc_encoder_start - Start the AVC encoder hardware
  *
  * This function starts the AVC encoder hardware, enabling encoding operations.
+ * It typically involves setting specific control registers to initiate the
+ * encoding process.
+ *
+ * When to use: Call this function in the following scenarios:
+ * 1. After all necessary configurations have been set and just before
+ *    actual frame encoding should begin.
+ * 2. When resuming encoding after a pause or stop operation.
+ * 3. At the start of encoding each new frame, if the hardware requires
+ *    explicit starting for each frame.
+ * 
+ * Proper timing of the start operation is crucial for ensuring that all
+ * configurations are in place and the encoder is ready to process frame data.
  */
 void avc_encoder_start(void);
 
 /**
  * avc_encoder_stop - Stop the AVC encoder hardware
  *
- * This function stops the AVC encoder hardware, disabling encoding operations.
+ * This function stops the AVC encoder hardware, halting all encoding operations.
+ * It typically involves clearing or setting specific control registers to
+ * cease the encoding process.
+ *
+ * When to use: Call this function in the following scenarios:
+ * 1. At the end of encoding a video sequence.
+ * 2. When needing to pause encoding operations temporarily.
+ * 3. Before changing major encoding parameters that require a full stop.
+ * 4. In error handling scenarios where immediate cessation of encoding is necessary.
+ * 
+ * Proper use of the stop function is important for cleanly ending encoding sessions,
+ * managing resources, and ensuring the hardware is in a known state when not actively encoding.
  */
 void avc_encoder_stop(void);
 
@@ -171,7 +294,21 @@ void avc_encoder_stop(void);
  * @ifmt_extra: Extra input format information
  *
  * This function configures the Multi-Format Decoder Input (MFDIN) parameters
- * for AVC encoding in the hardware, including input/output formats and picture dimensions.
+ * for AVC encoding in the hardware. It sets up various aspects of input processing,
+ * including format conversion, picture dimensions, and optional features like
+ * RGB to YUV conversion and noise reduction.
+ *
+ * When to use: Call this function in the following scenarios:
+ * 1. Before starting to encode each frame, especially if frame parameters
+ *    (like dimensions or format) can change.
+ * 2. When switching between different input sources or formats.
+ * 3. When enabling or adjusting features like noise reduction or color space conversion.
+ * 4. In pipelines where the input configuration may vary from frame to frame.
+ * 
+ * Proper configuration of MFDIN is crucial for correctly processing the input
+ * video data and preparing it for encoding. It directly affects the quality and
+ * efficiency of the encoding process, especially when dealing with various
+ * input formats and preprocessing requirements.
  */
 void avc_configure_mfdin(u32 input, u8 iformat, u8 oformat, u32 picsize_x, u32 picsize_y,
                          u8 r2y_en, u8 nr, u8 ifmt_extra);
