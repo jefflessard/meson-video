@@ -780,3 +780,61 @@ void avc_configure_v5_simple_mb(void) {
         WRITE_HREG(HCODEC_QDCT_CONFIG, 1 << 0);
     }
 }
+
+#if 0
+void avc_configure_canvas(struct encode_wq_s *wq) {
+    u32 canvas_width, canvas_height;
+    u32 start_addr = wq->mem.buf_start;
+
+    canvas_width = ((wq->pic.encoder_width + 31) >> 5) << 5;
+    canvas_height = ((wq->pic.encoder_height + 15) >> 4) << 4;
+
+    canvas_config(ENC_CANVAS_OFFSET,
+          start_addr + wq->mem.bufspec.dec0_y.buf_start,
+          canvas_width, canvas_height,
+          CANVAS_ADDR_NOWRAP, CANVAS_BLKMODE_LINEAR);
+    canvas_config(1 + ENC_CANVAS_OFFSET,
+          start_addr + wq->mem.bufspec.dec0_uv.buf_start,
+          canvas_width, canvas_height / 2,
+          CANVAS_ADDR_NOWRAP, CANVAS_BLKMODE_LINEAR);
+    canvas_config(2 + ENC_CANVAS_OFFSET,
+          start_addr + wq->mem.bufspec.dec0_uv.buf_start,
+          canvas_width, canvas_height / 2,
+          CANVAS_ADDR_NOWRAP, CANVAS_BLKMODE_LINEAR);
+
+    canvas_config(3 + ENC_CANVAS_OFFSET,
+          start_addr + wq->mem.bufspec.dec1_y.buf_start,
+          canvas_width, canvas_height,
+          CANVAS_ADDR_NOWRAP, CANVAS_BLKMODE_LINEAR);
+    canvas_config(4 + ENC_CANVAS_OFFSET,
+          start_addr + wq->mem.bufspec.dec1_uv.buf_start,
+          canvas_width, canvas_height / 2,
+          CANVAS_ADDR_NOWRAP, CANVAS_BLKMODE_LINEAR);
+    canvas_config(5 + ENC_CANVAS_OFFSET,
+          start_addr + wq->mem.bufspec.dec1_uv.buf_start,
+          canvas_width, canvas_height / 2,
+          CANVAS_ADDR_NOWRAP, CANVAS_BLKMODE_LINEAR);
+}
+#endif
+
+void avc_convert_cbr_table(void *table, u32 len) {
+    u32 i, j;
+    u16 temp;
+    u16 *tbl = (u16 *)table;
+
+    if ((len < 8) || (len % 8) || (!table)) {
+        enc_pr(LOG_ERROR, "ConvertTable2Risc tbl %p, len %d error\n",
+            table, len);
+        return;
+    }
+    for (i = 0; i < len / 8; i++) {
+        j = i << 2;
+        temp = tbl[j];
+        tbl[j] = tbl[j + 3];
+        tbl[j + 3] = temp;
+
+        temp = tbl[j + 1];
+        tbl[j + 1] = tbl[j + 2];
+        tbl[j + 2] = temp;
+    }
+}
