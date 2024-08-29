@@ -606,3 +606,115 @@ void avc_configure_cbr_settings(struct encode_wq_s *wq) {
             (wq->cbr_info.block_h << 0));
     }
 }
+
+void avc_init_encode_weight(void) {
+    me_mv_merge_ctl =
+        (0x1 << 31) | (0x1 << 30) | (0x1 << 29) | (0x1 << 28) |
+        (0x1 << 27) | (0x1 << 26) | (0x1 << 25) | (0x1 << 24) |
+        (0x12 << 18) | (0x2b << 12) | (0x80 << 0);
+
+    me_mv_weight_01 = (0x40 << 24) | (0x30 << 16) | (0x20 << 8) | 0x30;
+    me_mv_weight_23 = (0x40 << 8) | 0x30;
+    me_sad_range_inc = 0x03030303;
+    me_step0_close_mv = 0x003ffc21;
+    me_f_skip_sad = 0;
+    me_f_skip_weight = 0;
+    me_sad_enough_01 = 0x00018010;
+    me_sad_enough_23 = 0x00000020;
+
+    /* Additional weight initializations can be added here */
+}
+
+void avc_configure_v3_control(struct encode_wq_s *wq) {
+    int i;
+
+    /* Configure V3 skip control */
+    WRITE_HREG(HCODEC_V3_SKIP_CONTROL,
+        (1 << 31) | (0 << 30) | (1 << 28) | (1 << 27) |
+        (V3_FORCE_SKIP_SAD_1 << 12) | (V3_FORCE_SKIP_SAD_0 << 0));
+    WRITE_HREG(HCODEC_V3_SKIP_WEIGHT,
+        (V3_SKIP_WEIGHT_1 << 16) | (V3_SKIP_WEIGHT_0 << 0));
+    WRITE_HREG(HCODEC_V3_L1_SKIP_MAX_SAD,
+        (V3_LEVEL_1_F_SKIP_MAX_SAD << 16) | (V3_LEVEL_1_SKIP_MAX_SAD << 0));
+    WRITE_HREG(HCODEC_V3_L2_SKIP_WEIGHT,
+        (V3_FORCE_SKIP_SAD_2 << 16) | (V3_SKIP_WEIGHT_2 << 0));
+
+    /* Configure motion vector SAD table */
+    for (i = 0; i < 64; i++)
+        WRITE_HREG(HCODEC_V3_MV_SAD_TABLE, v3_mv_sad[i]);
+
+    /* Configure intra prediction weights */
+    WRITE_HREG(HCODEC_V3_IPRED_TYPE_WEIGHT_0,
+        (C_ipred_weight_H << 24) | (C_ipred_weight_V << 16) |
+        (I4_ipred_weight_else << 8) | (I4_ipred_weight_most << 0));
+    WRITE_HREG(HCODEC_V3_IPRED_TYPE_WEIGHT_1,
+        (I16_ipred_weight_DC << 24) | (I16_ipred_weight_H << 16) |
+        (I16_ipred_weight_V << 8) | (C_ipred_weight_DC << 0));
+
+    /* Configure left small max SAD */
+    WRITE_HREG(HCODEC_V3_LEFT_SMALL_MAX_SAD,
+        (v3_left_small_max_me_sad << 16) | (v3_left_small_max_ie_sad << 0));
+}
+
+void avc_configure_quant_params(struct encode_wq_s *wq, u32 quant) {
+    u32 i_pic_qp, p_pic_qp, i_pic_qp_c, p_pic_qp_c;
+
+    /* Calculate I and P frame QP values */
+    i_pic_qp = p_pic_qp = quant;
+    i_pic_qp_c = p_pic_qp_c = quant_table_c[quant];
+
+    /* Configure quantization control registers */
+    WRITE_HREG(HCODEC_QDCT_Q_QUANT_I,
+        (i_pic_qp_c << 22) | (i_pic_qp << 16) |
+        ((i_pic_qp_c % 6) << 12) | ((i_pic_qp_c / 6) << 8) |
+        ((i_pic_qp % 6) << 4) | ((i_pic_qp / 6) << 0));
+
+    WRITE_HREG(HCODEC_QDCT_Q_QUANT_P,
+        (p_pic_qp_c << 22) | (p_pic_qp << 16) |
+        ((p_pic_qp_c % 6) << 12) | ((p_pic_qp_c / 6) << 8) |
+        ((p_pic_qp % 6) << 4) | ((p_pic_qp / 6) << 0));
+
+    /* Configure VLC quantization control */
+    WRITE_HREG(HCODEC_QDCT_VLC_QUANT_CTL_0,
+        (0 << 19) | /* vlc_delta_quant_1 */
+        (i_pic_qp << 13) | /* vlc_quant_1 */
+        (0 << 6) | /* vlc_delta_quant_0 */
+        (i_pic_qp << 0)); /* vlc_quant_0 */
+    WRITE_HREG(HCODEC_QDCT_VLC_QUANT_CTL_1,
+        (14 << 6) | /* vlc_max_delta_q_neg */
+        (13 << 0)); /* vlc_max_delta_q_pos */
+}
+
+void avc_configure_ignore_config(void) {
+#ifdef ENABLE_IGNORE_FUNCTION
+    WRITE_HREG(HCODEC_IGNORE_CONFIG,
+        (1 << 31) | /* ignore_lac_coeff_en */
+        (1 << 26) | /* ignore_lac_coeff_else (<1) */
+        (1 << 21) | /* ignore_lac_coeff_2 (<1) */
+        (2 << 16) | /* ignore_lac_coeff_1 (<2) */
+        (1 << 15) | /* ignore_cac_coeff_en */
+        (1 << 10) | /* ignore_cac_coeff_else (<1) */
+        (1 << 5)  | /* ignore_cac_coeff_2 (<1) */
+        (3 << 0));  /* ignore_cac_coeff_1 (<2) */
+
+    if (get_cpu_type() >= MESON_CPU_MAJOR_ID_GXTVBB)
+        WRITE_HREG(HCODEC_IGNORE_CONFIG_2,
+            (1 << 31) | /* ignore_t_lac_coeff_en */
+            (1 << 26) | /* ignore_t_lac_coeff_else (<1) */
+            (2 << 21) | /* ignore_t_lac_coeff_2 (<2) */
+            (6 << 16) | /* ignore_t_lac_coeff_1 (<6) */
+            (1 << 15) | /* ignore_cdc_coeff_en */
+            /* ... additional configuration ... */
+            (0 << 0));
+    else
+        WRITE_HREG(HCODEC_IGNORE_CONFIG_2,
+            (1 << 31) | /* ignore_t_lac_coeff_en */
+            (1 << 26) | /* ignore_t_lac_coeff_else (<1) */
+            (1 << 21) | /* ignore_t_lac_coeff_2 (<1) */
+            (5 << 16) | /* ignore_t_lac_coeff_1 (<5) */
+            (0 << 0));
+#else
+    WRITE_HREG(HCODEC_IGNORE_CONFIG, 0);
+    WRITE_HREG(HCODEC_IGNORE_CONFIG_2, 0);
+#endif
+}
