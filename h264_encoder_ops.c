@@ -718,3 +718,65 @@ void avc_configure_ignore_config(void) {
     WRITE_HREG(HCODEC_IGNORE_CONFIG_2, 0);
 #endif
 }
+
+void avc_configure_sad_control(struct encode_wq_s *wq) {
+    WRITE_HREG(HCODEC_SAD_CONTROL,
+        (0 << 3) | /* ie_result_buff_enable */
+        (1 << 2) | /* ie_result_buff_soft_reset */
+        (0 << 1) | /* sad_enable */
+        (1 << 0)); /* sad soft reset */
+    WRITE_HREG(HCODEC_IE_RESULT_BUFFER, 0);
+
+    WRITE_HREG(HCODEC_SAD_CONTROL,
+        (1 << 3) | /* ie_result_buff_enable */
+        (0 << 2) | /* ie_result_buff_soft_reset */
+        (1 << 1) | /* sad_enable */
+        (0 << 0)); /* sad soft reset */
+}
+
+void avc_configure_ie_control(void) {
+    WRITE_HREG(HCODEC_IE_CONTROL,
+        (1 << 30) | /* active_ul_block */
+        (0 << 1) | /* ie_enable */
+        (1 << 0)); /* ie soft reset */
+
+    WRITE_HREG(HCODEC_IE_CONTROL,
+        (1 << 30) | /* active_ul_block */
+        (0 << 1) | /* ie_enable */
+        (0 << 0)); /* ie soft reset */
+}
+
+void avc_configure_me_skip_line(void) {
+    WRITE_HREG(HCODEC_ME_SKIP_LINE,
+        (8 << 24) | /* step_3_skip_line */
+        (8 << 18) | /* step_2_skip_line */
+        (2 << 12) | /* step_1_skip_line */
+        (0 << 6) | /* step_0_skip_line */
+        (0 << 0));
+}
+
+void avc_configure_v5_simple_mb(void) {
+    if (get_cpu_type() >= MESON_CPU_MAJOR_ID_TXL) {
+        WRITE_HREG(HCODEC_V5_SIMPLE_MB_CTL, 0);
+        WRITE_HREG(HCODEC_V5_SIMPLE_MB_CTL,
+            (v5_use_small_diff_cnt << 7) |
+            (v5_simple_mb_inter_all_en << 6) |
+            (v5_simple_mb_inter_8x8_en << 5) |
+            (v5_simple_mb_inter_16_8_en << 4) |
+            (v5_simple_mb_inter_16x16_en << 3) |
+            (v5_simple_mb_intra_en << 2) |
+            (v5_simple_mb_C_en << 1) |
+            (v5_simple_mb_Y_en << 0));
+        WRITE_HREG(HCODEC_V5_MB_DIFF_SUM, 0);
+        WRITE_HREG(HCODEC_V5_SMALL_DIFF_CNT,
+            (v5_small_diff_C << 16) |
+            (v5_small_diff_Y << 0));
+        if (qp_mode == 1) {
+            WRITE_HREG(HCODEC_V5_SIMPLE_MB_DQUANT, 0);
+        } else {
+            WRITE_HREG(HCODEC_V5_SIMPLE_MB_DQUANT, v5_simple_dq_setting);
+        }
+        WRITE_HREG(HCODEC_V5_SIMPLE_MB_ME_WEIGHT, v5_simple_me_weight_setting);
+        WRITE_HREG(HCODEC_QDCT_CONFIG, 1 << 0);
+    }
+}
