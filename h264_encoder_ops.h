@@ -562,4 +562,95 @@ void avc_configure_encoding_mode(struct encode_wq_s *wq, bool is_idr);
  */
 void avc_configure_cbr_settings(struct encode_wq_s *wq);
 
+You're right to consider extracting additional code blocks to ease mastering the specifics of encoder.c. After reviewing the code, I've identified several code blocks that could be beneficial to extract, including InitEncodeWeight. Let's create functions for these, along with comprehensive documentation:
+
+/**
+ * avc_init_encode_weight - Initialize encoding weights
+ *
+ * This function initializes various weight parameters used in the encoding process,
+ * including motion estimation weights, SAD (Sum of Absolute Differences) thresholds,
+ * and skip-related parameters.
+ *
+ * When to use: Call this function in the following scenarios:
+ * 1. During encoder initialization, before starting to encode any frames.
+ * 2. When resetting the encoder to its default state.
+ * 3. Before changing to a significantly different encoding configuration that
+ *    requires resetting weights to their initial values.
+ *
+ * Proper initialization of these weights is crucial for the encoder's decision-making
+ * process, affecting both encoding quality and efficiency. These weights influence
+ * various aspects of the encoding process, including motion estimation, mode decision,
+ * and skip detection.
+ */
+void avc_init_encode_weight(void) {
+    me_mv_merge_ctl =
+        (0x1 << 31) | (0x1 << 30) | (0x1 << 29) | (0x1 << 28) |
+        (0x1 << 27) | (0x1 << 26) | (0x1 << 25) | (0x1 << 24) |
+        (0x12 << 18) | (0x2b << 12) | (0x80 << 0);
+
+    me_mv_weight_01 = (0x40 << 24) | (0x30 << 16) | (0x20 << 8) | 0x30;
+    me_mv_weight_23 = (0x40 << 8) | 0x30;
+    me_sad_range_inc = 0x03030303;
+    me_step0_close_mv = 0x003ffc21;
+    me_f_skip_sad = 0;
+    me_f_skip_weight = 0;
+    me_sad_enough_01 = 0x00018010;
+    me_sad_enough_23 = 0x00000020;
+
+    /* Additional weight initializations can be added here */
+}
+
+/**
+ * avc_configure_v3_control - Configure V3 encoding control parameters
+ * @wq: Pointer to the encode work queue structure
+ *
+ * This function configures various control parameters specific to V3 encoding,
+ * including skip control, motion vector SAD table, and intra prediction weights.
+ *
+ * When to use: Call this function in the following scenarios:
+ * 1. During encoder initialization when using V3 encoding features.
+ * 2. When switching to V3 encoding mode from another mode.
+ * 3. Before starting to encode a new sequence with V3-specific requirements.
+ *
+ * Proper configuration of V3 control parameters is important for optimizing
+ * the encoding process in V3 mode, affecting both encoding efficiency and quality.
+ */
+void avc_configure_v3_control(struct encode_wq_s *wq);
+
+/**
+ * avc_configure_quant_params - Configure quantization parameters
+ * @wq: Pointer to the encode work queue structure
+ * @quant: Quantization parameter
+ *
+ * This function configures various quantization-related parameters, including
+ * the quantization tables for I and P frames, and sets up the quantization control registers.
+ *
+ * When to use: Call this function in the following scenarios:
+ * 1. Before encoding each frame, as quantization parameters may change.
+ * 2. When adapting quantization strategy based on rate control feedback.
+ * 3. When switching between different quality presets that affect quantization.
+ *
+ * Proper configuration of quantization parameters is crucial for balancing
+ * between video quality and bitrate, directly affecting the compression efficiency.
+ */
+void avc_configure_quant_params(struct encode_wq_s *wq, u32 quant);
+
+/**
+ * avc_configure_ignore_config - Configure ignore settings for encoding
+ *
+ * This function configures the ignore settings for the encoder, which can be used
+ * to skip or ignore certain coefficients or conditions during the encoding process.
+ * This can be useful for performance optimization or specific encoding strategies.
+ *
+ * When to use: Call this function in the following scenarios:
+ * 1. During encoder initialization, to set up default ignore configurations.
+ * 2. When changing encoding strategies that involve ignoring certain data.
+ * 3. Before encoding frames with specific ignore requirements (e.g., for fast encoding modes).
+ *
+ * Proper configuration of ignore settings can help in achieving a balance between
+ * encoding speed and quality, especially in scenarios where certain details can be
+ * sacrificed for improved performance.
+ */
+void avc_configure_ignore_config(void);
+
 #endif /* __AVC_ENCODER_HW_OPS_H__ */
