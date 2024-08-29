@@ -719,4 +719,41 @@ void avc_configure_me_skip_line(void);
  */
 void avc_configure_v5_simple_mb(void);
 
+#if 0
+/**
+ * avc_configure_canvas - Configure canvas for input and reference frames
+ * @wq: Pointer to the encode work queue structure
+ *
+ * This function sets up the canvas configuration for input frames and reference buffers.
+ * It configures the memory layout and addressing for Y, U, and V components of the video frames.
+ *
+ * When to use: Call this function in the following scenarios:
+ * 1. During encoder initialization, after memory allocation for frame buffers.
+ * 2. When changing input frame format or dimensions.
+ * 3. Before starting to encode a new sequence with different buffer requirements.
+ *
+ * Proper canvas configuration is crucial for correct frame buffer management and
+ * efficient memory access during the encoding process.
+ */
+void avc_configure_canvas(struct encode_wq_s *wq);
+#endif
+
+/**
+ * avc_convert_cbr_table - Convert CBR table for hardware usage
+ * @table: Pointer to the CBR table
+ * @len: Length of the CBR table
+ *
+ * This function converts the Constant Bit Rate (CBR) table for use by the hardware encoder.
+ * It performs necessary byte swapping to ensure the table is in the correct format for hardware consumption.
+ *
+ * When to use: Call this function in the following scenarios:
+ * 1. After initializing or updating the CBR table in software.
+ * 2. Before enabling CBR encoding mode.
+ * 3. When switching between different CBR configurations.
+ *
+ * Proper conversion of the CBR table is essential for accurate bitrate control in CBR encoding mode.
+ */
+void avc_convert_cbr_table(void *table, u32 len);
+
+
 #endif /* __AVC_ENCODER_HW_OPS_H__ */
