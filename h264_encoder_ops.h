@@ -180,10 +180,16 @@ void avc_configure_mfdin(u32 input, u8 iformat, u8 oformat, u32 picsize_x, u32 p
  * avc_configure_encoder_control - Configure advanced encoder control settings
  *
  * This function sets up various advanced control registers for the AVC encoder.
- * It configures memory management, VLC advanced settings, and QDCT advanced settings.
+ * It configures:
+ * - Memory management for macroblock processing
+ * - VLC (Variable Length Coding) advanced settings
+ * - QDCT (Quantization and DCT) advanced settings
+ * - Intra prediction and motion estimation controls
  * 
- * When to use: This should be called once during the encoder initialization,
- * after setting up basic encoder parameters but before starting the first frame encode.
+ * When to use: Call this function once during the encoder initialization phase,
+ * after setting up basic encoder parameters but before configuring frame-specific
+ * settings. This function sets up the overall behavior of the encoder and should
+ * be called before any frame encoding begins.
  */
 void avc_configure_encoder_control(void);
 
@@ -195,11 +201,15 @@ void avc_configure_encoder_control(void);
  *
  * This function sets up the weights for intra estimation (I16MB and I4MB) and
  * motion estimation. It also configures SAD (Sum of Absolute Differences) control
- * registers for these estimations.
+ * registers for these estimations. These weights influence the encoder's decision
+ * making process for choosing between different coding modes.
  *
- * When to use: This should be called before encoding each frame, as these weights
- * might need to be adjusted based on the frame type (I-frame, P-frame) or
- * other encoding parameters that may change per frame.
+ * When to use: Call this function at the start of encoding each frame. The weights
+ * may need to be adjusted based on:
+ * - Frame type (I-frame, P-frame, or B-frame)
+ * - Encoding quality requirements
+ * - Scene complexity
+ * Proper tuning of these weights can significantly impact encoding efficiency and quality.
  */
 void avc_configure_ie_weight(u32 i16_weight, u32 i4_weight, u32 me_weight);
 
@@ -207,12 +217,17 @@ void avc_configure_ie_weight(u32 i16_weight, u32 i4_weight, u32 me_weight);
  * avc_configure_mv_merge - Configure motion vector merge control
  * @me_mv_merge_ctl: Motion vector merge control value
  *
- * This function configures the motion vector merge control register, which
- * affects how motion vectors are merged during the encoding process.
+ * This function configures the motion vector merge control register. It affects how
+ * motion vectors are merged during the encoding process, which can impact both
+ * encoding efficiency and the quality of motion estimation.
  *
- * When to use: This should be called before encoding P-frames or B-frames,
- * where motion estimation is performed. It's typically set once during
- * encoder initialization, but may be adjusted if the encoding strategy changes.
+ * When to use: Call this function in the following scenarios:
+ * 1. During encoder initialization, to set the initial merge control strategy.
+ * 2. Before encoding P-frames or B-frames, where motion estimation is performed.
+ * 3. When adapting to changes in video content (e.g., high motion scenes vs. static scenes).
+ * 
+ * The merge control may need adjustment based on the nature of the video content
+ * and the desired trade-off between encoding speed and motion estimation accuracy.
  */
 void avc_configure_mv_merge(u32 me_mv_merge_ctl);
 
@@ -226,11 +241,19 @@ void avc_configure_mv_merge(u32 me_mv_merge_ctl);
  * @me_sad_enough_23: ME SAD enough 2-3 parameter
  *
  * This function configures various parameters related to motion estimation,
- * including SAD thresholds, weights, and control values.
+ * including SAD thresholds, weights, and control values. These parameters
+ * fine-tune the motion estimation process, affecting encoding speed and efficiency.
  *
- * When to use: This should be called before encoding P-frames or B-frames.
- * These parameters may need to be adjusted based on the encoding quality
- * requirements or the nature of the video content.
+ * When to use: Call this function in the following scenarios:
+ * 1. Before encoding each P-frame or B-frame.
+ * 2. When adapting to changes in video content characteristics.
+ * 3. When adjusting encoding quality or performance trade-offs.
+ * 
+ * These parameters may need frequent adjustment based on:
+ * - The complexity of motion in the current scene
+ * - Encoding quality requirements
+ * - Available computational resources
+ * - Specific requirements of the encoding profile being used
  */
 void avc_configure_me_parameters(u32 me_step0_close_mv, u32 me_f_skip_sad, 
                                  u32 me_f_skip_weight, u32 me_sad_range_inc,
@@ -239,12 +262,21 @@ void avc_configure_me_parameters(u32 me_step0_close_mv, u32 me_f_skip_sad,
 /**
  * avc_configure_skip_control - Configure skip control for V3 encoding
  *
- * This function sets up the skip control registers for V3 encoding, including
- * enabling various skip features and setting up skip weights and SAD thresholds.
+ * This function sets up the skip control registers for V3 encoding, including:
+ * - Enabling various skip features
+ * - Setting up skip weights
+ * - Configuring SAD thresholds for skip decisions
+ * 
+ * Skip control is crucial for encoding efficiency, especially in areas of the frame
+ * with little change or motion.
  *
- * When to use: This should be called during encoder initialization when using
- * V3 encoding features. It may also be called before encoding P-frames if
- * the skip control parameters need to be adjusted dynamically.
+ * When to use: Call this function in the following scenarios:
+ * 1. During encoder initialization when using V3 encoding features.
+ * 2. Before encoding each P-frame or B-frame.
+ * 3. When dynamically adjusting encoding strategy based on content analysis.
+ * 
+ * Proper configuration of skip control can significantly reduce bitrate in static
+ * or low-motion areas of the video while maintaining quality.
  */
 void avc_configure_skip_control(void);
 
@@ -252,26 +284,40 @@ void avc_configure_skip_control(void);
  * avc_configure_mv_sad_table - Configure motion vector SAD table
  * @v3_mv_sad: Pointer to the v3_mv_sad array containing 64 SAD values
  *
- * This function populates the motion vector SAD table used in the encoding process.
- * The table contains 64 SAD values that are used in motion estimation.
+ * This function populates the motion vector SAD (Sum of Absolute Differences) table
+ * used in the encoding process. The table contains 64 SAD values that are used as
+ * thresholds or reference points in motion estimation decisions.
  *
- * When to use: This should be called during encoder initialization, after
- * the SAD values have been calculated or predetermined. It typically only
- * needs to be set once, unless the SAD table needs to be dynamically updated
- * during the encoding process.
+ * When to use: Call this function in the following scenarios:
+ * 1. During encoder initialization, after the SAD values have been calculated or predetermined.
+ * 2. When switching between different encoding modes or profiles that require different SAD tables.
+ * 3. In adaptive encoding scenarios where the SAD table is dynamically updated based on
+ *    content analysis or encoding performance metrics.
+ * 
+ * While typically set once during initialization, advanced encoding schemes might
+ * update this table periodically to adapt to changing video characteristics.
  */
 void avc_configure_mv_sad_table(u32 *v3_mv_sad);
 
 /**
  * avc_configure_ipred_weight - Configure intra prediction weights
  *
- * This function sets up the weights for various intra prediction modes,
- * including weights for Chroma, Intra 4x4, and Intra 16x16 prediction modes.
+ * This function sets up the weights for various intra prediction modes, including:
+ * - Weights for Chroma prediction modes
+ * - Weights for Luma Intra 4x4 prediction modes
+ * - Weights for Luma Intra 16x16 prediction modes
+ * 
+ * These weights influence the encoder's choice of intra prediction modes, affecting
+ * both encoding efficiency and quality of intra-coded macroblocks.
  *
- * When to use: This should be called during encoder initialization, before
- * starting to encode frames. These weights typically remain constant throughout
- * the encoding process, but may be adjusted if the intra prediction strategy
- * needs to change.
+ * When to use: Call this function in the following scenarios:
+ * 1. During encoder initialization, before starting to encode frames.
+ * 2. When switching between different encoding profiles or quality settings.
+ * 3. Optionally, before encoding I-frames if adaptive intra prediction is implemented.
+ * 
+ * While these weights typically remain constant throughout the encoding process,
+ * they may be adjusted in advanced implementations to optimize for specific content types
+ * or to meet varying quality/bitrate targets.
  */
 void avc_configure_ipred_weight(void);
 
@@ -282,10 +328,21 @@ void avc_configure_ipred_weight(void);
  *
  * This function sets the maximum SAD (Sum of Absolute Differences) values
  * for the left small area in both motion estimation (ME) and intra estimation (IE).
+ * These values act as thresholds in the decision-making process for encoding
+ * the left edge of macroblocks, which can have special importance in prediction.
  *
- * When to use: This should be called during encoder initialization or before
- * starting to encode a new sequence. These values may need to be adjusted
- * based on the video content or encoding quality requirements.
+ * When to use: Call this function in the following scenarios:
+ * 1. During encoder initialization, to set the initial thresholds.
+ * 2. Before starting to encode a new sequence or scene.
+ * 3. When adapting encoding parameters based on content analysis.
+ * 
+ * These values may need adjustment based on:
+ * - The nature of the video content (e.g., high detail vs. low detail on frame edges)
+ * - Encoding quality requirements
+ * - Specific requirements of the encoding profile being used
+ * 
+ * Fine-tuning these parameters can help in achieving a balance between edge quality
+ * and overall encoding efficiency.
  */
 void avc_configure_left_small_max_sad(u32 v3_left_small_max_me_sad, u32 v3_left_small_max_ie_sad);
 
