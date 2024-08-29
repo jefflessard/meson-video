@@ -483,4 +483,83 @@ void avc_configure_ipred_weight(void);
  */
 void avc_configure_left_small_max_sad(u32 v3_left_small_max_me_sad, u32 v3_left_small_max_ie_sad);
 
+
+/**
+ * avc_configure_svc_pic_type - Configure SVC picture type
+ * @wq: Pointer to the encode work queue structure
+ * @is_idr: Boolean indicating if the current frame is an IDR frame
+ *
+ * This function configures the Scalable Video Coding (SVC) picture type register.
+ * It sets whether the current picture is a reference frame or a non-reference frame
+ * in the SVC hierarchy.
+ *
+ * When to use: Call this function in the following scenarios:
+ * 1. Before encoding each frame in an SVC-enabled encoding session.
+ * 2. When switching between reference and non-reference frames in the SVC structure.
+ * 3. At the start of a new GOP, especially for IDR frames.
+ *
+ * Proper configuration of SVC picture types is crucial for maintaining the correct
+ * scalable structure in SVC-enabled H.264 streams, affecting both encoding efficiency
+ * and the ability to extract different quality or resolution layers from the stream.
+ */
+void avc_configure_svc_pic_type(struct encode_wq_s *wq, bool is_idr);
+
+/**
+ * avc_configure_fixed_slice - Configure fixed slice settings
+ * @wq: Pointer to the encode work queue structure
+ *
+ * This function configures the fixed slice settings for the encoder. It sets up
+ * the number of macroblocks per slice, which is crucial for controlling the slice
+ * structure of the encoded video.
+ *
+ * When to use: Call this function in the following scenarios:
+ * 1. During encoder initialization, after setting up basic encoding parameters.
+ * 2. When changing slice configuration, which might occur:
+ *    - At the start of encoding a new video sequence
+ *    - When adapting to different network conditions or packaging requirements
+ * 3. Before encoding each frame if using a dynamic slice configuration strategy
+ *
+ * Proper configuration of slice settings is important for balancing between
+ * error resilience, parallel processing capabilities, and coding efficiency.
+ */
+void avc_configure_fixed_slice(struct encode_wq_s *wq);
+
+/**
+ * avc_configure_encoding_mode - Configure encoding mode and related parameters
+ * @wq: Pointer to the encode work queue structure
+ * @is_idr: Boolean indicating if the current frame is an IDR frame
+ *
+ * This function configures various encoding mode parameters, including:
+ * - I/P frame settings
+ * - Motion vector related configurations
+ * - Pipeline and mixed encoding settings
+ *
+ * When to use: Call this function in the following scenarios:
+ * 1. Before encoding each frame, as the settings may change based on frame type.
+ * 2. When switching between different encoding strategies (e.g., changing motion estimation settings).
+ * 3. At the start of a new GOP, especially for IDR frames.
+ *
+ * Proper configuration of these parameters is essential for optimizing the encoding process,
+ * balancing between encoding efficiency, quality, and computational complexity.
+ */
+void avc_configure_encoding_mode(struct encode_wq_s *wq, bool is_idr);
+
+/**
+ * avc_configure_cbr_settings - Configure Constant Bit Rate (CBR) settings
+ * @wq: Pointer to the encode work queue structure
+ *
+ * This function configures the Constant Bit Rate (CBR) settings for the encoder.
+ * It sets up various parameters related to bitrate control and buffer management.
+ *
+ * When to use: Call this function in the following scenarios:
+ * 1. During encoder initialization when CBR mode is enabled.
+ * 2. When switching between different bitrate targets or CBR strategies.
+ * 3. Before starting to encode a new sequence with different CBR requirements.
+ *
+ * Proper configuration of CBR settings is crucial for maintaining consistent
+ * bitrate output and managing buffer fullness, which is important for streaming
+ * and broadcasting applications.
+ */
+void avc_configure_cbr_settings(struct encode_wq_s *wq);
+
 #endif /* __AVC_ENCODER_HW_OPS_H__ */
