@@ -562,8 +562,6 @@ void avc_configure_encoding_mode(struct encode_wq_s *wq, bool is_idr);
  */
 void avc_configure_cbr_settings(struct encode_wq_s *wq);
 
-You're right to consider extracting additional code blocks to ease mastering the specifics of encoder.c. After reviewing the code, I've identified several code blocks that could be beneficial to extract, including InitEncodeWeight. Let's create functions for these, along with comprehensive documentation:
-
 /**
  * avc_init_encode_weight - Initialize encoding weights
  *
