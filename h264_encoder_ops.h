@@ -651,4 +651,72 @@ void avc_configure_quant_params(struct encode_wq_s *wq, u32 quant);
  */
 void avc_configure_ignore_config(void);
 
+/**
+ * avc_configure_sad_control - Configure SAD control parameters
+ * @wq: Pointer to the encode work queue structure
+ *
+ * This function configures the Sum of Absolute Differences (SAD) control parameters,
+ * which are crucial for motion estimation and mode decision processes in the encoder.
+ *
+ * When to use: Call this function in the following scenarios:
+ * 1. During encoder initialization, to set up default SAD configurations.
+ * 2. Before encoding each frame, if SAD parameters need to be adjusted dynamically.
+ * 3. When switching between different encoding quality presets that affect SAD thresholds.
+ *
+ * Proper configuration of SAD parameters is essential for balancing encoding speed
+ * and quality, particularly in motion estimation and intra prediction processes.
+ */
+void avc_configure_sad_control(struct encode_wq_s *wq);
+
+/**
+ * avc_configure_ie_control - Configure Intra Estimation control parameters
+ *
+ * This function sets up the Intra Estimation (IE) control parameters, which
+ * are important for intra prediction and coding decisions within the encoder.
+ *
+ * When to use: Call this function in the following scenarios:
+ * 1. During encoder initialization, to set up default IE configurations.
+ * 2. Before encoding I-frames or intra blocks in P-frames.
+ * 3. When adjusting encoding strategies that affect intra prediction.
+ *
+ * Proper configuration of IE control is crucial for efficient intra coding,
+ * which directly impacts the quality and compression efficiency of I-frames
+ * and intra-coded areas in P-frames.
+ */
+void avc_configure_ie_control(void);
+
+/**
+ * avc_configure_me_skip_line - Configure Motion Estimation skip line parameters
+ *
+ * This function configures the skip line parameters for Motion Estimation (ME).
+ * Skip lines are used to reduce the computational complexity of ME by skipping
+ * certain lines during the search process.
+ *
+ * When to use: Call this function in the following scenarios:
+ * 1. During encoder initialization, to set up default ME skip line configurations.
+ * 2. Before encoding P-frames or B-frames where ME is performed.
+ * 3. When adjusting encoding speed/quality trade-offs that involve ME complexity.
+ *
+ * Proper configuration of ME skip lines can significantly affect encoding speed
+ * and the accuracy of motion estimation, thus impacting both performance and
+ * compression efficiency.
+ */
+void avc_configure_me_skip_line(void);
+
+/**
+ * avc_configure_v5_simple_mb - Configure V5 simple macroblock control
+ *
+ * This function configures the simple macroblock control parameters for V5 encoding.
+ * It sets up various thresholds and enables/disables different macroblock coding options.
+ *
+ * When to use: Call this function in the following scenarios:
+ * 1. During encoder initialization when using V5 encoding features.
+ * 2. Before encoding frames in V5 mode.
+ * 3. When adjusting encoding complexity or quality settings in V5 mode.
+ *
+ * Proper configuration of V5 simple MB control can help in optimizing the
+ * encoding process for specific content types or performance requirements.
+ */
+void avc_configure_v5_simple_mb(void);
+
 #endif /* __AVC_ENCODER_HW_OPS_H__ */
