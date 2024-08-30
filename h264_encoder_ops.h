@@ -1,75 +1,8 @@
 #ifndef __AVC_ENCODER_HW_OPS_H__
 #define __AVC_ENCODER_HW_OPS_H__
 
-#include <linux/types.h>
-
-/* Redefined constants and structures */
-#define HCODEC_ASSIST_AMR1_INT0 0x2500
-#define HCODEC_ASSIST_AMR1_INT1 0x2501
-#define HCODEC_ASSIST_AMR1_INT3 0x2503
-#define HCODEC_MPSR 0x2600
-#define HCODEC_CPSR 0x2601
-#define HCODEC_IMEM_DMA_CTRL 0x2602
-#define HCODEC_VLC_TOTAL_BYTES 0x2603
-#define HCODEC_VLC_CONFIG 0x2604
-#define HCODEC_VLC_VB_START_PTR 0x2605
-#define HCODEC_VLC_VB_END_PTR 0x2606
-#define HCODEC_VLC_VB_WR_PTR 0x2607
-#define HCODEC_VLC_VB_SW_RD_PTR 0x2608
-#define HCODEC_VLC_VB_CONTROL 0x2609
-#define HCODEC_VLC_VB_MEM_CTL 0x260a
-#define HCODEC_QDCT_MB_START_PTR 0x260b
-#define HCODEC_QDCT_MB_END_PTR 0x260c
-#define HCODEC_QDCT_MB_WR_PTR 0x260d
-#define HCODEC_QDCT_MB_RD_PTR 0x260e
-#define HCODEC_QDCT_MB_BUFF 0x260f
-#define HCODEC_ANC0_CANVAS_ADDR 0x2610
-#define HCODEC_REC_CANVAS_ADDR 0x2611
-#define HCODEC_DBKR_CANVAS_ADDR 0x2612
-#define HCODEC_DBKW_CANVAS_ADDR 0x2613
-#define HCODEC_VLC_HCMD_CONFIG 0x2614
-#define HCODEC_VLC_INT_CONTROL 0x2615
-#define HCODEC_IE_ME_MODE 0x2616
-#define HCODEC_IE_REF_SEL 0x2617
-#define HCODEC_IE_ME_MB_TYPE 0x2618
-#define FIXED_SLICE_CFG 0x2619
-#define IDR_PIC_ID 0x261a
-#define FRAME_NUMBER 0x261b
-#define PIC_ORDER_CNT_LSB 0x261c
-#define LOG2_MAX_PIC_ORDER_CNT_LSB 0x261d
-#define LOG2_MAX_FRAME_NUM 0x261e
-#define ANC0_BUFFER_ID 0x261f
-#define QPPICTURE 0x2620
-
-struct encode_wq_s {
-    struct {
-        u32 buf_start;
-        u32 buf_size;
-        u32 BitstreamStart;
-        u32 BitstreamEnd;
-        u32 dct_buff_start_addr;
-        u32 dct_buff_end_addr;
-        u32 assit_buffer_offset;
-    } mem;
-    struct {
-        u32 encoder_width;
-        u32 encoder_height;
-        u32 rows_per_slice;
-        u32 idr_pic_id;
-        u32 frame_number;
-        u32 pic_order_cnt_lsb;
-        u32 log2_max_pic_order_cnt_lsb;
-        u32 log2_max_frame_num;
-        u32 init_qppicture;
-    } pic;
-    u8 quant_tbl_i4[8];
-    u8 quant_tbl_i16[8];
-    u8 quant_tbl_me[8];
-};
-
 /**
  * avc_configure_quantization_tables - Configure quantization tables for H.264 encoding
- * @wq: Pointer to the encode work queue structure
  *
  * This function configures the quantization tables for intra 4x4, intra 16x16,
  * and inter (motion estimation) blocks in the H.264 encoder hardware. Proper
@@ -87,11 +20,10 @@ struct encode_wq_s {
  * Proper tuning of quantization tables can significantly impact both
  * the visual quality and the compression ratio of the encoded video.
  */
-void avc_configure_quantization_tables(struct encode_wq_s *wq);
+void avc_configure_quantization_tables(u8 quant_tbl_i4[8], u8 quant_tbl_i16[8], u8 quant_tbl_me[8]);
 
 /**
  * avc_configure_output_buffer - Configure output bitstream buffer for AVC encoding
- * @wq: Pointer to the encode work queue structure
  *
  * This function configures the output bitstream buffer for AVC encoding,
  * setting up start, end, write, and read pointers in the hardware. It ensures
@@ -105,11 +37,10 @@ void avc_configure_quantization_tables(struct encode_wq_s *wq);
  * Proper configuration of the output buffer is essential for ensuring that
  * the encoded bitstream is correctly captured and can be accessed by the system.
  */
-void avc_configure_output_buffer(struct encode_wq_s *wq);
+void avc_configure_output_buffer(u32 bitstreamStart, u32 bitstreamEnd);
 
 /**
  * avc_configure_input_buffer - Configure input DCT buffer for AVC encoding
- * @wq: Pointer to the encode work queue structure
  *
  * This function configures the input DCT (Discrete Cosine Transform) buffer 
  * for AVC encoding, setting up start, end, write, and read pointers in the hardware.
@@ -123,7 +54,7 @@ void avc_configure_output_buffer(struct encode_wq_s *wq);
  * Proper configuration of the input DCT buffer is crucial for the encoder's
  * internal data processing and affects the overall encoding performance.
  */
-void avc_configure_input_buffer(struct encode_wq_s *wq);
+void avc_configure_input_buffer(u32 dct_buff_start_addr, u32 dct_buff_end_addr);
 
 /**
  * avc_configure_ref_buffer - Configure reference frame buffer for AVC encoding
@@ -145,7 +76,6 @@ void avc_configure_ref_buffer(int canvas);
 
 /**
  * avc_configure_assist_buffer - Configure assist buffer for AVC encoding
- * @wq: Pointer to the encode work queue structure
  *
  * This function configures the assist buffer for AVC encoding in the hardware.
  * The assist buffer is used for various auxiliary data and intermediate results
@@ -160,7 +90,7 @@ void avc_configure_ref_buffer(int canvas);
  * Proper setup of the assist buffer ensures smooth operation of various
  * encoding sub-processes and can impact overall encoding efficiency.
  */
-void avc_configure_assist_buffer(struct encode_wq_s *wq);
+void avc_configure_assist_buffer(u32 assit_buffer_offset);
 
 /**
  * avc_configure_deblock_buffer - Configure deblocking buffer for AVC encoding
@@ -183,7 +113,6 @@ void avc_configure_deblock_buffer(int canvas);
 
 /**
  * avc_configure_encoder_params - Configure encoder parameters for AVC encoding
- * @wq: Pointer to the encode work queue structure
  * @idr: Boolean flag indicating whether this is an IDR frame
  *
  * This function configures various encoder parameters for AVC encoding in the hardware,
@@ -200,11 +129,14 @@ void avc_configure_deblock_buffer(int canvas);
  * valid and efficient H.264 bitstream, and for maintaining the correct
  * structure of the encoded video sequence.
  */
-void avc_configure_encoder_params(struct encode_wq_s *wq, bool idr);
+void avc_configure_encoder_params(
+		u32 idr_pic_id, u32 frame_number, u32 pic_order_cnt_lsb,
+		u32 log2_max_frame_num, u32 log2_max_pic_order_cnt_lsb,
+		u32 init_qppicture, bool idr
+	);
 
 /**
  * avc_configure_ie_me - Configure Intra Estimation and Motion Estimation parameters
- * @wq: Pointer to the encode work queue structure
  * @quant: Quantization parameter
  *
  * This function configures parameters for Intra Estimation (IE) and Motion Estimation (ME)
@@ -223,7 +155,7 @@ void avc_configure_encoder_params(struct encode_wq_s *wq, bool idr);
  * and the quality of the resulting video, especially in terms of detail preservation
  * and motion representation.
  */
-void avc_configure_ie_me(struct encode_wq_s *wq, u32 quant);
+void avc_configure_ie_me(u32 quant);
 
 /**
  * avc_encoder_reset - Reset the AVC encoder hardware
@@ -311,7 +243,7 @@ void avc_encoder_stop(void);
  * input formats and preprocessing requirements.
  */
 void avc_configure_mfdin(u32 input, u8 iformat, u8 oformat, u32 picsize_x, u32 picsize_y,
-                         u8 r2y_en, u8 nr, u8 ifmt_extra);
+		u8 r2y_en, u8 nr, u8 ifmt_extra);
 
 /**
  * avc_configure_encoder_control - Configure advanced encoder control settings
@@ -328,7 +260,7 @@ void avc_configure_mfdin(u32 input, u8 iformat, u8 oformat, u32 picsize_x, u32 p
  * settings. This function sets up the overall behavior of the encoder and should
  * be called before any frame encoding begins.
  */
-void avc_configure_encoder_control(void);
+void avc_configure_encoder_control(u32 pic_width);
 
 /**
  * avc_configure_ie_weight - Configure intra estimation and motion estimation weights
@@ -392,9 +324,12 @@ void avc_configure_mv_merge(u32 me_mv_merge_ctl);
  * - Available computational resources
  * - Specific requirements of the encoding profile being used
  */
-void avc_configure_me_parameters(u32 me_step0_close_mv, u32 me_f_skip_sad, 
-                                 u32 me_f_skip_weight, u32 me_sad_range_inc,
-                                 u32 me_sad_enough_01, u32 me_sad_enough_23);
+void avc_configure_me_parameters(
+		u32 me_step0_close_mv, u32 me_f_skip_sad,
+		u32 me_f_skip_weight, u32 me_sad_range_inc,
+		u32 me_sad_enough_01, u32 me_sad_enough_23,
+		u32 me_mv_weight_01, u32 me_mv_weight_23
+);
 
 /**
  * avc_configure_skip_control - Configure skip control for V3 encoding
@@ -434,7 +369,7 @@ void avc_configure_skip_control(void);
  * While typically set once during initialization, advanced encoding schemes might
  * update this table periodically to adapt to changing video characteristics.
  */
-void avc_configure_mv_sad_table(u32 *v3_mv_sad);
+void avc_configure_mv_sad_table(u32 v3_mv_sad[64]);
 
 /**
  * avc_configure_ipred_weight - Configure intra prediction weights
@@ -481,13 +416,11 @@ void avc_configure_ipred_weight(void);
  * Fine-tuning these parameters can help in achieving a balance between edge quality
  * and overall encoding efficiency.
  */
-void avc_configure_left_small_max_sad(u32 v3_left_small_max_me_sad, u32 v3_left_small_max_ie_sad);
+void avc_configure_left_small_max_sad(u32 max_me_sad, u32 max_ie_sad);
 
 
 /**
  * avc_configure_svc_pic_type - Configure SVC picture type
- * @wq: Pointer to the encode work queue structure
- * @is_idr: Boolean indicating if the current frame is an IDR frame
  *
  * This function configures the Scalable Video Coding (SVC) picture type register.
  * It sets whether the current picture is a reference frame or a non-reference frame
@@ -502,11 +435,10 @@ void avc_configure_left_small_max_sad(u32 v3_left_small_max_me_sad, u32 v3_left_
  * scalable structure in SVC-enabled H.264 streams, affecting both encoding efficiency
  * and the ability to extract different quality or resolution layers from the stream.
  */
-void avc_configure_svc_pic_type(struct encode_wq_s *wq, bool is_idr);
+void avc_configure_svc_pic_type(bool enc_slc_ref);
 
 /**
  * avc_configure_fixed_slice - Configure fixed slice settings
- * @wq: Pointer to the encode work queue structure
  *
  * This function configures the fixed slice settings for the encoder. It sets up
  * the number of macroblocks per slice, which is crucial for controlling the slice
@@ -522,8 +454,9 @@ void avc_configure_svc_pic_type(struct encode_wq_s *wq, bool is_idr);
  * Proper configuration of slice settings is important for balancing between
  * error resilience, parallel processing capabilities, and coding efficiency.
  */
-void avc_configure_fixed_slice(struct encode_wq_s *wq);
+void avc_configure_fixed_slice(u32 fixed_slice_cfg, u32 rows_per_slice, u32 pic_height);
 
+#if 0
 /**
  * avc_configure_encoding_mode - Configure encoding mode and related parameters
  * @wq: Pointer to the encode work queue structure
@@ -543,10 +476,10 @@ void avc_configure_fixed_slice(struct encode_wq_s *wq);
  * balancing between encoding efficiency, quality, and computational complexity.
  */
 void avc_configure_encoding_mode(struct encode_wq_s *wq, bool is_idr);
+#endif
 
 /**
  * avc_configure_cbr_settings - Configure Constant Bit Rate (CBR) settings
- * @wq: Pointer to the encode work queue structure
  *
  * This function configures the Constant Bit Rate (CBR) settings for the encoder.
  * It sets up various parameters related to bitrate control and buffer management.
@@ -560,8 +493,13 @@ void avc_configure_encoding_mode(struct encode_wq_s *wq, bool is_idr);
  * bitrate output and managing buffer fullness, which is important for streaming
  * and broadcasting applications.
  */
-void avc_configure_cbr_settings(struct encode_wq_s *wq);
+void avc_configure_cbr_settings(
+	u32 ddr_start_addr, u32 ddr_addr_length,
+	u16 block_w, u16 block_h, u16 long_th,
+	u8 start_tbl_id, u8 short_shift, u8 long_mb_num
+);
 
+#if 0
 /**
  * avc_init_encode_weight - Initialize encoding weights
  *
@@ -580,27 +518,12 @@ void avc_configure_cbr_settings(struct encode_wq_s *wq);
  * various aspects of the encoding process, including motion estimation, mode decision,
  * and skip detection.
  */
-void avc_init_encode_weight(void) {
-    me_mv_merge_ctl =
-        (0x1 << 31) | (0x1 << 30) | (0x1 << 29) | (0x1 << 28) |
-        (0x1 << 27) | (0x1 << 26) | (0x1 << 25) | (0x1 << 24) |
-        (0x12 << 18) | (0x2b << 12) | (0x80 << 0);
+void avc_init_encode_weight(void);
+#endif
 
-    me_mv_weight_01 = (0x40 << 24) | (0x30 << 16) | (0x20 << 8) | 0x30;
-    me_mv_weight_23 = (0x40 << 8) | 0x30;
-    me_sad_range_inc = 0x03030303;
-    me_step0_close_mv = 0x003ffc21;
-    me_f_skip_sad = 0;
-    me_f_skip_weight = 0;
-    me_sad_enough_01 = 0x00018010;
-    me_sad_enough_23 = 0x00000020;
-
-    /* Additional weight initializations can be added here */
-}
-
+#if 0
 /**
  * avc_configure_v3_control - Configure V3 encoding control parameters
- * @wq: Pointer to the encode work queue structure
  *
  * This function configures various control parameters specific to V3 encoding,
  * including skip control, motion vector SAD table, and intra prediction weights.
@@ -613,12 +536,11 @@ void avc_init_encode_weight(void) {
  * Proper configuration of V3 control parameters is important for optimizing
  * the encoding process in V3 mode, affecting both encoding efficiency and quality.
  */
-void avc_configure_v3_control(struct encode_wq_s *wq);
+void avc_configure_v3_control(void);
+#endif
 
 /**
  * avc_configure_quant_params - Configure quantization parameters
- * @wq: Pointer to the encode work queue structure
- * @quant: Quantization parameter
  *
  * This function configures various quantization-related parameters, including
  * the quantization tables for I and P frames, and sets up the quantization control registers.
@@ -631,7 +553,9 @@ void avc_configure_v3_control(struct encode_wq_s *wq);
  * Proper configuration of quantization parameters is crucial for balancing
  * between video quality and bitrate, directly affecting the compression efficiency.
  */
-void avc_configure_quant_params(struct encode_wq_s *wq, u32 quant);
+void avc_configure_quant_params(u32 i_pic_qp, u32 p_pic_qp);
+
+void avc_configure_quant_control(u32 i_pic_qp);
 
 /**
  * avc_configure_ignore_config - Configure ignore settings for encoding
@@ -649,11 +573,10 @@ void avc_configure_quant_params(struct encode_wq_s *wq, u32 quant);
  * encoding speed and quality, especially in scenarios where certain details can be
  * sacrificed for improved performance.
  */
-void avc_configure_ignore_config(void);
+void avc_configure_ignore_config(bool ignore);
 
 /**
  * avc_configure_sad_control - Configure SAD control parameters
- * @wq: Pointer to the encode work queue structure
  *
  * This function configures the Sum of Absolute Differences (SAD) control parameters,
  * which are crucial for motion estimation and mode decision processes in the encoder.
@@ -666,7 +589,7 @@ void avc_configure_ignore_config(void);
  * Proper configuration of SAD parameters is essential for balancing encoding speed
  * and quality, particularly in motion estimation and intra prediction processes.
  */
-void avc_configure_sad_control(struct encode_wq_s *wq);
+void avc_configure_sad_control(void);
 
 /**
  * avc_configure_ie_control - Configure Intra Estimation control parameters
@@ -717,7 +640,7 @@ void avc_configure_me_skip_line(void);
  * Proper configuration of V5 simple MB control can help in optimizing the
  * encoding process for specific content types or performance requirements.
  */
-void avc_configure_v5_simple_mb(void);
+void avc_configure_v5_simple_mb(u32 qp_mode, u32 dq_setting, u32 me_weight_setting);
 
 #if 0
 /**
@@ -738,6 +661,7 @@ void avc_configure_v5_simple_mb(void);
 void avc_configure_canvas(struct encode_wq_s *wq);
 #endif
 
+#if 0
 /**
  * avc_convert_cbr_table - Convert CBR table for hardware usage
  * @table: Pointer to the CBR table
@@ -754,6 +678,6 @@ void avc_configure_canvas(struct encode_wq_s *wq);
  * Proper conversion of the CBR table is essential for accurate bitrate control in CBR encoding mode.
  */
 void avc_convert_cbr_table(void *table, u32 len);
-
+#endif
 
 #endif /* __AVC_ENCODER_HW_OPS_H__ */
