@@ -64,6 +64,8 @@ MODULE_ALIAS("of:N*T*Camlogic,gxm-vdec");
 MODULE_ALIAS("of:N*T*Camlogic,gxm-vdecC*");
 MODULE_ALIAS("of:N*T*Camlogic,gxl-vdec");
 MODULE_ALIAS("of:N*T*Camlogic,gxl-vdecC*");
+MODULE_ALIAS("of:N*T*Camlogic,gxlx-vdec");
+MODULE_ALIAS("of:N*T*Camlogic,gxlx-vdecC*");
 MODULE_ALIAS("of:N*T*Camlogic,g12a-vdec");
 MODULE_ALIAS("of:N*T*Camlogic,g12a-vdecC*");
 MODULE_ALIAS("of:N*T*Camlogic,sm1-vdec");
