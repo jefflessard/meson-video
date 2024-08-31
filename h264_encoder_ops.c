@@ -831,6 +831,12 @@ void avc_configure_ie_weight(u32 i16_weight, u32 i4_weight, u32 me_weight)
 			(me_weight << 0));
 }
 
+void avc_configure_ie_clear_sad_shift(void) {
+		u32 data32 = READ_HREG(HCODEC_SAD_CONTROL_1);
+		data32 = data32 & 0xffff; /* remove sad shift */
+		WRITE_HREG(HCODEC_SAD_CONTROL_1, data32);
+}
+
 void avc_configure_mv_merge(u32 me_mv_merge_ctl)
 {
 	WRITE_HREG(HCODEC_ME_MV_MERGE_CTL, me_mv_merge_ctl);
@@ -852,7 +858,7 @@ void avc_configure_me_parameters(
 	WRITE_HREG(HCODEC_ME_SAD_ENOUGH_23, me_sad_enough_23);
 }
 
-void avc_configure_skip_control(void)
+void avc_configure_skip_control_GXL(void)
 {
 	WRITE_HREG(HCODEC_V3_SKIP_CONTROL,
 			(1 << 31) |	   /* v3_skip_enable */
@@ -870,6 +876,26 @@ void avc_configure_skip_control(void)
 	WRITE_HREG(HCODEC_V3_L2_SKIP_WEIGHT,
 			(V3_FORCE_SKIP_SAD_2 << 16) |
 			(V3_SKIP_WEIGHT_2 << 0));
+}
+
+void avc_configure_skip_control_GXTVBB(void)
+{
+	WRITE_HREG(HCODEC_V3_SKIP_CONTROL,
+		(1 << 31) | /* v3_skip_enable */
+		(0 << 30) | /* v3_step_1_weight_enable */
+		(1 << 28) | /* v3_mv_sad_weight_enable */
+		(1 << 27) | /* v3_ipred_type_enable */
+		(0 << 12) | /* V3_FORCE_SKIP_SAD_1 */
+		(0 << 0)); /* V3_FORCE_SKIP_SAD_0 */
+	WRITE_HREG(HCODEC_V3_SKIP_WEIGHT,
+		(V3_SKIP_WEIGHT_1 << 16) |
+		(V3_SKIP_WEIGHT_0 << 0));
+	WRITE_HREG(HCODEC_V3_L1_SKIP_MAX_SAD,
+		(V3_LEVEL_1_F_SKIP_MAX_SAD << 16) |
+		(V3_LEVEL_1_SKIP_MAX_SAD << 0));
+	WRITE_HREG(HCODEC_V3_L2_SKIP_WEIGHT,
+		(0 << 16) | /* V3_FORCE_SKIP_SAD_2 */
+		(V3_SKIP_WEIGHT_2 << 0));
 }
 
 void avc_configure_mv_sad_table(u32 v3_mv_sad[64])
