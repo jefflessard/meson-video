@@ -4,6 +4,9 @@
 #include <stdint.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <getopt.h>
+#include <utime.h>
+#include <zlib.h>
 
 #include "firmware_priv.h"
 
@@ -11,7 +14,6 @@
 #define CODE_MAGIC ('C' << 24 | 'O' << 16 | 'D' << 8 | 'E')
 
 #define BUFF_SIZE (1024 * 1024 * 2)
-
 
 void print_package_header(struct package_head_s *header) {
 	printf("Package Header:\n");
@@ -50,97 +52,198 @@ void print_firmware_header(struct fw_head_s *header) {
 	printf("  Change ID: %s\n", header->change_id);
 }
 
-int extract_firmware(FILE *package_file, const char *output_dir) {
-	int try_count = 3;
-	struct package_s pkg;
-	struct package_info_s pkg_info;
+int extract_firmware(const char *output_dir, struct firmware_s *fw, struct package_info_s *pkg_info, int check_crc) {
+	if(!fw->head.duplicate) {
+		char output_path[512];
+		snprintf(output_path, sizeof(output_path), "%s/%s", output_dir, pkg_info->head.name);
 
-
-	do {
-		if (fread(&pkg, sizeof(pkg), 1, package_file) != 1) {
-			fprintf(stderr, "Failed to read package header\n");
+		FILE *output_file = fopen(output_path, "wb");
+		if (!output_file) {
+			fprintf(stderr, "Failed to create output file: %s\n", output_path);
 			return -1;
 		}
 
-	} while (try_count-- && pkg.head.magic != PACK_MAGIC);
+		fwrite(&fw->data, 1, fw->head.data_size, output_file);
+		fclose(output_file);
 
-	if (pkg.head.magic != PACK_MAGIC) {
-		fprintf(stderr, "Invalid package magic\n");
-		return -1;	
-	}
+		// Set file timestamp
+		struct utimbuf new_times;
+		new_times.actime = fw->head.time;
+		new_times.modtime = fw->head.time;
+		utime(output_path, &new_times);
 
-	print_package_header(&pkg.head);
-	printf("\n");
+		printf("  Extracted to: %s\n", output_path);
 
-	mkdir(output_dir, 0755);
-
-	while (fread(&pkg_info, sizeof(pkg_info), 1, package_file) == 1) {
-
-		print_package_info(&pkg_info.head);
-
-		char *firmware_data = malloc(pkg_info.head.length);
-		if (!firmware_data) {
-			fprintf(stderr, "Failed to allocate memory for firmware data\n");
-			return -1;
-		}
-
-		if (fread(firmware_data, 1, pkg_info.head.length, package_file) != pkg_info.head.length) {
-			fprintf(stderr, "Failed to read firmware data\n");
-			free(firmware_data);
-			return -1;
-		}
-
-		struct firmware_s *fw = (struct firmware_s *)firmware_data;
-		print_firmware_header(&fw->head);
-
-		if (fw->head.magic != CODE_MAGIC) {
-			fprintf(stderr, "Invalid firmware magic\n");
-			free(firmware_data);
-			continue;
-		}
-
-		if(!fw->head.duplicate) {
-			char output_path[512];
-			snprintf(output_path, sizeof(output_path), "%s/%s", output_dir, pkg_info.head.name);
-
-			FILE *output_file = fopen(output_path, "wb");
-			if (!output_file) {
-				fprintf(stderr, "Failed to create output file: %s\n", output_path);
-				free(firmware_data);
-				continue;
+		if (check_crc) {
+			FILE *check_file = fopen(output_path, "rb");
+			if (!check_file) {
+				fprintf(stderr, "Failed to open file for CRC check: %s\n", output_path);
+				return -1;
 			}
 
-			//fwrite(firmware_data, 1, pkg_info.head.length, output_file);
-			fwrite(&fw->data, 1, fw->head.data_size, output_file);
-			fclose(output_file);
+			uLong crc = crc32(0L, Z_NULL, 0);
+			unsigned char buffer[BUFF_SIZE];
+			size_t read_size;
 
-			printf("  Extracted to: %s\n", output_path);
+			while ((read_size = fread(buffer, 1, sizeof(buffer), check_file)) > 0) {
+				crc = crc32(crc, buffer, read_size);
+			}
+
+			fclose(check_file);
+
+			if (crc == fw->head.checksum) {
+				printf("  CRC32 check passed for %s\n", output_path);
+			} else {
+				printf("  CRC32 check failed for %s (expected: 0x%08X, got: 0x%08X)\n", 
+						output_path, fw->head.checksum, (unsigned int)crc);
+			}
 		}
-
-		free(firmware_data);
-		printf("\n");
 	}
 
 	return 0;
 }
 
+int walk_package(const char *package_path, const char *output_dir, int metadata_only, int extract_files, int check_crc) {
+    FILE *package_file = fopen(package_path, "rb");
+    if (!package_file) {
+        fprintf(stderr, "Failed to open package file: %s\n", package_path);
+        return 1;
+    }
+
+    struct package_s pkg;
+    struct package_info_s pkg_info;
+
+    int try_count = 3;
+    do {
+        if (fread(&pkg, sizeof(pkg), 1, package_file) != 1) {
+            fprintf(stderr, "Failed to read package header\n");
+            fclose(package_file);
+            return 1;
+        }
+    } while (try_count-- && pkg.head.magic != PACK_MAGIC);
+
+    if (pkg.head.magic != PACK_MAGIC) {
+        fprintf(stderr, "Invalid package magic\n");
+        fclose(package_file);
+        return 1;    
+    }
+
+    print_package_header(&pkg.head);
+    printf("\n");
+
+    if (extract_files && output_dir) {
+        mkdir(output_dir, 0755);
+    }
+
+    while (fread(&pkg_info, sizeof(pkg_info), 1, package_file) == 1) {
+        print_package_info(&pkg_info.head);
+
+        char *firmware_data = malloc(pkg_info.head.length);
+        if (!firmware_data) {
+            fprintf(stderr, "Failed to allocate memory for firmware data\n");
+            fclose(package_file);
+            return 1;
+        }
+
+        if (fread(firmware_data, 1, pkg_info.head.length, package_file) != pkg_info.head.length) {
+            fprintf(stderr, "Failed to read firmware data\n");
+            free(firmware_data);
+            fclose(package_file);
+            return 1;
+        }
+
+        struct firmware_s *fw = (struct firmware_s *)firmware_data;
+        print_firmware_header(&fw->head);
+
+        if (fw->head.magic != CODE_MAGIC) {
+            fprintf(stderr, "Invalid firmware magic\n");
+            free(firmware_data);
+            continue;
+        }
+
+        if (extract_files && output_dir) {
+            if (extract_firmware(output_dir, fw, &pkg_info, check_crc) != 0) {
+                fprintf(stderr, "Firmware extraction failed\n");
+                free(firmware_data);
+                fclose(package_file);
+                return 1;
+            }
+        }
+
+        free(firmware_data);
+        printf("\n");
+    }
+
+    fclose(package_file);
+    return 0;
+}
+
+void print_usage(const char *program_name) {
+    printf("Usage: %s [OPTIONS] <package_file> [output_directory]\n", program_name);
+    printf("Options:\n");
+    printf("  -m, --metadata   Print metadata only\n");
+    printf("  -e, --extract    Extract firmwares (requires output_directory)\n");
+    printf("  -c, --check-crc  Check CRC32 of extracted files\n");
+    printf("  -h, --help       Print this help message\n");
+}
+
 int main(int argc, char *argv[]) {
-	if (argc != 3) {
-		fprintf(stderr, "Usage: %s <package_file> <output_directory>\n", argv[0]);
-		return 1;
-	}
+    int opt;
+    int metadata_only = 0;
+    int extract_files = 0;
+    int check_crc = 0;
 
-	const char *package_path = argv[1];
-	const char *output_dir = argv[2];
+    static struct option long_options[] = {
+        {"metadata", no_argument, 0, 'm'},
+        {"extract", no_argument, 0, 'e'},
+        {"check-crc", no_argument, 0, 'c'},
+        {"help", no_argument, 0, 'h'},
+        {0, 0, 0, 0}
+    };
 
-	FILE *package_file = fopen(package_path, "rb");
-	if (!package_file) {
-		fprintf(stderr, "Failed to open package file: %s\n", package_path);
-		return 1;
-	}
+    while ((opt = getopt_long(argc, argv, "mech", long_options, NULL)) != -1) {
+        switch (opt) {
+            case 'm':
+                metadata_only = 1;
+                break;
+            case 'e':
+                extract_files = 1;
+                break;
+            case 'c':
+                check_crc = 1;
+                break;
+            case 'h':
+                print_usage(argv[0]);
+                return 0;
+            default:
+                print_usage(argv[0]);
+                return 1;
+        }
+    }
 
-	int result = extract_firmware(package_file, output_dir);
+    if (optind >= argc) {
+        fprintf(stderr, "Error: Package file is required.\n");
+        print_usage(argv[0]);
+        return 1;
+    }
 
-	fclose(package_file);
-	return result;
+    const char *package_path = argv[optind];
+    const char *output_dir = NULL;
+
+    if (extract_files) {
+        if (optind + 1 >= argc) {
+            fprintf(stderr, "Error: Output directory is required when extracting.\n");
+            print_usage(argv[0]);
+            return 1;
+        }
+        output_dir = argv[optind + 1];
+    }
+
+    if (!metadata_only && !extract_files) {
+        fprintf(stderr, "Error: Either -m or -e option must be specified.\n");
+        print_usage(argv[0]);
+        return 1;
+    }
+
+    return walk_package(package_path, output_dir, metadata_only, extract_files, check_crc);
 }
