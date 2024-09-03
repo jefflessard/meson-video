@@ -20,9 +20,9 @@ modules_install:
 	depmod -a
 
 probe: modules_install
-	rmmod meson_vdec
+	rmmod meson_vcodec || true
 	dmesg -c > /dev/null
-	modprobe meson_vdec
+	modprobe meson_vcodec
 
 clean:
 	$(MAKE) -C $(KDIR) M=$(PWD) clean
