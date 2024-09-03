@@ -60,7 +60,7 @@ struct meson_vcodec_session {
 	struct meson_vcodec *parent;
 	int session_id;
 
-	struct meson_codec_formats *codec;
+	const struct meson_codec_formats *codec;
 
 	struct v4l2_format input_format;
 	struct v4l2_format output_format;

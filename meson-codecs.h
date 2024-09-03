@@ -5,6 +5,9 @@
 
 #include "meson-formats.h"
 
+#define MIN_RESOLUTION_WIDTH 320
+#define MIN_RESOLUTION_HEIGHT 240
+
 struct meson_vcodec_session;
 
 struct meson_codec_ops {
@@ -31,6 +34,8 @@ struct meson_codec_formats {
 	const struct meson_format *intermediate_format;
 	const struct meson_codec_spec *decoder;
 	const struct meson_codec_spec *encoder;
+	const u16 max_width;
+	const u16 max_height;
 };
 
 static const struct meson_codec_ops h264_decoder_ops = {

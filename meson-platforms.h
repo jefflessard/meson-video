@@ -45,8 +45,8 @@ struct meson_ee_pwrc_top_domain;
 struct meson_platform_specs {
 	const enum meson_platform_id platform_id;
 	const struct meson_ee_pwrc_top_domain *pwrc;
-	const struct meson_codec_formats *formats;
-	const u32 num_formats;
+	const struct meson_codec_formats *codecs;
+	const u32 num_codecs;
 };
 
 
@@ -99,7 +99,7 @@ static const struct meson_ee_pwrc_top_domain sm1_pwrc[MAX_PWRC] = {
 	[PWRC_HCODEC] = SM1_EE_PD(1),
 };
 
-static const struct meson_codec_formats gxl_formats[] = {
+static const struct meson_codec_formats gxl_codecs[] = {
 
 	// decoding combinations
 	{
@@ -108,6 +108,8 @@ static const struct meson_codec_formats gxl_formats[] = {
 		.intermediate_format = NULL,
 		.decoder = &h264_decoder,
 		.encoder = NULL,
+		.max_width = 3840,
+		.max_height = 2160,
 	},
 	{
 		.input_format = &hevc,
@@ -115,6 +117,8 @@ static const struct meson_codec_formats gxl_formats[] = {
 		.intermediate_format = NULL,
 		.decoder = &hevc_decoder,
 		.encoder = NULL,
+		.max_width = 3840,
+		.max_height = 2160,
 	},
 
 	// encoding combinations
@@ -124,6 +128,8 @@ static const struct meson_codec_formats gxl_formats[] = {
 		.intermediate_format = NULL,
 		.decoder = NULL,
 		.encoder = &h264_encoder,
+		.max_width = 1920,
+		.max_height = 1280,
 	},
 	{
 		.input_format = &yuv420m,
@@ -131,6 +137,8 @@ static const struct meson_codec_formats gxl_formats[] = {
 		.intermediate_format = NULL,
 		.decoder = NULL,
 		.encoder = &h264_encoder,
+		.max_width = 1920,
+		.max_height = 1280,
 	},
 /*
 	{
@@ -155,6 +163,8 @@ static const struct meson_codec_formats gxl_formats[] = {
 		.intermediate_format = &nv12,
 		.decoder = &h264_decoder,
 		.encoder = &h264_encoder,
+		.max_width = 1920,
+		.max_height = 1280,
 	},
 /*
 	{
@@ -171,6 +181,8 @@ static const struct meson_codec_formats gxl_formats[] = {
 		.intermediate_format = &nv12,
 		.decoder = &hevc_decoder,
 		.encoder = &h264_encoder,
+		.max_width = 1920,
+		.max_height = 1280,
 	},
 /*
 	{
@@ -186,8 +198,8 @@ static const struct meson_codec_formats gxl_formats[] = {
 const struct meson_platform_specs gxl_platform_specs = {
 	.platform_id = MESON_MAJOR_ID_GXL,
 	.pwrc = gx_pwrc,
-	.formats = gxl_formats,
-	.num_formats = ARRAY_SIZE(gxl_formats),
+	.codecs = gxl_codecs,
+	.num_codecs = ARRAY_SIZE(gxl_codecs),
 };
 
 
