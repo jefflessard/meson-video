@@ -10,6 +10,7 @@ struct meson_format {
 	const char *description;
 	const u32 num_planes;
 	const u8 plane_size_denums[MAX_NUM_PLANES];
+	const u32 flags;
 };
 
 const struct meson_format nv12 = {
@@ -31,6 +32,7 @@ const struct meson_format h264 = {
 	.pixelformat = V4L2_PIX_FMT_H264,
 	.num_planes = 1,
 	.plane_size_denums = {1},
+	.flags = V4L2_FMT_FLAG_COMPRESSED | V4L2_FMT_FLAG_DYN_RESOLUTION,
 };
 
 const struct meson_format hevc = {
@@ -38,6 +40,7 @@ const struct meson_format hevc = {
 	.pixelformat = V4L2_PIX_FMT_HEVC,
 	.num_planes = 1,
 	.plane_size_denums = {1},
+	.flags = V4L2_FMT_FLAG_COMPRESSED | V4L2_FMT_FLAG_DYN_RESOLUTION,
 };
 
 #endif

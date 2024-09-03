@@ -132,6 +132,7 @@ static const struct meson_codec_formats gxl_formats[] = {
 		.decoder = NULL,
 		.encoder = &h264_encoder,
 	},
+/*
 	{
 		.input_format = &nv12,
 		.output_format = &hevc,
@@ -146,7 +147,7 @@ static const struct meson_codec_formats gxl_formats[] = {
 		.decoder = NULL,
 		.encoder = &hevc_encoder,
 	},
-
+*/
 	// transcoding combinations
 	{
 		.input_format = &h264,
@@ -155,6 +156,7 @@ static const struct meson_codec_formats gxl_formats[] = {
 		.decoder = &h264_decoder,
 		.encoder = &h264_encoder,
 	},
+/*
 	{
 		.input_format = &h264,
 		.output_format = &hevc,
@@ -162,6 +164,7 @@ static const struct meson_codec_formats gxl_formats[] = {
 		.decoder = &h264_decoder,
 		.encoder = &hevc_encoder,
 	},
+*/
 	{
 		.input_format = &hevc,
 		.output_format = &h264,
@@ -169,6 +172,7 @@ static const struct meson_codec_formats gxl_formats[] = {
 		.decoder = &hevc_decoder,
 		.encoder = &h264_encoder,
 	},
+/*
 	{
 		.input_format = &hevc,
 		.output_format = &hevc,
@@ -176,6 +180,7 @@ static const struct meson_codec_formats gxl_formats[] = {
 		.decoder = &hevc_decoder,
 		.encoder = &hevc_encoder,
 	},
+*/
 };
 
 const struct meson_platform_specs gxl_platform_specs = {
