@@ -103,10 +103,55 @@ static const struct meson_codec_formats gxl_codecs[] = {
 
 	// decoding combinations
 	{
+		.input_format = &mpeg1,
+		.output_format = &nv12,
+		.intermediate_format = NULL,
+		.decoder = &mpeg1_decoder,
+		.encoder = NULL,
+		.max_width = 1920,
+		.max_height = 1080,
+	},
+	{
+		.input_format = &mpeg1,
+		.output_format = &yuv420,
+		.intermediate_format = NULL,
+		.decoder = &mpeg1_decoder,
+		.encoder = NULL,
+		.max_width = 1920,
+		.max_height = 1080,
+	},
+	{
+		.input_format = &mpeg2,
+		.output_format = &nv12,
+		.intermediate_format = NULL,
+		.decoder = &mpeg2_decoder,
+		.encoder = NULL,
+		.max_width = 1920,
+		.max_height = 1080,
+	},
+	{
+		.input_format = &mpeg2,
+		.output_format = &yuv420,
+		.intermediate_format = NULL,
+		.decoder = &mpeg2_decoder,
+		.encoder = NULL,
+		.max_width = 1920,
+		.max_height = 1080,
+	},
+	{
 		.input_format = &h264,
 		.output_format = &nv12,
 		.intermediate_format = NULL,
 		.decoder = &h264_decoder,
+		.encoder = NULL,
+		.max_width = 3840,
+		.max_height = 2160,
+	},
+	{
+		.input_format = &vp9,
+		.output_format = &nv12,
+		.intermediate_format = NULL,
+		.decoder = &vp9_decoder,
 		.encoder = NULL,
 		.max_width = 3840,
 		.max_height = 2160,
@@ -132,7 +177,7 @@ static const struct meson_codec_formats gxl_codecs[] = {
 		.max_height = 1280,
 	},
 	{
-		.input_format = &yuv420m,
+		.input_format = &yuv420,
 		.output_format = &h264,
 		.intermediate_format = NULL,
 		.decoder = NULL,
@@ -149,7 +194,7 @@ static const struct meson_codec_formats gxl_codecs[] = {
 		.encoder = &hevc_encoder,
 	},
 	{
-		.input_format = &yuv420m,
+		.input_format = &yuv420,
 		.output_format = &hevc,
 		.intermediate_format = NULL,
 		.decoder = NULL,
@@ -157,6 +202,24 @@ static const struct meson_codec_formats gxl_codecs[] = {
 	},
 */
 	// transcoding combinations
+	{
+		.input_format = &mpeg1,
+		.output_format = &h264,
+		.intermediate_format = &nv12,
+		.decoder = &mpeg1_decoder,
+		.encoder = &h264_encoder,
+		.max_width = 1920,
+		.max_height = 1280,
+	},
+	{
+		.input_format = &mpeg2,
+		.output_format = &h264,
+		.intermediate_format = &nv12,
+		.decoder = &mpeg2_decoder,
+		.encoder = &h264_encoder,
+		.max_width = 1920,
+		.max_height = 1280,
+	},
 	{
 		.input_format = &h264,
 		.output_format = &h264,
@@ -166,15 +229,15 @@ static const struct meson_codec_formats gxl_codecs[] = {
 		.max_width = 1920,
 		.max_height = 1280,
 	},
-/*
 	{
-		.input_format = &h264,
-		.output_format = &hevc,
+		.input_format = &vp9,
+		.output_format = &h264,
 		.intermediate_format = &nv12,
-		.decoder = &h264_decoder,
-		.encoder = &hevc_encoder,
+		.decoder = &vp9_decoder,
+		.encoder = &h264_encoder,
+		.max_width = 1920,
+		.max_height = 1280,
 	},
-*/
 	{
 		.input_format = &hevc,
 		.output_format = &h264,
@@ -185,6 +248,13 @@ static const struct meson_codec_formats gxl_codecs[] = {
 		.max_height = 1280,
 	},
 /*
+	{
+		.input_format = &h264,
+		.output_format = &hevc,
+		.intermediate_format = &nv12,
+		.decoder = &h264_decoder,
+		.encoder = &hevc_encoder,
+	},
 	{
 		.input_format = &hevc,
 		.output_format = &hevc,

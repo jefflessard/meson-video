@@ -38,21 +38,46 @@ struct meson_codec_formats {
 	const u16 max_height;
 };
 
+static const struct meson_codec_ops mpeg1_decoder_ops = {
+};
+
+static const struct v4l2_ctrl_config mpeg1_decoder_ctrls[] = {
+};
+
+static const struct v4l2_ctrl_ops mpeg1_decoder_ctrl_ops = {
+};
+
+static const struct meson_codec_ops mpeg2_decoder_ops = {
+};
+
+static const struct v4l2_ctrl_config mpeg2_decoder_ctrls[] = {
+};
+
+static const struct v4l2_ctrl_ops mpeg2_decoder_ctrl_ops = {
+};
+
 static const struct meson_codec_ops h264_decoder_ops = {
 };
 
 static const struct v4l2_ctrl_config h264_decoder_ctrls[] = {
-	// H.264 decoder specific controls
 };
 
 static const struct v4l2_ctrl_ops h264_decoder_ctrl_ops = {
+};
+
+static const struct meson_codec_ops vp9_decoder_ops = {
+};
+
+static const struct v4l2_ctrl_config vp9_decoder_ctrls[] = {
+};
+
+static const struct v4l2_ctrl_ops vp9_decoder_ctrl_ops = {
 };
 
 static const struct meson_codec_ops hevc_decoder_ops = {
 };
 
 static const struct v4l2_ctrl_config hevc_decoder_ctrls[] = {
-	// HEVC decoder specific controls
 };
 
 static const struct v4l2_ctrl_ops hevc_decoder_ctrl_ops = {
@@ -62,7 +87,6 @@ static const struct meson_codec_ops h264_encoder_ops = {
 };
 
 static const struct v4l2_ctrl_config h264_encoder_ctrls[] = {
-	// H.264 encoder specific controls
 };
 
 static const struct v4l2_ctrl_ops h264_encoder_ctrl_ops = {
@@ -72,10 +96,23 @@ static const struct meson_codec_ops hevc_encoder_ops = {
 };
 
 static const struct v4l2_ctrl_config hevc_encoder_ctrls[] = {
-	// HEVC encoder specific controls
 };
 
 static const struct v4l2_ctrl_ops hevc_encoder_ctrl_ops = {
+};
+
+const struct meson_codec_spec mpeg1_decoder = {
+	.ops = &mpeg1_decoder_ops,
+	.ctrl_ops = &mpeg1_decoder_ctrl_ops,
+	.ctrls = mpeg1_decoder_ctrls,
+	.num_ctrls = ARRAY_SIZE(mpeg1_decoder_ctrls),
+};
+
+const struct meson_codec_spec mpeg2_decoder = {
+	.ops = &mpeg2_decoder_ops,
+	.ctrl_ops = &mpeg2_decoder_ctrl_ops,
+	.ctrls = mpeg2_decoder_ctrls,
+	.num_ctrls = ARRAY_SIZE(mpeg2_decoder_ctrls),
 };
 
 const struct meson_codec_spec h264_decoder = {
@@ -83,6 +120,13 @@ const struct meson_codec_spec h264_decoder = {
 	.ctrl_ops = &h264_decoder_ctrl_ops,
 	.ctrls = h264_decoder_ctrls,
 	.num_ctrls = ARRAY_SIZE(h264_decoder_ctrls),
+};
+
+const struct meson_codec_spec vp9_decoder = {
+	.ops = &vp9_decoder_ops,
+	.ctrl_ops = &vp9_decoder_ctrl_ops,
+	.ctrls = vp9_decoder_ctrls,
+	.num_ctrls = ARRAY_SIZE(vp9_decoder_ctrls),
 };
 
 const struct meson_codec_spec hevc_decoder = {

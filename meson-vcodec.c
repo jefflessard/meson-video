@@ -331,7 +331,7 @@ static int meson_vcodec_enum_fmt_vid(struct file *file, void *priv, struct v4l2_
 {
 	struct meson_vcodec *vcodec = video_drvdata(file);
 	struct meson_vcodec_session *session = container_of(file->private_data, struct meson_vcodec_session, fh);
-	const struct meson_format *formats[4];
+	const struct meson_format *formats[MAX_FORMATS];
 	const struct meson_format *fmt;
 	int count;
 
