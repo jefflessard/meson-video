@@ -286,24 +286,6 @@ static int meson_vcodec_querycap(struct file *file, void *priv, struct v4l2_capa
 	return 0;
 }
 
-static const struct meson_codec_formats* find_codec(struct meson_vcodec_session *session) {
-	struct meson_vcodec *vcodec = session->parent;
-	const struct meson_codec_formats *codecs = vcodec->platform_specs->codecs;
-	int num_codecs = vcodec->platform_specs->num_codecs;
-	u32 input_pxfmt = session->input_format.fmt.pix_mp.pixelformat;
-	u32 output_pxfmt = session->output_format.fmt.pix_mp.pixelformat;
-	int i;
-
-	for (i = 0; i < num_codecs; i++) {
-		if (	codecs[i].input_format->pixelformat == input_pxfmt &&
-			codecs[i].output_format->pixelformat == output_pxfmt
-		) {
-			return &codecs[i];
-		}
-	}
-	return NULL;
-}
-
 static int filter_formats(struct meson_vcodec_session *session, u32 fmt_type, const struct meson_format **array)
 {
 	struct meson_vcodec *vcodec = session->parent;
@@ -375,6 +357,8 @@ static int meson_vcodec_enum_framesizes(struct file *file, void *priv, struct v4
 	const struct meson_codec_formats *codecs = vcodec->platform_specs->codecs;
 	int num_codecs = vcodec->platform_specs->num_codecs;
 	const struct meson_codec_formats *codec;
+	u32 pxlfmt_src = session->input_format.fmt.pix_mp.pixelformat;
+	u32 pxlfmt_dst = session->output_format.fmt.pix_mp.pixelformat;
 	u16 max_width = 0, max_height = 0;
 	int i;
 
@@ -384,22 +368,19 @@ static int meson_vcodec_enum_framesizes(struct file *file, void *priv, struct v4
 
 	dev_dbg(vcodec->dev, "enum_framesizes index=%d, fmt=%.4s\n", fsize->index, (char*)&fsize->pixel_format);
 
+
 	for (i = 0; i < num_codecs; i++) {
 		codec = &codecs[i];
 
-		//TODO something is wrong here, both pixel formats may not have been set yet
-		
 		if ((	codec->output_format->pixelformat == fsize->pixel_format || codec->input_format->pixelformat == fsize->pixel_format
 		) && (
-			!session->input_format.fmt.pix_mp.pixelformat || session->input_format.fmt.pix_mp.pixelformat == codec->input_format->pixelformat
+				!pxlfmt_src || pxlfmt_src == codec->input_format->pixelformat
 		) && (
-			!session->output_format.fmt.pix_mp.pixelformat || session->output_format.fmt.pix_mp.pixelformat == codec->output_format->pixelformat
+				!pxlfmt_dst || pxlfmt_dst == codec->output_format->pixelformat
 		)) {
 			dev_dbg(vcodec->dev, "enum_framesizes in_fmt=%.4s, out_fmt=%.4s\n", (char*)&codec->input_format->pixelformat, (char*)&codec->output_format->pixelformat);
 
-			if (	session->input_format.fmt.pix_mp.pixelformat &&
-				session->output_format.fmt.pix_mp.pixelformat
-			) {
+			if (pxlfmt_src && pxlfmt_dst) {
 				max_width = codec->max_width;
 				max_height = codec->max_height;
 				break;
@@ -412,8 +393,6 @@ static int meson_vcodec_enum_framesizes(struct file *file, void *priv, struct v4
 		}
 	}
 	
-	dev_dbg(vcodec->dev, "enum_framesizes max_width=%d, max_height=%d\n", max_width, max_height);
-
 	if (max_width != 0 && max_height != 0) {
 		fsize->type = V4L2_FRMSIZE_TYPE_CONTINUOUS;
 		fsize->stepwise.min_width = MIN_RESOLUTION_WIDTH;
@@ -427,71 +406,162 @@ static int meson_vcodec_enum_framesizes(struct file *file, void *priv, struct v4
 	return -EINVAL;
 }
 
+static const struct meson_codec_formats* find_codec(struct meson_vcodec *vcodec, u32 pxfmt_src, u32 pxfmt_dst) {
+	const struct meson_codec_formats *codecs = vcodec->platform_specs->codecs;
+	int num_codecs = vcodec->platform_specs->num_codecs;
+	int i;
+
+	for (i = 0; i < num_codecs; i++) {
+		if (	codecs[i].input_format->pixelformat == pxfmt_src &&
+			codecs[i].output_format->pixelformat == pxfmt_dst
+		) {
+			return &codecs[i];
+		}
+	}
+	return NULL;
+}
+
+static void set_buffer_sizes(struct v4l2_format *f, const struct meson_format *fmt) {
+	u32 sizeimage, aligned_width;
+	int j;
+
+	sizeimage = ALIGN(f->fmt.pix_mp.width * f->fmt.pix_mp.height, SZ_64K);
+	aligned_width = ALIGN(f->fmt.pix_mp.width, 32);
+
+	f->fmt.pix_mp.num_planes = fmt->num_planes;
+	for (j = 0; j < fmt->num_planes; j++) {
+		memset(
+			f->fmt.pix_mp.plane_fmt[j].reserved,
+			0,
+			sizeof(f->fmt.pix_mp.plane_fmt[j].reserved)
+		);
+
+		if (fmt->plane_size_denums[j]) {
+			f->fmt.pix_mp.plane_fmt[j].sizeimage = sizeimage / fmt->plane_size_denums[j];
+		} else {
+			f->fmt.pix_mp.plane_fmt[j].sizeimage = sizeimage;
+		}
+
+		if (fmt->plane_line_denums[j]) {
+			f->fmt.pix_mp.plane_fmt[j].bytesperline = aligned_width / fmt->plane_line_denums[j];
+		} else {
+			f->fmt.pix_mp.plane_fmt[j].bytesperline = 0;
+		}
+	}
+}
+
+static int common_try_fmt_vid(struct meson_vcodec *vcodec, u32 fmt_type, struct v4l2_format *fmt_src, struct v4l2_format *fmt_dst)
+{
+	const struct meson_codec_formats *codecs = vcodec->platform_specs->codecs;
+	const struct meson_codec_formats *codec;
+	int num_codecs = vcodec->platform_specs->num_codecs;
+	struct v4l2_format *fmt_set;
+	u32 max_width, max_height, pxfmt_match;
+	int i;
+
+	if (V4L2_TYPE_IS_OUTPUT(fmt_type)) {
+		fmt_set = fmt_dst;
+	} else {
+		fmt_set = fmt_src;
+	}
+
+	// Both formats set: exact match
+	if (	fmt_src->fmt.pix_mp.pixelformat &&
+		fmt_dst->fmt.pix_mp.pixelformat
+	) {
+		// Find the codec
+		codec = find_codec(
+			vcodec,
+			fmt_src->fmt.pix_mp.pixelformat,
+			fmt_dst->fmt.pix_mp.pixelformat
+		);
+		if (!codec) {
+			dev_err(vcodec->dev, "codec formats not found\n");
+			return -EINVAL;
+		}
+
+		// Match resolutions
+		fmt_src->fmt.pix_mp.width = clamp(
+			fmt_set->fmt.pix_mp.width,
+			MIN_RESOLUTION_WIDTH,
+			codec->max_width
+		);
+		fmt_src->fmt.pix_mp.height = clamp(
+			fmt_set->fmt.pix_mp.height,
+			MIN_RESOLUTION_HEIGHT,
+			codec->max_height
+		);
+		fmt_dst->fmt.pix_mp.width = fmt_src->fmt.pix_mp.width;
+		fmt_dst->fmt.pix_mp.height = fmt_src->fmt.pix_mp.height;
+
+		// Set buffer sizes
+		set_buffer_sizes(fmt_src, codec->input_format);
+		set_buffer_sizes(fmt_dst, codec->output_format);
+
+	// Other format not set yet: heurisitc match
+	} else {
+		max_width = 0;
+		max_height = 0;
+
+		// Filter format
+		for(i = 0; i < num_codecs; i++) {
+			codec = &codecs[i];
+
+			if (V4L2_TYPE_IS_OUTPUT(fmt_type)) {
+				pxfmt_match = codec->output_format->pixelformat;
+			} else {
+				pxfmt_match = codec->input_format->pixelformat;
+			}
+
+			if (fmt_set->fmt.pix_mp.pixelformat == pxfmt_match) {
+				if (codec->max_width > max_width) {
+					max_width = codec->max_width; 
+				}
+
+				if (codec->max_height > max_height) {
+					max_height = codec->max_height; 
+				}
+			}
+		}
+
+		if (max_width == 0 || max_height == 0) {
+			dev_err(vcodec->dev, "matching format  not found\n");
+			return -EINVAL;
+		}
+
+		// Temporarily match resolution until both formats are set
+		fmt_set->fmt.pix_mp.width = clamp(
+			fmt_set->fmt.pix_mp.width,
+			MIN_RESOLUTION_WIDTH,
+			max_width
+		);
+		fmt_set->fmt.pix_mp.height = clamp(
+			fmt_set->fmt.pix_mp.height,
+			MIN_RESOLUTION_HEIGHT,
+			max_height
+		);
+	}
+
+	return 0;
+}
+
 static int meson_vcodec_try_fmt_vid(struct file *file, void *priv, struct v4l2_format *f)
 {
 	struct meson_vcodec *vcodec = video_drvdata(file);
 	struct meson_vcodec_session *session = container_of(file->private_data, struct meson_vcodec_session, fh);
-	const struct meson_format *formats[MAX_FORMATS];
-	const struct meson_format *fmt = NULL;
-	struct v4l2_frmsizeenum fsize;
-	int i, j, count, ret;
-	u32 sizeimage, aligned_width;
-	
+	struct v4l2_format *fmt_src, *fmt_dst;
+
 	dev_dbg(vcodec->dev, "try_fmt_vid type=%d fmt=%.4s\n", f->type, (char*)&f->fmt.pix_mp.pixelformat);
 
-	count = filter_formats(session, f->type, formats);
-
-	for (i = 0; i < count; i++) {
-		if (formats[i]->pixelformat == f->fmt.pix_mp.pixelformat) {
-			fmt = formats[i];
-			break;
-		}
+	if (V4L2_TYPE_IS_OUTPUT(f->type)) {
+		fmt_src = &session->input_format;
+		fmt_dst = f;
+	} else {
+		fmt_src = f;
+		fmt_dst = &session->output_format;
 	}
 
-	if (fmt) {
-		//TODO use codec specific max width and height when setting the second format
-		//TODO then also check that input and output formats have the same resolution
-		fsize.index = 0;
-		fsize.pixel_format = f->fmt.pix_mp.pixelformat;
-		ret = meson_vcodec_enum_framesizes(file, priv, &fsize);
-		if (ret) {
-			dev_err(vcodec->dev, "frame size not found\n");
-			return ret;
-		}
-
-		if (fsize.type != V4L2_FRMSIZE_TYPE_CONTINUOUS) {
-			dev_err(vcodec->dev, "unsupported frame size type\n");
-			return -EINVAL;
-		}
-
-		f->fmt.pix_mp.width = clamp(f->fmt.pix_mp.width,  fsize.stepwise.min_width, fsize.stepwise.max_width);
-		f->fmt.pix_mp.height = clamp(f->fmt.pix_mp.height, fsize.stepwise.min_height, fsize.stepwise.max_height);
-
-		sizeimage = ALIGN(f->fmt.pix_mp.width * f->fmt.pix_mp.height, SZ_64K);
-		aligned_width = ALIGN(f->fmt.pix_mp.width, 32);
-
-		f->fmt.pix_mp.num_planes = fmt->num_planes;
-		for (j = 0; j < fmt->num_planes; j++) {
-			memset(f->fmt.pix_mp.plane_fmt[j].reserved, 0, sizeof(f->fmt.pix_mp.plane_fmt[j].reserved));
-
-			if (fmt->plane_size_denums[j]) {
-				f->fmt.pix_mp.plane_fmt[j].sizeimage = sizeimage / fmt->plane_size_denums[j];
-			} else {
-				f->fmt.pix_mp.plane_fmt[j].sizeimage = sizeimage;
-			}
-
-			if (fmt->plane_line_denums[j]) {
-				f->fmt.pix_mp.plane_fmt[j].bytesperline = aligned_width / fmt->plane_line_denums[j];
-			} else {
-				f->fmt.pix_mp.plane_fmt[j].bytesperline = 0;
-			}
-		}
-
-		return 0;
-	}
-
-	dev_err(vcodec->dev, "format not found\n");
-	return -EINVAL;
+	return common_try_fmt_vid(vcodec, f->type, fmt_src, fmt_dst);
 }
 
 static int meson_vcodec_s_fmt_vid(struct file *file, void *priv, struct v4l2_format *f)
@@ -499,34 +569,47 @@ static int meson_vcodec_s_fmt_vid(struct file *file, void *priv, struct v4l2_for
 	struct meson_vcodec *vcodec = video_drvdata(file);
 	struct meson_vcodec_session *session = container_of(file->private_data, struct meson_vcodec_session, fh);
 	const struct meson_codec_formats *codec;
-	
+	struct v4l2_format *fmt_src, *fmt_dst;
 	int ret;
 
 	dev_dbg(vcodec->dev, "s_fmt_vid type=%d fmt=%.4s\n", f->type, (char*)&f->fmt.pix_mp.pixelformat);
 
-	ret = meson_vcodec_try_fmt_vid(file, priv, f);
+	//TODO check if the session is active, return -EBUSY;
+	
+	if (V4L2_TYPE_IS_OUTPUT(f->type)) {
+		fmt_src = &session->input_format;
+		fmt_dst = f;
+	} else {
+		fmt_src = f;
+		fmt_dst = &session->output_format;
+	}
+
+	ret = common_try_fmt_vid(vcodec, f->type, fmt_src, fmt_dst);
 	if (ret)
 		return ret;
 
-	//TODO check if the session is active, return -EBUSY;
-
-	if (V4L2_TYPE_IS_OUTPUT(f->type))
+	if (V4L2_TYPE_IS_OUTPUT(f->type)) {
 		session->output_format = *f;
-	else
+	} else {
 		session->input_format = *f;
+	}
 
 	session->codec = NULL;
 
-	if (	session->output_format.fmt.pix_mp.pixelformat &&
+	if (session->output_format.fmt.pix_mp.pixelformat &&
 		session->output_format.fmt.pix_mp.width &&
 		session->output_format.fmt.pix_mp.height &&
 		session->input_format.fmt.pix_mp.pixelformat &&
 		session->output_format.fmt.pix_mp.width &&
 		session->output_format.fmt.pix_mp.height
-	   ) {
+	) {
 		dev_dbg(vcodec->dev, "s_fmt_vid complete\n");
 
-		codec = find_codec(session);
+		codec = find_codec(
+			vcodec,
+			fmt_src->fmt.pix_mp.pixelformat,
+			fmt_dst->fmt.pix_mp.pixelformat
+		);
 		if (!codec) {
 			dev_err(vcodec->dev, "codec formats not found\n");
 			return -EINVAL;
@@ -581,6 +664,8 @@ static const struct v4l2_ioctl_ops meson_vcodec_ioctl_ops = {
 */
 	.vidioc_subscribe_event = v4l2_ctrl_subscribe_event,
 	.vidioc_unsubscribe_event = v4l2_event_unsubscribe,
+	.vidioc_try_encoder_cmd = v4l2_m2m_ioctl_try_encoder_cmd,
+	.vidioc_encoder_cmd = v4l2_m2m_ioctl_encoder_cmd,
 	.vidioc_try_decoder_cmd = v4l2_m2m_ioctl_try_decoder_cmd,
 	.vidioc_decoder_cmd = v4l2_m2m_ioctl_decoder_cmd,
 };

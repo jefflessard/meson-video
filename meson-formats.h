@@ -5,7 +5,7 @@
 
 #define MAX_NUM_PLANES VIDEO_MAX_PLANES
 
-enum mesont_formats {
+enum meson_formats {
 	FORMAT_NV12,
 	FORMAT_YUV420M,
 	FORMAT_H264,
