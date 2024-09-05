@@ -99,10 +99,10 @@ static void meson_vcodec_buf_queue(struct vb2_buffer *vb)
 static int meson_vcodec_start_streaming(struct vb2_queue *vq, unsigned int count)
 {
 	struct meson_vcodec_session *session = vb2_get_drv_priv(vq);
-	struct meson_vcodec *vcodec = session->parent;
+	struct meson_vcodec_core *core = session->core;
 	int ret = 0;
 
-	dev_dbg(vcodec->dev, "Start streaming for queue type %d\n", vq->type);
+	dev_dbg(core->dev, "Start streaming for queue type %d\n", vq->type);
 
 	if (V4L2_TYPE_IS_OUTPUT(vq->type)) {
 		ret = session->codec->decoder->ops->start(session);
@@ -111,7 +111,7 @@ static int meson_vcodec_start_streaming(struct vb2_queue *vq, unsigned int count
 	}
 
 	if (ret) {
-		dev_err(vcodec->dev, "Failed to start %s: %d\n",
+		dev_err(core->dev, "Failed to start %s: %d\n",
 				V4L2_TYPE_IS_OUTPUT(vq->type) ? "decoder" : "encoder", ret);
 		return ret;
 	}
@@ -122,10 +122,10 @@ static int meson_vcodec_start_streaming(struct vb2_queue *vq, unsigned int count
 static void meson_vcodec_stop_streaming(struct vb2_queue *vq)
 {
 	struct meson_vcodec_session *session = vb2_get_drv_priv(vq);
-	struct meson_vcodec *vcodec = session->parent;
+	struct meson_vcodec_core *core = session->core;
 	struct vb2_v4l2_buffer *vbuf;
 
-	dev_dbg(vcodec->dev, "Stop streaming for queue type %d\n", vq->type);
+	dev_dbg(core->dev, "Stop streaming for queue type %d\n", vq->type);
 
 	if (V4L2_TYPE_IS_OUTPUT(vq->type)) {
 		session->codec->decoder->ops->stop(session);
@@ -171,7 +171,7 @@ static int meson_vcodec_m2m_queue_init(void *priv, struct vb2_queue *src_vq, str
 	src_vq->drv_priv = session;
 	src_vq->buf_struct_size = sizeof(struct v4l2_m2m_buffer);
 	src_vq->min_buffers_needed = 1;
-	src_vq->dev = session->parent->dev;
+	src_vq->dev = session->core->dev;
 	src_vq->lock = &session->lock;
 
 	dst_vq->type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
@@ -182,7 +182,7 @@ static int meson_vcodec_m2m_queue_init(void *priv, struct vb2_queue *src_vq, str
 	dst_vq->drv_priv = session;
 	dst_vq->buf_struct_size = sizeof(struct v4l2_m2m_buffer);
 	dst_vq->min_buffers_needed = 1;
-	dst_vq->dev = session->parent->dev;
+	dst_vq->dev = session->core->dev;
 	dst_vq->lock = &session->lock;
 
 	return vb2_queue_init(src_vq) || vb2_queue_init(dst_vq);
@@ -190,40 +190,40 @@ static int meson_vcodec_m2m_queue_init(void *priv, struct vb2_queue *src_vq, str
 
 static int meson_vcodec_session_open(struct file *file)
 {
-	struct meson_vcodec *vcodec = video_drvdata(file);
+	struct meson_vcodec_core *core = video_drvdata(file);
 	struct meson_vcodec_session *session;
 	int ret = 0;
 
-	if (vcodec->current_session) {
-		dev_err(vcodec->dev, 
+	if (core->current_session) {
+		dev_err(core->dev, 
 				"Existing session %d active, can't open a new session\n",
-				vcodec->current_session->session_id);
+				core->current_session->session_id);
 		return -EBUSY;
 	}
 
-	dev_dbg(vcodec->dev, "Opening new session\n");
+	dev_dbg(core->dev, "Opening new session\n");
 
 	session = kzalloc(sizeof(*session), GFP_KERNEL);
 	if (!session)
 		return -ENOMEM;
 
-	session->parent = vcodec;
-	session->session_id = atomic_inc_return(&vcodec->session_counter);
+	session->core = core;
+	session->session_id = atomic_inc_return(&core->session_counter);
 
-	v4l2_fh_init(&session->fh, &vcodec->vfd);
+	v4l2_fh_init(&session->fh, &core->vfd);
 	file->private_data = &session->fh;
 	v4l2_fh_add(&session->fh);
 
 	ret = v4l2_ctrl_handler_init(&session->ctrl_handler, 0);
 	if (ret) {
-		dev_err(vcodec->dev, "Failed to initialize control handler\n");
+		dev_err(core->dev, "Failed to initialize control handler\n");
 		goto err_fh_exit;
 	}
 	session->fh.ctrl_handler = &session->ctrl_handler;
 
-	session->m2m_ctx = v4l2_m2m_ctx_init(vcodec->m2m_dev, session, meson_vcodec_m2m_queue_init);
+	session->m2m_ctx = v4l2_m2m_ctx_init(core->m2m_dev, session, meson_vcodec_m2m_queue_init);
 	if (IS_ERR(session->fh.m2m_ctx)) {
-		dev_err(vcodec->dev, "Failed to initialize v4l2-m2m context\n");
+		dev_err(core->dev, "Failed to initialize v4l2-m2m context\n");
 		ret = PTR_ERR(session->fh.m2m_ctx);
 		goto err_ctrl_handler_free;
 	}
@@ -232,7 +232,7 @@ static int meson_vcodec_session_open(struct file *file)
 	init_completion(&session->frame_completion);
 	mutex_init(&session->lock);
 
-	dev_dbg(vcodec->dev, "Session opened successfully\n");
+	dev_dbg(core->dev, "Session opened successfully\n");
 
 	return 0;
 
@@ -247,9 +247,9 @@ err_fh_exit:
 static int meson_vcodec_session_release(struct file *file)
 {
 	struct meson_vcodec_session *session = container_of(file->private_data, struct meson_vcodec_session, fh);
-	struct meson_vcodec *vcodec = session->parent;
+	struct meson_vcodec_core *core = session->core;
 
-	dev_dbg(vcodec->dev, "Releasing session %d\n", session->session_id);
+	dev_dbg(core->dev, "Releasing session %d\n", session->session_id);
 
 	v4l2_m2m_ctx_release(session->m2m_ctx);
 	v4l2_ctrl_handler_free(&session->ctrl_handler);
@@ -257,9 +257,9 @@ static int meson_vcodec_session_release(struct file *file)
 	v4l2_fh_exit(&session->fh);
 	kfree(session);
 
-	vcodec->current_session = NULL;
+	core->current_session = NULL;
 
-	dev_dbg(vcodec->dev, "Session released successfully\n");
+	dev_dbg(core->dev, "Session released successfully\n");
 
 	return 0;
 }
@@ -277,20 +277,20 @@ static const struct v4l2_file_operations meson_vcodec_fops = {
 
 static int meson_vcodec_querycap(struct file *file, void *priv, struct v4l2_capability *cap)
 {
-	struct meson_vcodec *vcodec = video_drvdata(file);
+	struct meson_vcodec_core *core = video_drvdata(file);
 
 	strscpy(cap->driver, DRIVER_NAME, sizeof(cap->driver));
 	strscpy(cap->card, "Meson Video Codec", sizeof(cap->card));
-	snprintf(cap->bus_info, sizeof(cap->bus_info), "platform:%s", dev_name(vcodec->dev));
+	snprintf(cap->bus_info, sizeof(cap->bus_info), "platform:%s", dev_name(core->dev));
 
 	return 0;
 }
 
 static int filter_formats(struct meson_vcodec_session *session, u32 fmt_type, const struct meson_format **array)
 {
-	struct meson_vcodec *vcodec = session->parent;
-	const struct meson_codec_formats *codecs = vcodec->platform_specs->codecs;
-	int num_codecs = vcodec->platform_specs->num_codecs;
+	struct meson_vcodec_core *core = session->core;
+	const struct meson_codec_formats *codecs = core->platform_specs->codecs;
+	int num_codecs = core->platform_specs->num_codecs;
 	const struct meson_format *fmt_list, *fmt_filter;
 	int i, j, count = 0;
 	bool found, list_output;
@@ -329,13 +329,13 @@ static int filter_formats(struct meson_vcodec_session *session, u32 fmt_type, co
 
 static int meson_vcodec_enum_fmt_vid(struct file *file, void *priv, struct v4l2_fmtdesc *f)
 {
-	struct meson_vcodec *vcodec = video_drvdata(file);
+	struct meson_vcodec_core *core = video_drvdata(file);
 	struct meson_vcodec_session *session = container_of(file->private_data, struct meson_vcodec_session, fh);
 	const struct meson_format *formats[MAX_FORMATS];
 	const struct meson_format *fmt;
 	int count;
 
-	dev_dbg(vcodec->dev, "enum_fmt_vid type=%d, index=%d\n", f->type, f->index);
+	dev_dbg(core->dev, "enum_fmt_vid type=%d, index=%d\n", f->type, f->index);
 
 	count = filter_formats(session, f->type, formats);
 
@@ -352,10 +352,10 @@ static int meson_vcodec_enum_fmt_vid(struct file *file, void *priv, struct v4l2_
 
 static int meson_vcodec_enum_framesizes(struct file *file, void *priv, struct v4l2_frmsizeenum *fsize)
 {
-	struct meson_vcodec *vcodec = video_drvdata(file);
+	struct meson_vcodec_core *core = video_drvdata(file);
 	struct meson_vcodec_session *session = container_of(file->private_data, struct meson_vcodec_session, fh);
-	const struct meson_codec_formats *codecs = vcodec->platform_specs->codecs;
-	int num_codecs = vcodec->platform_specs->num_codecs;
+	const struct meson_codec_formats *codecs = core->platform_specs->codecs;
+	int num_codecs = core->platform_specs->num_codecs;
 	const struct meson_codec_formats *codec;
 	u32 pxlfmt_src = session->input_format.fmt.pix_mp.pixelformat;
 	u32 pxlfmt_dst = session->output_format.fmt.pix_mp.pixelformat;
@@ -366,7 +366,7 @@ static int meson_vcodec_enum_framesizes(struct file *file, void *priv, struct v4
 		return -EINVAL;
 	}
 
-	dev_dbg(vcodec->dev, "enum_framesizes index=%d, fmt=%.4s\n", fsize->index, (char*)&fsize->pixel_format);
+	dev_dbg(core->dev, "enum_framesizes index=%d, fmt=%.4s\n", fsize->index, (char*)&fsize->pixel_format);
 
 
 	for (i = 0; i < num_codecs; i++) {
@@ -378,7 +378,7 @@ static int meson_vcodec_enum_framesizes(struct file *file, void *priv, struct v4
 		) && (
 				!pxlfmt_dst || pxlfmt_dst == codec->output_format->pixelformat
 		)) {
-			dev_dbg(vcodec->dev, "enum_framesizes in_fmt=%.4s, out_fmt=%.4s\n", (char*)&codec->input_format->pixelformat, (char*)&codec->output_format->pixelformat);
+			dev_dbg(core->dev, "enum_framesizes in_fmt=%.4s, out_fmt=%.4s\n", (char*)&codec->input_format->pixelformat, (char*)&codec->output_format->pixelformat);
 
 			if (pxlfmt_src && pxlfmt_dst) {
 				max_width = codec->max_width;
@@ -406,9 +406,9 @@ static int meson_vcodec_enum_framesizes(struct file *file, void *priv, struct v4
 	return -EINVAL;
 }
 
-static const struct meson_codec_formats* find_codec(struct meson_vcodec *vcodec, u32 pxfmt_src, u32 pxfmt_dst) {
-	const struct meson_codec_formats *codecs = vcodec->platform_specs->codecs;
-	int num_codecs = vcodec->platform_specs->num_codecs;
+static const struct meson_codec_formats* find_codec(struct meson_vcodec_core *core, u32 pxfmt_src, u32 pxfmt_dst) {
+	const struct meson_codec_formats *codecs = core->platform_specs->codecs;
+	int num_codecs = core->platform_specs->num_codecs;
 	int i;
 
 	for (i = 0; i < num_codecs; i++) {
@@ -450,11 +450,11 @@ static void set_buffer_sizes(struct v4l2_format *f, const struct meson_format *f
 	}
 }
 
-static int common_try_fmt_vid(struct meson_vcodec *vcodec, u32 fmt_type, struct v4l2_format *fmt_src, struct v4l2_format *fmt_dst)
+static int common_try_fmt_vid(struct meson_vcodec_core *core, u32 fmt_type, struct v4l2_format *fmt_src, struct v4l2_format *fmt_dst)
 {
-	const struct meson_codec_formats *codecs = vcodec->platform_specs->codecs;
+	const struct meson_codec_formats *codecs = core->platform_specs->codecs;
 	const struct meson_codec_formats *codec;
-	int num_codecs = vcodec->platform_specs->num_codecs;
+	int num_codecs = core->platform_specs->num_codecs;
 	struct v4l2_format *fmt_set;
 	u32 max_width, max_height, pxfmt_match;
 	int i;
@@ -471,12 +471,12 @@ static int common_try_fmt_vid(struct meson_vcodec *vcodec, u32 fmt_type, struct 
 	) {
 		// Find the codec
 		codec = find_codec(
-			vcodec,
+			core,
 			fmt_src->fmt.pix_mp.pixelformat,
 			fmt_dst->fmt.pix_mp.pixelformat
 		);
 		if (!codec) {
-			dev_err(vcodec->dev, "codec formats not found\n");
+			dev_err(core->dev, "codec formats not found\n");
 			return -EINVAL;
 		}
 
@@ -525,7 +525,7 @@ static int common_try_fmt_vid(struct meson_vcodec *vcodec, u32 fmt_type, struct 
 		}
 
 		if (max_width == 0 || max_height == 0) {
-			dev_err(vcodec->dev, "matching format  not found\n");
+			dev_err(core->dev, "matching format  not found\n");
 			return -EINVAL;
 		}
 
@@ -547,11 +547,11 @@ static int common_try_fmt_vid(struct meson_vcodec *vcodec, u32 fmt_type, struct 
 
 static int meson_vcodec_try_fmt_vid(struct file *file, void *priv, struct v4l2_format *f)
 {
-	struct meson_vcodec *vcodec = video_drvdata(file);
+	struct meson_vcodec_core *core = video_drvdata(file);
 	struct meson_vcodec_session *session = container_of(file->private_data, struct meson_vcodec_session, fh);
 	struct v4l2_format *fmt_src, *fmt_dst;
 
-	dev_dbg(vcodec->dev, "try_fmt_vid type=%d fmt=%.4s\n", f->type, (char*)&f->fmt.pix_mp.pixelformat);
+	dev_dbg(core->dev, "try_fmt_vid type=%d fmt=%.4s\n", f->type, (char*)&f->fmt.pix_mp.pixelformat);
 
 	if (V4L2_TYPE_IS_OUTPUT(f->type)) {
 		fmt_src = &session->input_format;
@@ -561,18 +561,18 @@ static int meson_vcodec_try_fmt_vid(struct file *file, void *priv, struct v4l2_f
 		fmt_dst = &session->output_format;
 	}
 
-	return common_try_fmt_vid(vcodec, f->type, fmt_src, fmt_dst);
+	return common_try_fmt_vid(core, f->type, fmt_src, fmt_dst);
 }
 
 static int meson_vcodec_s_fmt_vid(struct file *file, void *priv, struct v4l2_format *f)
 {
-	struct meson_vcodec *vcodec = video_drvdata(file);
+	struct meson_vcodec_core *core = video_drvdata(file);
 	struct meson_vcodec_session *session = container_of(file->private_data, struct meson_vcodec_session, fh);
 	const struct meson_codec_formats *codec;
 	struct v4l2_format *fmt_src, *fmt_dst;
 	int ret;
 
-	dev_dbg(vcodec->dev, "s_fmt_vid type=%d fmt=%.4s\n", f->type, (char*)&f->fmt.pix_mp.pixelformat);
+	dev_dbg(core->dev, "s_fmt_vid type=%d fmt=%.4s\n", f->type, (char*)&f->fmt.pix_mp.pixelformat);
 
 	//TODO check if the session is active, return -EBUSY;
 	
@@ -584,7 +584,7 @@ static int meson_vcodec_s_fmt_vid(struct file *file, void *priv, struct v4l2_for
 		fmt_dst = &session->output_format;
 	}
 
-	ret = common_try_fmt_vid(vcodec, f->type, fmt_src, fmt_dst);
+	ret = common_try_fmt_vid(core, f->type, fmt_src, fmt_dst);
 	if (ret)
 		return ret;
 
@@ -603,15 +603,15 @@ static int meson_vcodec_s_fmt_vid(struct file *file, void *priv, struct v4l2_for
 		session->output_format.fmt.pix_mp.width &&
 		session->output_format.fmt.pix_mp.height
 	) {
-		dev_dbg(vcodec->dev, "s_fmt_vid complete\n");
+		dev_dbg(core->dev, "s_fmt_vid complete\n");
 
 		codec = find_codec(
-			vcodec,
+			core,
 			fmt_src->fmt.pix_mp.pixelformat,
 			fmt_dst->fmt.pix_mp.pixelformat
 		);
 		if (!codec) {
-			dev_err(vcodec->dev, "codec formats not found\n");
+			dev_err(core->dev, "codec formats not found\n");
 			return -EINVAL;
 		}
 
@@ -623,10 +623,10 @@ static int meson_vcodec_s_fmt_vid(struct file *file, void *priv, struct v4l2_for
 
 static int meson_vcodec_g_fmt_vid(struct file *file, void *priv, struct v4l2_format *f)
 {
-	struct meson_vcodec *vcodec = video_drvdata(file);
+	struct meson_vcodec_core *core = video_drvdata(file);
 	struct meson_vcodec_session *session = container_of(file->private_data, struct meson_vcodec_session, fh);
 	
-	dev_dbg(vcodec->dev, "g_fmt_vid type=%d\n", f->type);
+	dev_dbg(core->dev, "g_fmt_vid type=%d\n", f->type);
 
 	if (V4L2_TYPE_IS_OUTPUT(f->type))
 		f = &session->output_format;
@@ -683,7 +683,7 @@ static void meson_vcodec_m2m_job_abort(void *priv)
 {
 	struct meson_vcodec_session *session = priv;
 
-	v4l2_m2m_job_finish(session->parent->m2m_dev, session->m2m_ctx);
+	v4l2_m2m_job_finish(session->core->m2m_dev, session->m2m_ctx);
 }
 
 static const struct v4l2_m2m_ops meson_vcodec_m2m_ops = {
@@ -693,78 +693,78 @@ static const struct v4l2_m2m_ops meson_vcodec_m2m_ops = {
 
 /* ressource helpers */
 
-int meson_vcodec_reset(struct meson_vcodec *vcodec, enum meson_vcodec_reset index) {
+int meson_vcodec_reset(struct meson_vcodec_core *core, enum meson_vcodec_reset index) {
 	int ret;
 
-	ret = reset_control_reset(vcodec->resets[index]);
+	ret = reset_control_reset(core->resets[index]);
 	if (ret < 0)
 		return ret;
 
 	return 0;
 }
 
-void meson_vcodec_clk_unprepare(struct meson_vcodec *vcodec, enum meson_vcodec_clk index) {
-	clk_disable_unprepare(vcodec->clks[index]);
+void meson_vcodec_clk_unprepare(struct meson_vcodec_core *core, enum meson_vcodec_clk index) {
+	clk_disable_unprepare(core->clks[index]);
 }
 
 
-int meson_vcodec_clk_prepare(struct meson_vcodec *vcodec, enum meson_vcodec_clk index, u64 rate) {
+int meson_vcodec_clk_prepare(struct meson_vcodec_core *core, enum meson_vcodec_clk index, u64 rate) {
 	int ret;
 
 	if (rate) {
-		ret = clk_set_rate(vcodec->clks[index], rate);
+		ret = clk_set_rate(core->clks[index], rate);
 		if (ret < 0)
 			return ret;
 	}
 
-	ret = clk_prepare_enable(vcodec->clks[index]);
+	ret = clk_prepare_enable(core->clks[index]);
 	if (ret < 0)
 		return ret;
 
 	return 0;
 }
 
-u32 meson_vcodec_reg_read(struct meson_vcodec *vcodec, enum meson_vcodec_regs index, u32 reg) {
-	return readl_relaxed(vcodec->regs[index] + reg);
+u32 meson_vcodec_reg_read(struct meson_vcodec_core *core, enum meson_vcodec_regs index, u32 reg) {
+	return readl_relaxed(core->regs[index] + reg);
 }
 
 
-void meson_vcodec_reg_write(struct meson_vcodec *vcodec, enum meson_vcodec_regs index, u32 reg, u32 value) {
-	writel_relaxed(value, vcodec->regs[index] + reg);
+void meson_vcodec_reg_write(struct meson_vcodec_core *core, enum meson_vcodec_regs index, u32 reg, u32 value) {
+	writel_relaxed(value, core->regs[index] + reg);
 }
 
-int meson_vcodec_pwrc_off(struct meson_vcodec *vcodec, enum meson_vcodec_pwrc index) {
+int meson_vcodec_pwrc_off(struct meson_vcodec_core *core, enum meson_vcodec_pwrc index) {
 	int ret;
 
-	ret = regmap_update_bits(vcodec->regmap_ao,
-			vcodec->platform_specs->pwrc[index].sleep_reg,
-			vcodec->platform_specs->pwrc[index].sleep_mask,
-			vcodec->platform_specs->pwrc[index].sleep_mask);
+	ret = regmap_update_bits(core->regmap_ao,
+			core->platform_specs->pwrc[index].sleep_reg,
+			core->platform_specs->pwrc[index].sleep_mask,
+			core->platform_specs->pwrc[index].sleep_mask);
 	if (ret < 0)
 		return ret;
 
-	ret = regmap_update_bits(vcodec->regmap_ao,
-			vcodec->platform_specs->pwrc[index].iso_reg,
-			vcodec->platform_specs->pwrc[index].iso_mask,
-			vcodec->platform_specs->pwrc[index].iso_mask);
+	ret = regmap_update_bits(core->regmap_ao,
+			core->platform_specs->pwrc[index].iso_reg,
+			core->platform_specs->pwrc[index].iso_mask,
+			core->platform_specs->pwrc[index].iso_mask);
 	if (ret < 0)
 		return ret;
 
 	return 0;
 }
 
-int meson_vcodec_pwrc_on(struct meson_vcodec *vcodec, enum meson_vcodec_pwrc index) {
+int meson_vcodec_pwrc_on(struct meson_vcodec_core *core, enum meson_vcodec_pwrc index) {
 	int ret;
 
-	ret = regmap_update_bits(vcodec->regmap_ao,
-			vcodec->platform_specs->pwrc[index].sleep_reg,
-			vcodec->platform_specs->pwrc[index].sleep_mask, 0);
+	ret = regmap_update_bits(core->regmap_ao,
+			core->platform_specs->pwrc[index].sleep_reg,
+			core->platform_specs->pwrc[index].sleep_mask, 0);
 	if (ret < 0)
 		return ret;
 
-	ret = regmap_update_bits(vcodec->regmap_ao,
-			vcodec->platform_specs->pwrc[index].iso_reg,
-			vcodec->platform_specs->pwrc[index].iso_mask, 0);
+	ret = regmap_update_bits(core->regmap_ao,
+			core->platform_specs->pwrc[index].iso_reg,
+			core->platform_specs->pwrc[index].iso_mask, 0);
 	if (ret < 0)
 		return ret;
 
@@ -773,8 +773,8 @@ int meson_vcodec_pwrc_on(struct meson_vcodec *vcodec, enum meson_vcodec_pwrc ind
 
 static irqreturn_t meson_vcodec_isr(int irq, void *dev_id)
 {
-	struct meson_vcodec *vcodec = dev_id;
-	struct meson_vcodec_session *session = vcodec->current_session;
+	struct meson_vcodec_core *core = dev_id;
+	struct meson_vcodec_session *session = core->current_session;
 	const struct meson_codec_ops *ops;
 
 	if (!session)
@@ -789,7 +789,7 @@ static irqreturn_t meson_vcodec_isr(int irq, void *dev_id)
 
 static int meson_vcodec_probe(struct platform_device *pdev)
 {
-	struct meson_vcodec *vcodec;
+	struct meson_vcodec_core *core;
 	const struct meson_platform_specs *platform_specs;
 	struct video_device *vfd;
 	int ret, i;
@@ -800,29 +800,29 @@ static int meson_vcodec_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
-	vcodec = devm_kzalloc(&pdev->dev, sizeof(*vcodec), GFP_KERNEL);
-	if (!vcodec)
+	core = devm_kzalloc(&pdev->dev, sizeof(*core), GFP_KERNEL);
+	if (!core)
 		return -ENOMEM;
 
-	atomic_set(&vcodec->session_counter, 0);
-	vcodec->dev = &pdev->dev;
-	vcodec->platform_specs = platform_specs;
-	platform_set_drvdata(pdev, vcodec);
+	atomic_set(&core->session_counter, 0);
+	core->dev = &pdev->dev;
+	core->platform_specs = platform_specs;
+	platform_set_drvdata(pdev, core);
 
-	mutex_init(&vcodec->lock);
+	mutex_init(&core->lock);
 
-	vcodec->regmap_ao = syscon_regmap_lookup_by_phandle(pdev->dev.of_node, "amlogic,ao-sysctrl");
-	if (IS_ERR(vcodec->regmap_ao)) {
+	core->regmap_ao = syscon_regmap_lookup_by_phandle(pdev->dev.of_node, "amlogic,ao-sysctrl");
+	if (IS_ERR(core->regmap_ao)) {
 		dev_err(&pdev->dev, "Failed to get ao-sysctrl regmap\n");
-		ret = PTR_ERR(vcodec->regmap_ao);
+		ret = PTR_ERR(core->regmap_ao);
 		goto err_mutex_destroy;
 	}
 
 	for (i = 0; i < MAX_REGS; i++) {
-		vcodec->regs[i] = devm_platform_ioremap_resource_byname(pdev, reg_names[i]);
-		if (IS_ERR(vcodec->regs[i])) {
+		core->regs[i] = devm_platform_ioremap_resource_byname(pdev, reg_names[i]);
+		if (IS_ERR(core->regs[i])) {
 			dev_err(&pdev->dev, "Failed to map %s registers\n", reg_names[i]);
-			ret = PTR_ERR(vcodec->regs[i]);
+			ret = PTR_ERR(core->regs[i]);
 			goto err_mutex_destroy;
 		}
 	}
@@ -834,14 +834,14 @@ static int meson_vcodec_probe(struct platform_device *pdev)
 		if (i == CLK_HCODEC && platform_specs->platform_id < MESON_MAJOR_ID_SC2)
 			continue;
 
-		vcodec->clks[i] = devm_clk_get(&pdev->dev, clk_names[i]);
-		if (IS_ERR(vcodec->clks[i])) {
-			if (PTR_ERR(vcodec->clks[i]) != -ENOENT) {
+		core->clks[i] = devm_clk_get(&pdev->dev, clk_names[i]);
+		if (IS_ERR(core->clks[i])) {
+			if (PTR_ERR(core->clks[i]) != -ENOENT) {
 				dev_err(&pdev->dev, "Failed to get %s clock\n", clk_names[i]);
-				ret = PTR_ERR(vcodec->clks[i]);
+				ret = PTR_ERR(core->clks[i]);
 				goto err_mutex_destroy;
 			}
-			vcodec->clks[i] = NULL;
+			core->clks[i] = NULL;
 		}
 	}
 
@@ -849,52 +849,52 @@ static int meson_vcodec_probe(struct platform_device *pdev)
 		if (i == RESET_HCODEC && platform_specs->platform_id < MESON_MAJOR_ID_SC2)
 			continue;
 
-		vcodec->resets[i] = devm_reset_control_get(&pdev->dev, reset_names[i]);
-		if (IS_ERR(vcodec->resets[i])) {
-			if (PTR_ERR(vcodec->resets[i]) != -ENOENT) {
+		core->resets[i] = devm_reset_control_get(&pdev->dev, reset_names[i]);
+		if (IS_ERR(core->resets[i])) {
+			if (PTR_ERR(core->resets[i]) != -ENOENT) {
 				dev_err(&pdev->dev, "Failed to get %s reset\n", reset_names[i]);
-				ret = PTR_ERR(vcodec->resets[i]);
+				ret = PTR_ERR(core->resets[i]);
 				goto err_mutex_destroy;
 			}
-			vcodec->resets[i] = NULL;
+			core->resets[i] = NULL;
 		}
 	}
 
 	for (i = 0; i < MAX_IRQS; i++) {
-		vcodec->irqs[i] = platform_get_irq_byname(pdev, irq_names[i]);
-		if (vcodec->irqs[i] < 0) {
+		core->irqs[i] = platform_get_irq_byname(pdev, irq_names[i]);
+		if (core->irqs[i] < 0) {
 			dev_err(&pdev->dev, "Failed to get %s IRQ\n", irq_names[i]);
-			ret = vcodec->irqs[i];
+			ret = core->irqs[i];
 			goto err_mutex_destroy;
 		}
 
-		ret = devm_request_irq(&pdev->dev, vcodec->irqs[i], meson_vcodec_isr,
-				IRQF_SHARED, dev_name(&pdev->dev), vcodec);
+		ret = devm_request_irq(&pdev->dev, core->irqs[i], meson_vcodec_isr,
+				IRQF_SHARED, dev_name(&pdev->dev), core);
 		if (ret) {
 			dev_err(&pdev->dev, "Failed to install %s IRQ handler\n", irq_names[i]);
 			goto err_mutex_destroy;
 		}
 	}
 
-	init_waitqueue_head(&vcodec->queue);
+	init_waitqueue_head(&core->queue);
 
-	ret = v4l2_device_register(&pdev->dev, &vcodec->v4l2_dev);
+	ret = v4l2_device_register(&pdev->dev, &core->v4l2_dev);
 	if (ret) {
 		dev_err(&pdev->dev, "Failed to register V4L2 device\n");
 		goto err_mutex_destroy;
 	}
 
-	vcodec->m2m_dev = v4l2_m2m_init(&meson_vcodec_m2m_ops);
-	if (IS_ERR(vcodec->m2m_dev)) {
+	core->m2m_dev = v4l2_m2m_init(&meson_vcodec_m2m_ops);
+	if (IS_ERR(core->m2m_dev)) {
 		dev_err(&pdev->dev, "Failed to initialize V4L2 M2M device\n");
-		ret = PTR_ERR(vcodec->m2m_dev);
+		ret = PTR_ERR(core->m2m_dev);
 		goto err_v4l2_unregister;
 	}
 
-	vfd = &vcodec->vfd;
+	vfd = &core->vfd;
 	strscpy(vfd->name, "meson-video-codec", sizeof(vfd->name));
-	vfd->lock = &vcodec->lock;
-	vfd->v4l2_dev = &vcodec->v4l2_dev;
+	vfd->lock = &core->lock;
+	vfd->v4l2_dev = &core->v4l2_dev;
 	vfd->fops = &meson_vcodec_fops;
 	vfd->ioctl_ops = &meson_vcodec_ioctl_ops;
 	vfd->release = video_device_release_empty;
@@ -907,28 +907,28 @@ static int meson_vcodec_probe(struct platform_device *pdev)
 		goto err_m2m_release;
 	}
 
-	video_set_drvdata(vfd, vcodec);
+	video_set_drvdata(vfd, core);
 	dev_dbg(&pdev->dev, "Device registered as %s\n", video_device_node_name(vfd));
 
 	return 0;
 
 err_m2m_release:
-	v4l2_m2m_release(vcodec->m2m_dev);
+	v4l2_m2m_release(core->m2m_dev);
 err_v4l2_unregister:
-	v4l2_device_unregister(&vcodec->v4l2_dev);
+	v4l2_device_unregister(&core->v4l2_dev);
 err_mutex_destroy:
-	mutex_destroy(&vcodec->lock);
+	mutex_destroy(&core->lock);
 	return ret;
 }
 
 static int meson_vcodec_remove(struct platform_device *pdev)
 {
-	struct meson_vcodec *vcodec = platform_get_drvdata(pdev);
+	struct meson_vcodec_core *core = platform_get_drvdata(pdev);
 
-	video_unregister_device(&vcodec->vfd);
-	v4l2_m2m_release(vcodec->m2m_dev);
-	v4l2_device_unregister(&vcodec->v4l2_dev);
-	mutex_destroy(&vcodec->lock);
+	video_unregister_device(&core->vfd);
+	v4l2_m2m_release(core->m2m_dev);
+	v4l2_device_unregister(&core->v4l2_dev);
+	mutex_destroy(&core->lock);
 
 	return 0;
 }

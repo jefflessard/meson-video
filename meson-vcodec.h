@@ -35,7 +35,7 @@ enum meson_vcodec_irq {
 
 struct meson_vcodec_session;
 
-struct meson_vcodec {
+struct meson_vcodec_core {
 	const struct meson_platform_specs *platform_specs;
 	struct device *dev;
 	struct mutex lock;
@@ -57,7 +57,7 @@ struct meson_vcodec {
 };
 
 struct meson_vcodec_session {
-	struct meson_vcodec *parent;
+	struct meson_vcodec_core *core;
 	int session_id;
 
 	const struct meson_codec_formats *codec;
@@ -76,19 +76,19 @@ struct meson_vcodec_session {
 };
 
 
-int meson_vcodec_reset(struct meson_vcodec *vcodec, enum meson_vcodec_reset index);
+int meson_vcodec_reset(struct meson_vcodec_core *core, enum meson_vcodec_reset index);
 
-void meson_vcodec_clk_unprepare(struct meson_vcodec *vcodec, enum meson_vcodec_clk index);
+void meson_vcodec_clk_unprepare(struct meson_vcodec_core *core, enum meson_vcodec_clk index);
 
-int meson_vcodec_clk_prepare(struct meson_vcodec *vcodec, enum meson_vcodec_clk index, u64 rate);
+int meson_vcodec_clk_prepare(struct meson_vcodec_core *core, enum meson_vcodec_clk index, u64 rate);
 
-u32 meson_vcodec_reg_read(struct meson_vcodec *vcodec, enum meson_vcodec_regs index, u32 reg);
+u32 meson_vcodec_reg_read(struct meson_vcodec_core *core, enum meson_vcodec_regs index, u32 reg);
 
-void meson_vcodec_reg_write(struct meson_vcodec *vcodec, enum meson_vcodec_regs index, u32 reg, u32 value);
+void meson_vcodec_reg_write(struct meson_vcodec_core *core, enum meson_vcodec_regs index, u32 reg, u32 value);
 
-int meson_vcodec_pwrc_off(struct meson_vcodec *vcodec, enum meson_vcodec_pwrc index);
+int meson_vcodec_pwrc_off(struct meson_vcodec_core *core, enum meson_vcodec_pwrc index);
 
-int meson_vcodec_pwrc_on(struct meson_vcodec *vcodec, enum meson_vcodec_pwrc index);
+int meson_vcodec_pwrc_on(struct meson_vcodec_core *core, enum meson_vcodec_pwrc index);
 
 
 #endif
