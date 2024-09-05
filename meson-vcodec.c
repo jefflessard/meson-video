@@ -47,43 +47,62 @@ static const char* irq_names[MAX_IRQS] = {
 
 /* vb2_ops */
 
-static int meson_vcodec_queue_setup(struct vb2_queue *vq,
+static int meson_vcodec_queue_setup(
+		struct vb2_queue *vq,
 		unsigned int *nbuffers,
 		unsigned int *nplanes,
 		unsigned int sizes[],
-		struct device *alloc_devs[])
-{
+		struct device *alloc_devs[]
+){
 	struct meson_vcodec_session *session = vb2_get_drv_priv(vq);
 	struct v4l2_format *fmt;
 
-	fmt = V4L2_TYPE_IS_OUTPUT(vq->type) ?
-		&session->input_format : &session->output_format;
+	if(V4L2_TYPE_IS_OUTPUT(vq->type)) {
+		fmt = &session->input_format;
+	} else {
+		fmt = &session->output_format;
+	}
 
 	if (*nplanes) {
 		if (*nplanes != fmt->fmt.pix_mp.num_planes)
 			return -EINVAL;
+
+		for (int i = 0; i < *nplanes; i++) {
+			if (sizes[i] < fmt->fmt.pix_mp.plane_fmt[i].sizeimage) {
+				return -EINVAL;
+			}
+		}
+
 		return 0;
 	}
 
 	*nplanes = fmt->fmt.pix_mp.num_planes;
-	for (int i = 0; i < *nplanes; i++)
+	for (int i = 0; i < *nplanes; i++) {
 		sizes[i] = fmt->fmt.pix_mp.plane_fmt[i].sizeimage;
+	}
 
 	return 0;
 }
 
 static int meson_vcodec_buf_prepare(struct vb2_buffer *vb)
 {
+	struct vb2_v4l2_buffer *v4l2buf = to_vb2_v4l2_buffer(vb);
 	struct meson_vcodec_session *session = vb2_get_drv_priv(vb->vb2_queue);
 	struct v4l2_format *fmt;
 
-	fmt = V4L2_TYPE_IS_OUTPUT(vb->type) ?
-		&session->input_format : &session->output_format;
+	if(V4L2_TYPE_IS_OUTPUT(vb->type)) {
+		fmt = &session->input_format;
+	} else {
+		fmt = &session->output_format;
+	}
 
 	for (int i = 0; i < fmt->fmt.pix_mp.num_planes; i++) {
-		if (vb2_plane_size(vb, i) < fmt->fmt.pix_mp.plane_fmt[i].sizeimage)
+		if (vb2_plane_size(vb, i) < fmt->fmt.pix_mp.plane_fmt[i].sizeimage) {
 			return -EINVAL;
+		}
 	}
+
+	v4l2buf->field = V4L2_FIELD_NONE;
 
 	return 0;
 }
@@ -94,6 +113,8 @@ static void meson_vcodec_buf_queue(struct vb2_buffer *vb)
 	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
 
 	v4l2_m2m_buf_queue(session->m2m_ctx, vbuf);
+
+	// TODO schedule_work parser_queue_work if streaming
 }
 
 static int meson_vcodec_start_streaming(struct vb2_queue *vq, unsigned int count)
@@ -155,6 +176,27 @@ static const struct vb2_ops meson_vcodec_vb2_ops = {
 	.stop_streaming  = meson_vcodec_stop_streaming,
 	.wait_prepare    = vb2_ops_wait_prepare,
 	.wait_finish     = vb2_ops_wait_finish,
+};
+
+/* v4l2_m2m_ops */
+
+static void meson_vcodec_m2m_device_run(void *priv)
+{
+	struct meson_vcodec_session *session = priv;
+
+	// TODO schedule_work parser_queue_work
+}
+
+static void meson_vcodec_m2m_job_abort(void *priv)
+{
+	struct meson_vcodec_session *session = priv;
+
+	v4l2_m2m_job_finish(session->core->m2m_dev, session->m2m_ctx);
+}
+
+static const struct v4l2_m2m_ops meson_vcodec_m2m_ops = {
+	.device_run = meson_vcodec_m2m_device_run,
+	.job_abort = meson_vcodec_m2m_job_abort,
 };
 
 /* v4l2_file_operations */
@@ -670,27 +712,6 @@ static const struct v4l2_ioctl_ops meson_vcodec_ioctl_ops = {
 	.vidioc_decoder_cmd = v4l2_m2m_ioctl_decoder_cmd,
 };
 
-/* v4l2_m2m_ops */
-
-static void meson_vcodec_m2m_device_run(void *priv)
-{
-	struct meson_vcodec_session *session = priv;
-
-	// TODO schedule_work parser_queue_work
-}
-
-static void meson_vcodec_m2m_job_abort(void *priv)
-{
-	struct meson_vcodec_session *session = priv;
-
-	v4l2_m2m_job_finish(session->core->m2m_dev, session->m2m_ctx);
-}
-
-static const struct v4l2_m2m_ops meson_vcodec_m2m_ops = {
-	.device_run = meson_vcodec_m2m_device_run,
-	.job_abort = meson_vcodec_m2m_job_abort,
-};
-
 /* ressource helpers */
 
 int meson_vcodec_reset(struct meson_vcodec_core *core, enum meson_vcodec_reset index) {
@@ -727,7 +748,6 @@ int meson_vcodec_clk_prepare(struct meson_vcodec_core *core, enum meson_vcodec_c
 u32 meson_vcodec_reg_read(struct meson_vcodec_core *core, enum meson_vcodec_regs index, u32 reg) {
 	return readl_relaxed(core->regs[index] + reg);
 }
-
 
 void meson_vcodec_reg_write(struct meson_vcodec_core *core, enum meson_vcodec_regs index, u32 reg, u32 value) {
 	writel_relaxed(value, core->regs[index] + reg);

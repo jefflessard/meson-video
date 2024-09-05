@@ -80,13 +80,14 @@ struct meson_vcodec_session;
 
 struct meson_codec_ops {
 	int (*init)(struct meson_vcodec_session *session);
-	int (*cleanup)(struct meson_vcodec_session *session);
 	int (*configure)(struct meson_vcodec_session *session);
 	int (*start)(struct meson_vcodec_session *session);
-	int (*stop)(struct meson_vcodec_session *session);
-	int (*reset)(struct meson_vcodec_session *session);
 	int (*process_frame)(struct meson_vcodec_session *session);
 	irqreturn_t (*isr)(int irq, void *dev_id);
+	int (*cancel_frame)(struct meson_vcodec_session *session);
+	int (*stop)(struct meson_vcodec_session *session);
+	int (*reset)(struct meson_vcodec_session *session);
+	int (*cleanup)(struct meson_vcodec_session *session);
 };
 
 struct meson_codec_spec {
