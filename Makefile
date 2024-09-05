@@ -17,7 +17,6 @@ modules:
 
 modules_install:
 	$(MAKE) -C $(KDIR) M=$(PWD) modules_install
-	depmod -a
 
 probe: modules_install
 	rmmod meson_vcodec || true
