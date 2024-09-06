@@ -45,6 +45,113 @@ static const char* irq_names[MAX_IRQS] = {
 	[IRQ_PARSER] = "esparser",
 };
 
+/* encoder/decoder operations */
+
+static void decoder_init(struct meson_vcodec_session *session) {
+	// power on encoder components
+	// load firmware
+}
+
+static int decoder_start_streaming(struct meson_vcodec_session *session, struct vb2_queue *vq, u32 count)
+{
+	int ret;
+
+	// configure esparser, dos, vififo
+	// configure codec
+	if (!V4L2_TYPE_IS_OUTPUT(vq->type)) {
+	//	ret = session->codec->decoder->ops->start(session);
+		if(ret)
+			return ret;
+	}
+
+	return 0;
+}
+
+static void decoder_stop_streaming(struct meson_vcodec_session *session, struct vb2_queue *vq)
+{
+	//session->codec->decoder->ops->stop(session);
+}
+
+static void decoder_buf_queue(struct meson_vcodec_session *session, struct vb2_v4l2_buffer *vbuf) {
+}
+
+static int decoder_isr(struct meson_vcodec_session *session, int irq)
+{
+	return 0;
+}
+
+static void decoder_threaded_isr(struct meson_vcodec_session *session) {
+}
+
+static void decoder_release(struct meson_vcodec_session *session) {
+}
+
+static void encoder_init(struct meson_vcodec_session *session) {
+	// power on encoder components
+	// load firmware
+}
+
+static int encoder_start_streaming(struct meson_vcodec_session *session, struct vb2_queue *vq, u32 count)
+{
+	int ret;
+
+	// configure esparser, dos, vififo
+	// configure codec
+	if (!V4L2_TYPE_IS_OUTPUT(vq->type)) {
+	//	ret = session->codec->encoder->ops->start(session);
+		if(ret)
+			return ret;
+	}
+
+	return 0;
+}
+
+static void encoder_stop_streaming(struct meson_vcodec_session *session, struct vb2_queue *vq)
+{
+	//session->codec->encoder->ops->stop(session);
+}
+
+static void encoder_buf_queue(struct meson_vcodec_session *session, struct vb2_v4l2_buffer *vbuf) {
+}
+
+static int encoder_isr(struct meson_vcodec_session *session, int irq)
+{
+	return 0;
+}
+
+static void encoder_threaded_isr(struct meson_vcodec_session *session) {
+}
+
+static void encoder_release(struct meson_vcodec_session *session) {
+}
+
+static int transcoder_isr(struct meson_vcodec_session *session, int irq)
+{
+	return 0;
+}
+
+static void transcoder_threaded_isr(struct meson_vcodec_session *session) {
+}
+
+static irqreturn_t meson_vcodec_isr(int irq, void *dev_id)
+{
+	struct meson_vcodec_core *core = dev_id;
+	struct meson_vcodec_session *session = core->current_session;
+
+	dev_dbg(core->dev, "Session %d interrupt %d\n", session ? session->session_id : -1, irq);
+	
+	if (!session)
+		return IRQ_NONE;
+
+	if (session->codec->encoder && session->codec->decoder) {
+		return transcoder_isr(session, irq);
+	} else if (session->codec->encoder) {
+		return encoder_isr(session, irq);
+	} else {
+		return decoder_isr(session, irq);
+	}
+}
+
 /* vb2_ops */
 
 static int meson_vcodec_queue_setup(
@@ -56,6 +163,8 @@ static int meson_vcodec_queue_setup(
 ){
 	struct meson_vcodec_session *session = vb2_get_drv_priv(vq);
 	struct v4l2_format *fmt;
+	
+	dev_dbg(session->core->dev, "Session %d queue setup: type %d\n", session->session_id, vq->type);
 
 	if(V4L2_TYPE_IS_OUTPUT(vq->type)) {
 		fmt = &session->input_format;
@@ -89,6 +198,8 @@ static int meson_vcodec_buf_prepare(struct vb2_buffer *vb)
 	struct vb2_v4l2_buffer *v4l2buf = to_vb2_v4l2_buffer(vb);
 	struct meson_vcodec_session *session = vb2_get_drv_priv(vb->vb2_queue);
 	struct v4l2_format *fmt;
+	
+	dev_dbg(session->core->dev, "Session %d buffer prepare: type %d\n", session->session_id, vb->type);
 
 	if(V4L2_TYPE_IS_OUTPUT(vb->type)) {
 		fmt = &session->input_format;
@@ -112,27 +223,39 @@ static void meson_vcodec_buf_queue(struct vb2_buffer *vb)
 	struct meson_vcodec_session *session = vb2_get_drv_priv(vb->vb2_queue);
 	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
 
+	dev_dbg(session->core->dev, "Session %d buffer queue: type %d\n", session->session_id, vb->type);
+
 	v4l2_m2m_buf_queue(session->m2m_ctx, vbuf);
 
-	// TODO schedule_work parser_queue_work if streaming
+	if(session->codec->decoder) {
+		decoder_buf_queue(session, vbuf);
+	} else {
+		encoder_buf_queue(session, vbuf);
+	}
 }
 
 static int meson_vcodec_start_streaming(struct vb2_queue *vq, unsigned int count)
 {
 	struct meson_vcodec_session *session = vb2_get_drv_priv(vq);
-	struct meson_vcodec_core *core = session->core;
 	int ret = 0;
 
-	dev_dbg(core->dev, "Start streaming for queue type %d\n", vq->type);
+	dev_dbg(session->core->dev, "Session %d start streaming: type %d\n", session->session_id, vq->type);
+	
+	// TODO check streaming state to.prevent multiple calls
+	
+	if(session->codec->encoder) {
+		ret = encoder_start_streaming(session, vq, count);
+	}
 
-	if (V4L2_TYPE_IS_OUTPUT(vq->type)) {
-		ret = session->codec->decoder->ops->start(session);
-	} else {
-		ret = session->codec->encoder->ops->start(session);
+	if(!ret && session->codec->decoder) {
+		ret = decoder_start_streaming(session, vq, count);
+		if (ret && session->codec->encoder) {
+			encoder_release(session);
+		}
 	}
 
 	if (ret) {
-		dev_err(core->dev, "Failed to start %s: %d\n",
+		dev_err(session->core->dev, "Failed to start %s: %d\n",
 				V4L2_TYPE_IS_OUTPUT(vq->type) ? "decoder" : "encoder", ret);
 		return ret;
 	}
@@ -143,15 +266,16 @@ static int meson_vcodec_start_streaming(struct vb2_queue *vq, unsigned int count
 static void meson_vcodec_stop_streaming(struct vb2_queue *vq)
 {
 	struct meson_vcodec_session *session = vb2_get_drv_priv(vq);
-	struct meson_vcodec_core *core = session->core;
 	struct vb2_v4l2_buffer *vbuf;
 
-	dev_dbg(core->dev, "Stop streaming for queue type %d\n", vq->type);
+	dev_dbg(session->core->dev, "Session %d stop streaming: type %d\n", session->session_id, vq->type);
 
-	if (V4L2_TYPE_IS_OUTPUT(vq->type)) {
-		session->codec->decoder->ops->stop(session);
-	} else {
-		session->codec->encoder->ops->stop(session);
+	if(session->codec->encoder) {
+		encoder_stop_streaming(session, vq);
+	}
+
+	if(session->codec->decoder) {
+		decoder_stop_streaming(session, vq);
 	}
 
 	// Return all buffers to vb2 in QUEUED state
@@ -184,12 +308,16 @@ static void meson_vcodec_m2m_device_run(void *priv)
 {
 	struct meson_vcodec_session *session = priv;
 
+	dev_dbg(session->core->dev, "Session %d m2m device run\n", session->session_id);
+
 	// TODO schedule_work parser_queue_work
 }
 
 static void meson_vcodec_m2m_job_abort(void *priv)
 {
 	struct meson_vcodec_session *session = priv;
+	
+	dev_dbg(session->core->dev, "Session %d m2m job abort\n", session->session_id);
 
 	v4l2_m2m_job_finish(session->core->m2m_dev, session->m2m_ctx);
 }
@@ -789,20 +917,6 @@ int meson_vcodec_pwrc_on(struct meson_vcodec_core *core, enum meson_vcodec_pwrc 
 		return ret;
 
 	return 0;
-}
-
-static irqreturn_t meson_vcodec_isr(int irq, void *dev_id)
-{
-	struct meson_vcodec_core *core = dev_id;
-	struct meson_vcodec_session *session = core->current_session;
-	const struct meson_codec_ops *ops;
-
-	if (!session)
-		return IRQ_NONE;
-
-	ops = (session->codec->decoder) ? session->codec->decoder->ops : session->codec->encoder->ops;
-
-	return ops->isr(irq, dev_id);
 }
 
 /* platform_driver */

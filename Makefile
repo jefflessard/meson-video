@@ -1,5 +1,20 @@
 # obj-m += vdec/
-obj-m += meson-vcodec.o
+obj-m += meson_vcodec.o
+meson_vcodec-objs += \
+	meson-formats.o \
+	meson-codecs.o \
+	meson-vdec-adapter.o \
+	vdec/codec_mpeg12.o \
+	vdec/codec_h264.o \
+	vdec/codec_hevc_common.o \
+	vdec/codec_vp9.o \
+	vdec/codec_hevc.o \
+	vdec/esparser.o \
+	vdec/vdec_helpers.o \
+	vdec/vdec_1.o \
+	vdec/vdec_hevc.o \
+	meson-platforms.o \
+	meson-vcodec.o
 
 # Path to the kernel source tree
 KDIR ?= /lib/modules/$(shell uname -r)/build
