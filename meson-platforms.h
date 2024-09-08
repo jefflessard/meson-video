@@ -117,9 +117,9 @@ struct meson_ee_pwrc_top_domain {
 
 #define ENCODER_ITEM(__name, __max_width, __max_height, __format) \
 	{ \
-		.input_format = &__format, \
-		.output_format = &__name, \
-		.intermediate_format = NULL, \
+		.src_fmt = &__format, \
+		.dst_fmt = &__name, \
+		.int_fmt = NULL, \
 		.decoder = NULL, \
 		.encoder = &__name##_encoder, \
 		.max_width = __max_width, \
@@ -131,9 +131,9 @@ struct meson_ee_pwrc_top_domain {
 
 #define DECODER_ITEM(__name, __max_width, __max_height, __format) \
 	{ \
-		.input_format = &__name, \
-		.output_format = &__format, \
-		.intermediate_format = NULL, \
+		.src_fmt = &__name, \
+		.dst_fmt = &__format, \
+		.int_fmt = NULL, \
 		.decoder = &__name##_decoder, \
 		.encoder = NULL, \
 		.max_width = __max_width, \
@@ -145,9 +145,9 @@ struct meson_ee_pwrc_top_domain {
 
 #define TRANSCODER_ITEM(__encoder, __format, __max_width, __max_height, __decoder) \
 	{ \
-		.input_format = &__decoder, \
-		.output_format = &__encoder, \
-		.intermediate_format = &__format, \
+		.src_fmt = &__decoder, \
+		.dst_fmt = &__encoder, \
+		.int_fmt = &__format, \
 		.decoder = &__decoder##_decoder, \
 		.encoder = &__encoder##_encoder, \
 		.max_width = __max_width, \

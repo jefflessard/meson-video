@@ -85,9 +85,9 @@ struct meson_vcodec_session {
 
 	struct mutex lock;
 
-	struct v4l2_format input_format;
-	struct v4l2_format output_format;
-	struct v4l2_pix_format_mplane intermediate_format;
+	struct v4l2_format src_fmt;
+	struct v4l2_format dst_fmt;
+	struct v4l2_pix_format_mplane int_fmt;
 
 	struct meson_codec_job enc_job;
 	struct meson_codec_job dec_job;

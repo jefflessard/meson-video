@@ -52,9 +52,9 @@ struct meson_codec_ops {
 };
 
 struct meson_codec_formats {
-	const struct meson_format *input_format;
-	const struct meson_format *output_format;
-	const struct meson_format *intermediate_format;
+	const struct meson_format *src_fmt;
+	const struct meson_format *dst_fmt;
+	const struct meson_format *int_fmt;
 	const struct meson_codec_spec *decoder;
 	const struct meson_codec_spec *encoder;
 	const u16 max_width;
