@@ -62,7 +62,6 @@ void codec_hevc_setup_decode_head(struct amvdec_session *sess, int is_10bit)
 	amvdec_write_dos(core, HEVC_CM_HEADER_OFFSET, body_size);
 	amvdec_write_dos(core, HEVC_CM_HEADER_LENGTH, head_size);
 }
-EXPORT_SYMBOL_GPL(codec_hevc_setup_decode_head);
 
 static void codec_hevc_setup_buffers_gxbb(struct amvdec_session *sess,
 					  struct codec_hevc_common *comm,
@@ -178,7 +177,6 @@ void codec_hevc_free_mmu_headers(struct amvdec_session *sess,
 		}
 	}
 }
-EXPORT_SYMBOL_GPL(codec_hevc_free_mmu_headers);
 
 static int codec_hevc_alloc_mmu_headers(struct amvdec_session *sess,
 					struct codec_hevc_common *comm)
@@ -236,7 +234,6 @@ void codec_hevc_free_fbc_buffers(struct amvdec_session *sess,
 
 	codec_hevc_free_mmu_headers(sess, comm);
 }
-EXPORT_SYMBOL_GPL(codec_hevc_free_fbc_buffers);
 
 static int codec_hevc_alloc_fbc_buffers(struct amvdec_session *sess,
 					struct codec_hevc_common *comm)
@@ -314,7 +311,6 @@ int codec_hevc_setup_buffers(struct amvdec_session *sess,
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(codec_hevc_setup_buffers);
 
 void codec_hevc_fill_mmu_map(struct amvdec_session *sess,
 			     struct codec_hevc_common *comm,
@@ -339,4 +335,3 @@ void codec_hevc_fill_mmu_map(struct amvdec_session *sess,
 	for (i = 0; i < nb_pages; ++i)
 		mmu_map[i] = first_page + i;
 }
-EXPORT_SYMBOL_GPL(codec_hevc_fill_mmu_map);

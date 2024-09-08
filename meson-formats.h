@@ -6,7 +6,7 @@
 
 #define MAX_NUM_PLANES VIDEO_MAX_PLANES
 
-enum meson_formats {
+enum meson_formats: u8 {
 	FORMAT_NV12,
 	FORMAT_YUV420,
 	FORMAT_MPEG1,

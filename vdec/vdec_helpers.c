@@ -18,37 +18,31 @@ u32 amvdec_read_dos(struct amvdec_core *core, u32 reg)
 {
 	return readl_relaxed(core->dos_base + reg);
 }
-EXPORT_SYMBOL_GPL(amvdec_read_dos);
 
 void amvdec_write_dos(struct amvdec_core *core, u32 reg, u32 val)
 {
 	writel_relaxed(val, core->dos_base + reg);
 }
-EXPORT_SYMBOL_GPL(amvdec_write_dos);
 
 void amvdec_write_dos_bits(struct amvdec_core *core, u32 reg, u32 val)
 {
 	amvdec_write_dos(core, reg, amvdec_read_dos(core, reg) | val);
 }
-EXPORT_SYMBOL_GPL(amvdec_write_dos_bits);
 
 void amvdec_clear_dos_bits(struct amvdec_core *core, u32 reg, u32 val)
 {
 	amvdec_write_dos(core, reg, amvdec_read_dos(core, reg) & ~val);
 }
-EXPORT_SYMBOL_GPL(amvdec_clear_dos_bits);
 
 u32 amvdec_read_parser(struct amvdec_core *core, u32 reg)
 {
 	return readl_relaxed(core->esparser_base + reg);
 }
-EXPORT_SYMBOL_GPL(amvdec_read_parser);
 
 void amvdec_write_parser(struct amvdec_core *core, u32 reg, u32 val)
 {
 	writel_relaxed(val, core->esparser_base + reg);
 }
-EXPORT_SYMBOL_GPL(amvdec_write_parser);
 
 /* AMFBC body is made out of 64x32 blocks with varying block size */
 u32 amvdec_amfbc_body_size(u32 width, u32 height, u32 is_10bit, u32 use_mmu)
@@ -66,7 +60,6 @@ u32 amvdec_amfbc_body_size(u32 width, u32 height, u32 is_10bit, u32 use_mmu)
 
 	return blk_size * width_64 * height_32;
 }
-EXPORT_SYMBOL_GPL(amvdec_amfbc_body_size);
 
 /* 32 bytes per 128x64 block */
 u32 amvdec_amfbc_head_size(u32 width, u32 height)
@@ -76,14 +69,12 @@ u32 amvdec_amfbc_head_size(u32 width, u32 height)
 
 	return 32 * width_128 * height_64;
 }
-EXPORT_SYMBOL_GPL(amvdec_amfbc_head_size);
 
 u32 amvdec_amfbc_size(u32 width, u32 height, u32 is_10bit, u32 use_mmu)
 {
 	return ALIGN(amvdec_amfbc_body_size(width, height, is_10bit, use_mmu) +
 		     amvdec_amfbc_head_size(width, height), SZ_64K);
 }
-EXPORT_SYMBOL_GPL(amvdec_amfbc_size);
 
 static int canvas_alloc(struct amvdec_session *sess, u8 *canvas_id)
 {
@@ -233,7 +224,6 @@ int amvdec_set_canvases(struct amvdec_session *sess,
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(amvdec_set_canvases);
 
 int amvdec_add_ts(struct amvdec_session *sess, u64 ts,
 		  struct v4l2_timecode tc, u32 offset, u32 vbuf_flags)
@@ -255,7 +245,6 @@ int amvdec_add_ts(struct amvdec_session *sess, u64 ts,
 	spin_unlock_irqrestore(&sess->ts_spinlock, flags);
 	return 0;
 }
-EXPORT_SYMBOL_GPL(amvdec_add_ts);
 
 void amvdec_remove_ts(struct amvdec_session *sess, u64 ts)
 {
@@ -276,7 +265,6 @@ void amvdec_remove_ts(struct amvdec_session *sess, u64 ts)
 unlock:
 	spin_unlock_irqrestore(&sess->ts_spinlock, flags);
 }
-EXPORT_SYMBOL_GPL(amvdec_remove_ts);
 
 static void dst_buf_done(struct amvdec_session *sess,
 			 struct vb2_v4l2_buffer *vbuf,
@@ -360,7 +348,6 @@ void amvdec_dst_buf_done(struct amvdec_session *sess,
 	dst_buf_done(sess, vbuf, field, timestamp, timecode, vbuf_flags);
 	atomic_dec(&sess->esparser_queued_bufs);
 }
-EXPORT_SYMBOL_GPL(amvdec_dst_buf_done);
 
 void amvdec_dst_buf_done_offset(struct amvdec_session *sess,
 				struct vb2_v4l2_buffer *vbuf,
@@ -409,7 +396,6 @@ void amvdec_dst_buf_done_offset(struct amvdec_session *sess,
 	if (match)
 		atomic_dec(&sess->esparser_queued_bufs);
 }
-EXPORT_SYMBOL_GPL(amvdec_dst_buf_done_offset);
 
 void amvdec_dst_buf_done_idx(struct amvdec_session *sess,
 			     u32 buf_idx, u32 offset, u32 field)
@@ -432,7 +418,6 @@ void amvdec_dst_buf_done_idx(struct amvdec_session *sess,
 	else
 		amvdec_dst_buf_done(sess, vbuf, field);
 }
-EXPORT_SYMBOL_GPL(amvdec_dst_buf_done_idx);
 
 void amvdec_set_par_from_dar(struct amvdec_session *sess,
 			     u32 dar_num, u32 dar_den)
@@ -445,7 +430,6 @@ void amvdec_set_par_from_dar(struct amvdec_session *sess,
 	sess->pixelaspect.numerator /= div;
 	sess->pixelaspect.denominator /= div;
 }
-EXPORT_SYMBOL_GPL(amvdec_set_par_from_dar);
 
 void amvdec_src_change(struct amvdec_session *sess, u32 width,
 		       u32 height, u32 dpb_size, u32 bitdepth)
@@ -479,7 +463,6 @@ void amvdec_src_change(struct amvdec_session *sess, u32 width,
 		width, height, dpb_size, bitdepth);
 	v4l2_event_queue_fh(&sess->fh, &ev);
 }
-EXPORT_SYMBOL_GPL(amvdec_src_change);
 
 void amvdec_abort(struct amvdec_session *sess)
 {
@@ -487,4 +470,3 @@ void amvdec_abort(struct amvdec_session *sess)
 	vb2_queue_error(&sess->m2m_ctx->cap_q_ctx.q);
 	vb2_queue_error(&sess->m2m_ctx->out_q_ctx.q);
 }
-EXPORT_SYMBOL_GPL(amvdec_abort);

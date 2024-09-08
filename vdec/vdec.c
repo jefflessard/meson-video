@@ -41,7 +41,6 @@ u32 amvdec_get_output_size(struct amvdec_session *sess)
 {
 	return get_output_size(sess->width, sess->height);
 }
-EXPORT_SYMBOL_GPL(amvdec_get_output_size);
 
 static int vdec_codec_needs_recycle(struct amvdec_session *sess)
 {

@@ -43,6 +43,8 @@ stream_file() {
 	v4l2-ctl --set-fmt-video=width=$width,height=$height,pixelformat=$in_format --set-fmt-video-out=pixelformat=$out_format --device $DEVICE --stream-mmap --stream-from=$in_file --stream-to=$out_file --stream-count=100
 }
 
-#show_formats
+show_formats
 
-stream_file sample.hevc HEVC 1920 800 output.h264 H264
+#stream_file sample.hevc HEVC 1920 800 output.h264 H264
+#stream_file sample.nv12 NM12 1920 800 output.h264 H264
+$stream_file sample.hevc HEVC 1920 800 output.nv12 NM12

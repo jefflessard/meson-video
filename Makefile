@@ -19,6 +19,7 @@ meson_vcodec-objs += \
 # Path to the kernel source tree
 KDIR ?= /lib/modules/$(shell uname -r)/build
 
+SRC_FILES := $(patsubst %.o, %.c, $(meson_vcodec-objs))
 
 # Make targets
 
@@ -28,10 +29,16 @@ debug: CCFLAGS += -g -DDEBUG
 debug: modules
 
 modules:
-	$(MAKE) EXTRA_CFLAGS="$(CCFLAGS)" -C $(KDIR) M=$(PWD) modules
+	$(MAKE) EXTRA_CFLAGS="$(CCFLAGS)" EXTRA_LDFLAGS="$(LDFLAGS)" -C $(KDIR) M=$(PWD) modules
 
 modules_install:
 	$(MAKE) -C $(KDIR) M=$(PWD) modules_install
+
+# Preprocess target
+preprocess: $(patsubst %.c, %.i, $(SRC_FILES))
+
+%.i: %.c
+	$(MAKE) -C $(KDIR) M=$(PWD) EXTRA_CFLAGS="$(CCFLAGS) -E" $@
 
 probe: modules_install
 	rmmod meson_vcodec || true

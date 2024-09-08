@@ -7,7 +7,7 @@
 #include "meson-formats.h"
 #include "meson-codecs.h"
 
-enum meson_platform_id {
+enum meson_platform_id: u8 {
 	MESON_MAJOR_ID_M8B = 0x1B,
 	MESON_MAJOR_ID_GXBB = 0x1F,
 	MESON_MAJOR_ID_GXTVBB,
@@ -33,10 +33,10 @@ enum meson_platform_id {
 	MESON_MAJOR_ID_S4D = 0x3a,
 	MESON_MAJOR_ID_T5W = 0x3b,
 	MESON_MAJOR_ID_S5 = 0x3e,
-	MESON_MAJOR_ID_UNKNOWN,
+	MAX_MESON_MAJOR_ID,
 };
 
-enum meson_vcodec_pwrc {
+enum meson_vcodec_pwrc: u8 {
 	PWRC_VDEC1,
 	PWRC_HEVC,
 	PWRC_HCODEC,

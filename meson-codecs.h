@@ -10,7 +10,7 @@
 #define MIN_RESOLUTION_WIDTH 320
 #define MIN_RESOLUTION_HEIGHT 240
 
-enum meson_codecs {
+enum meson_codecs: u8 {
 	MPEG1_DECODER,
 	MPEG2_DECODER,
 	H264_DECODER,
@@ -23,24 +23,32 @@ enum meson_codecs {
 
 struct meson_vcodec_session;
 
-struct meson_codec_ops {
-	int (*init)(struct meson_vcodec_session *session);
-	int (*configure)(struct meson_vcodec_session *session);
-	int (*start)(struct meson_vcodec_session *session);
-//	int (*process_frame)(struct meson_vcodec_session *session);
-//	irqreturn_t (*isr)(int irq, void *dev_id);
-	int (*cancel)(struct meson_vcodec_session *session);
-	int (*stop)(struct meson_vcodec_session *session);
-//	int (*reset)(struct meson_vcodec_session *session);
-	int (*release)(struct meson_vcodec_session *session);
-};
-
 struct meson_codec_spec {
 	enum meson_codecs type;
 	const struct meson_codec_ops *ops;
 	const struct v4l2_ctrl_ops *ctrl_ops;
 	const struct v4l2_ctrl_config *ctrls;
 	const int num_ctrls;
+};
+
+struct meson_codec_job {
+	struct meson_vcodec_session *session;
+	const struct meson_codec_spec *codec;
+	const struct v4l2_pix_format_mplane *src_fmt;
+	const struct v4l2_pix_format_mplane *dst_fmt;
+	void *priv;
+};
+
+struct meson_codec_ops {
+	int (*init)(struct meson_codec_job *job, struct vb2_queue *vq);
+//	int (*configure)(struct meson_codec_job *job);
+	int (*start)(struct meson_codec_job *job, struct vb2_queue *vq, u32 count);
+	int (*queue)(struct meson_codec_job *job, struct vb2_buffer *vb);
+//	irqreturn_t (*isr)(int irq, void *dev_id);
+//	int (*cancel)(struct meson_codec_job *job);
+	int (*stop)(struct meson_codec_job *job, struct vb2_queue *vq);
+//	int (*reset)(struct meson_codec_job *job);
+	int (*release)(struct meson_codec_job *job, struct vb2_queue *vq);
 };
 
 struct meson_codec_formats {
@@ -61,5 +69,14 @@ extern const struct meson_codec_spec vp9_decoder;
 extern const struct meson_codec_spec hevc_decoder;
 extern const struct meson_codec_spec h264_encoder;
 extern const struct meson_codec_spec hevc_encoder;
+
+
+/* helper macros */
+
+#define ENCODER_OPS(__session, __ops, ...) \
+	__session->enc_job.codec->ops->__ops(&__session->enc_job, ##__VA_ARGS__)
+
+#define DECODER_OPS(__session, __ops, ...) \
+	__session->dec_job.codec->ops->__ops(&__session->dec_job, ##__VA_ARGS__)
 
 #endif
