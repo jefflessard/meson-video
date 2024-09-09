@@ -384,7 +384,7 @@ void esparser_queue_all_src(struct work_struct *work)
 	struct amvdec_session *sess =
 		container_of(work, struct amvdec_session, esparser_queue_work);
 
-	mutex_lock(&sess->lock);
+	mutex_lock(sess->lock);
 	v4l2_m2m_for_each_src_buf_safe(sess->m2m_ctx, buf, n) {
 		if (sess->should_stop)
 			break;
@@ -392,7 +392,7 @@ void esparser_queue_all_src(struct work_struct *work)
 		if (esparser_queue(sess, &buf->vb) < 0)
 			break;
 	}
-	mutex_unlock(&sess->lock);
+	mutex_unlock(sess->lock);
 }
 
 int esparser_power_up(struct amvdec_session *sess)

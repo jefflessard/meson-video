@@ -297,7 +297,7 @@ static void dst_buf_done(struct amvdec_session *sess,
 
 		dev_dbg(dev, "Signaling EOS, sequence_cap = %u\n",
 			sess->sequence_cap - 1);
-		v4l2_event_queue_fh(&sess->fh, &ev);
+		v4l2_event_queue_fh(sess->fh, &ev);
 		vbuf->flags |= V4L2_BUF_FLAG_LAST;
 	} else if (sess->status == STATUS_NEEDS_RESUME) {
 		/* Mark LAST for drained show frames during a source change */
@@ -461,7 +461,7 @@ void amvdec_src_change(struct amvdec_session *sess, u32 width,
 
 	dev_dbg(sess->core->dev, "Res. changed (%ux%u), DPB %u, bitdepth %u\n",
 		width, height, dpb_size, bitdepth);
-	v4l2_event_queue_fh(&sess->fh, &ev);
+	v4l2_event_queue_fh(sess->fh, &ev);
 }
 
 void amvdec_abort(struct amvdec_session *sess)

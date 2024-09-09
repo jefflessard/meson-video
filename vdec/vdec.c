@@ -825,7 +825,7 @@ static int m2m_queue_init(void *priv, struct vb2_queue *src_vq,
 	src_vq->buf_struct_size = sizeof(struct dummy_buf);
 	src_vq->min_buffers_needed = 1;
 	src_vq->dev = sess->core->dev;
-	src_vq->lock = &sess->lock;
+	src_vq->lock = sess->lock;
 	ret = vb2_queue_init(src_vq);
 	if (ret)
 		return ret;
@@ -839,13 +839,13 @@ static int m2m_queue_init(void *priv, struct vb2_queue *src_vq,
 	dst_vq->buf_struct_size = sizeof(struct dummy_buf);
 	dst_vq->min_buffers_needed = 1;
 	dst_vq->dev = sess->core->dev;
-	dst_vq->lock = &sess->lock;
+	dst_vq->lock = sess->lock;
 	return vb2_queue_init(dst_vq);
 }
 
 static int vdec_init_ctrls(struct amvdec_session *sess)
 {
-	struct v4l2_ctrl_handler *ctrl_handler = &sess->ctrl_handler;
+	struct v4l2_ctrl_handler *ctrl_handler = sess->ctrl_handler;
 	int ret;
 
 	ret = v4l2_ctrl_handler_init(ctrl_handler, 1);
@@ -894,6 +894,7 @@ static int vdec_open(struct file *file)
 		goto err_m2m_release;
 	}
 
+	sess->ctrl_handler = &sess->_ctrl_handler;
 	ret = vdec_init_ctrls(sess);
 	if (ret)
 		goto err_m2m_release;
@@ -909,15 +910,17 @@ static int vdec_open(struct file *file)
 	INIT_LIST_HEAD(&sess->timestamps);
 	INIT_LIST_HEAD(&sess->bufs_recycle);
 	INIT_WORK(&sess->esparser_queue_work, esparser_queue_all_src);
-	mutex_init(&sess->lock);
+	sess->lock = &sess->_lock;
+	mutex_init(sess->lock);
 	mutex_init(&sess->bufs_recycle_lock);
 	spin_lock_init(&sess->ts_spinlock);
 
-	v4l2_fh_init(&sess->fh, core->vdev_dec);
-	sess->fh.ctrl_handler = &sess->ctrl_handler;
-	v4l2_fh_add(&sess->fh);
-	sess->fh.m2m_ctx = sess->m2m_ctx;
-	file->private_data = &sess->fh;
+	sess->fh = &sess->_fh;
+	v4l2_fh_init(sess->fh, core->vdev_dec);
+	sess->fh->ctrl_handler = sess->ctrl_handler;
+	v4l2_fh_add(sess->fh);
+	sess->fh->m2m_ctx = sess->m2m_ctx;
+	file->private_data = sess->fh;
 
 	return 0;
 
@@ -935,10 +938,10 @@ static int vdec_close(struct file *file)
 
 	v4l2_m2m_ctx_release(sess->m2m_ctx);
 	v4l2_m2m_release(sess->m2m_dev);
-	v4l2_fh_del(&sess->fh);
-	v4l2_fh_exit(&sess->fh);
+	v4l2_fh_del(sess->fh);
+	v4l2_fh_exit(sess->fh);
 
-	mutex_destroy(&sess->lock);
+	mutex_destroy(sess->lock);
 	mutex_destroy(&sess->bufs_recycle_lock);
 
 	kfree(sess);

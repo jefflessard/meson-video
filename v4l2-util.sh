@@ -33,18 +33,26 @@ show_formats() {
 }
 
 stream_file() {
-	in_file=$1
-	in_format=$2
+	src_file=$1
+	src_format=$2
 	width=$3
 	height=$4
-	out_file=$5
-	out_format=$6
+	dst_file=$5
+	dst_format=$6
 
-	v4l2-ctl --set-fmt-video=width=$width,height=$height,pixelformat=$in_format --set-fmt-video-out=pixelformat=$out_format --device $DEVICE --stream-mmap --stream-from=$in_file --stream-to=$out_file --stream-count=100
+	v4l2-ctl \
+		--device $DEVICE \
+		--set-fmt-video-out=width=$width,height=$height,pixelformat=$src_format \
+		--set-fmt-video=pixelformat=$dst_format \
+		--stream-out-mmap \
+		--stream-mmap \
+		--stream-from=$src_file \
+		--stream-to=$dst_file \
+		--stream-count=100
 }
 
-show_formats
+#show_formats
 
 #stream_file sample.hevc HEVC 1920 800 output.h264 H264
-#stream_file sample.nv12 NM12 1920 800 output.h264 H264
-#stream_file sample.hevc HEVC 1920 800 output.nv12 NM12
+#stream_file sample.nv12 NV12 1920 800 output.h264 H264
+stream_file sample.hevc HEVC 1920 800 output.nv12 NV12

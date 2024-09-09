@@ -21,7 +21,7 @@
 /* 16 MiB for parsed bitstream swap exchange */
 #define SIZE_VIFIFO SZ_16M
 
-static const struct amvdec_codec_ops *vdec_decoders[MAX_CODECS] = {
+static struct amvdec_codec_ops *vdec_decoders[MAX_CODECS] = {
 	[MPEG1_DECODER] = &codec_mpeg12_ops,
 	[MPEG2_DECODER] = &codec_mpeg12_ops,
 	[H264_DECODER] = &codec_h264_ops,
@@ -40,7 +40,6 @@ struct meson_vdec_adapter {
 };
 
 // TODO meson_vcodec_queue_setup -> process_num_buffers
-// TODO meson_vcodec_m2m_device_run -> schedule_work(&sess->esparser_queue_work)
 // TODO vdec_decoder_cmd
 // TODO vdec_decoder_cmd -> vdec_wait_inactive
 // TODO vdec_g_pixelaspect
@@ -94,16 +93,22 @@ static int vdec_poweron(struct amvdec_session *sess)
 	struct amvdec_ops *vdec_ops = sess->fmt_out->vdec_ops;
 
 	ret = clk_prepare_enable(sess->core->dos_parser_clk);
-	if (ret)
+	if (ret) {
+		dev_err(sess->core->dev, "Failed to enable dos_parser_clk: %d", ret);
 		return ret;
+	}
 
 	ret = clk_prepare_enable(sess->core->dos_clk);
-	if (ret)
+	if (ret) {
+		dev_err(sess->core->dev, "Failed to enable dos_clk: %d", ret);
 		goto disable_dos_parser;
+	}
 
 	ret = vdec_ops->start(sess);
-	if (ret)
+	if (ret) {
+		dev_err(sess->core->dev, "Failed to start vdec: %d", ret);
 		goto disable_dos;
+	}
 
 	esparser_power_up(sess);
 
@@ -210,11 +215,6 @@ static void vdec_reset_bufs_recycle(struct amvdec_session *sess)
 
 static void vdec_vb2_buf_queue(struct amvdec_session *sess, struct vb2_buffer *vb)
 {
-	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
-	struct v4l2_m2m_ctx *m2m_ctx = sess->m2m_ctx;
-
-	v4l2_m2m_buf_queue(m2m_ctx, vbuf);
-
 	if (!sess->streamon_out)
 		return;
 
@@ -230,7 +230,6 @@ static int vdec_start_streaming(struct amvdec_session *sess, struct vb2_queue *q
 {
 	struct amvdec_codec_ops *codec_ops = sess->fmt_out->codec_ops;
 	struct amvdec_core *core = sess->core;
-	struct vb2_v4l2_buffer *buf;
 	int ret;
 
 	if (core->cur_sess && core->cur_sess != sess) {
@@ -306,7 +305,6 @@ static void vdec_stop_streaming(struct amvdec_session *sess, struct vb2_queue *q
 {
 	struct amvdec_codec_ops *codec_ops = sess->fmt_out->codec_ops;
 	struct amvdec_core *core = sess->core;
-	struct vb2_v4l2_buffer *buf;
 
 	if (sess->status == STATUS_RUNNING ||
 	    sess->status == STATUS_INIT ||
@@ -339,12 +337,8 @@ static void vdec_stop_streaming(struct amvdec_session *sess, struct vb2_queue *q
 
 static int vdec_init_ctrls(struct amvdec_session *sess)
 {
-	struct v4l2_ctrl_handler *ctrl_handler = &sess->ctrl_handler;
+	struct v4l2_ctrl_handler *ctrl_handler = sess->ctrl_handler;
 	int ret;
-
-	ret = v4l2_ctrl_handler_init(ctrl_handler, 1);
-	if (ret)
-		return ret;
 
 	sess->ctrl_min_buf_capture =
 		v4l2_ctrl_new_std(ctrl_handler, NULL,
@@ -362,8 +356,6 @@ static int vdec_init_ctrls(struct amvdec_session *sess)
 
 static int vdec_open(struct amvdec_session *sess)
 {
-	struct amvdec_core *core = sess->core;
-	struct device *dev = core->dev;
 	int ret;
 
 	ret = vdec_init_ctrls(sess);
@@ -380,7 +372,7 @@ static int vdec_open(struct amvdec_session *sess)
 	mutex_init(&sess->bufs_recycle_lock);
 	spin_lock_init(&sess->ts_spinlock);
 
-	sess->fh.ctrl_handler = &sess->ctrl_handler;
+	sess->fh->ctrl_handler = sess->ctrl_handler;
 
 	return 0;
 }
@@ -410,7 +402,7 @@ static irqreturn_t vdec_threaded_isr(int irq, void *data)
 	return adapter->vdec_codec_ops->threaded_isr(&adapter->vdec_sess);
 }
 
-static int meson_vdec_adapter_init(struct meson_codec_job *job, struct vb2_queue *vq) {
+static int meson_vdec_adapter_init(struct meson_codec_job *job) {
 	struct meson_vcodec_session *session = job->session;
 	struct meson_vdec_adapter *adapter;
 	struct amvdec_format *fmt_out;
@@ -462,6 +454,7 @@ static int meson_vdec_adapter_init(struct meson_codec_job *job, struct vb2_queue
 	adapter->vdec_core.vdec_1_clk = session->core->clks[CLK_VDEC1];
 	adapter->vdec_core.vdec_hevc_clk = session->core->clks[CLK_HEVC];
 	adapter->vdec_core.vdec_hevcf_clk = session->core->clks[CLK_HEVCF];
+	//mutex_init(&adapter->vdec_core.lock);
 
 	fmt_out->codec_ops = adapter->vdec_codec_ops;
 	fmt_out->pixfmt = job->src_fmt->pixelformat;
@@ -473,10 +466,11 @@ static int meson_vdec_adapter_init(struct meson_codec_job *job, struct vb2_queue
 	}
 
 	adapter->vdec_sess.core = &adapter->vdec_core;
-	adapter->vdec_sess.fh = session->fh;
+	adapter->vdec_sess.fh = &session->fh;
+	adapter->vdec_sess.lock = &session->lock;
+	adapter->vdec_sess.ctrl_handler = &session->ctrl_handler;
 	adapter->vdec_sess.width = job->src_fmt->height;
 	adapter->vdec_sess.height = job->src_fmt->height;
-	adapter->vdec_sess.lock = session->lock;
 	adapter->vdec_sess.m2m_ctx = session->m2m_ctx;
 	adapter->vdec_sess.pixfmt_cap = job->dst_fmt->pixelformat;
 	adapter->vdec_sess.changed_format = 1;
@@ -487,40 +481,44 @@ static int meson_vdec_adapter_init(struct meson_codec_job *job, struct vb2_queue
 		return ret;
 	}
 
-	printk(KERN_DEBUG "%s: adapter=%px, sess=%px, vq=%px\n", __func__, adapter, &adapter->vdec_sess, vq);
 	return vdec_open(&adapter->vdec_sess);
 }
 
 static int meson_vdec_adapter_start(struct meson_codec_job *job, struct vb2_queue *vq, u32 count) {
 	struct meson_vdec_adapter *adapter = job->priv;
-	printk(KERN_DEBUG "%s: adapter=%px, sess=%px, vq=%px, count=%d\n", __func__, adapter, &adapter->vdec_sess, vq, count);
+
 	return vdec_start_streaming(&adapter->vdec_sess, vq, count);
 }
 
 static int meson_vdec_adapter_queue(struct meson_codec_job *job, struct vb2_buffer *vb) {
 	struct meson_vdec_adapter *adapter = job->priv;
 
-	printk(KERN_DEBUG "%s: adapter=%px, sess=%px, vb=%px\n", __func__, adapter, &adapter->vdec_sess, vb);
 	vdec_vb2_buf_queue(&adapter->vdec_sess, vb);
 	return 0;
+}
+
+static void meson_vdec_adapter_run(struct meson_codec_job *job) {
+	struct meson_vdec_adapter *adapter = job->priv;
+	schedule_work(&adapter->vdec_sess.esparser_queue_work);
+}
+
+static void meson_vdec_adapter_abort(struct meson_codec_job *job) {
+	v4l2_m2m_job_finish(job->session->core->m2m_dev, job->session->m2m_ctx);
 }
 
 static int meson_vdec_adapter_stop(struct meson_codec_job *job, struct vb2_queue *vq) {
 	struct meson_vdec_adapter *adapter = job->priv;
 
-	printk(KERN_DEBUG "%s: adapter=%px, sess=%px, vq=%px\n", __func__, adapter, &adapter->vdec_sess, vq);
 	vdec_stop_streaming(&adapter->vdec_sess, vq);
 	return 0;
 }
 
-static int meson_vdec_adapter_release(struct meson_codec_job *job, struct vb2_queue *vq) {
+static int meson_vdec_adapter_release(struct meson_codec_job *job) {
 	struct meson_vdec_adapter *adapter = job->priv;
 
-	printk(KERN_DEBUG "%s: adapter=%px, sess=%px, vq=%px\n", __func__, adapter, &adapter->vdec_sess, vq);
 	vdec_close(&adapter->vdec_sess);
 
 	free_irq(job->session->core->irqs[IRQ_VDEC], (void *)job);
-
 	job->priv = NULL;
 	kfree(adapter);
 
@@ -555,6 +553,8 @@ const struct meson_codec_ops codec_ops_vdec_adapter = {
 	.init = &meson_vdec_adapter_init,
 	.start = &meson_vdec_adapter_start,
 	.queue = &meson_vdec_adapter_queue,
+	.run = &meson_vdec_adapter_run,
+	.abort = &meson_vdec_adapter_abort,
 	.stop = &meson_vdec_adapter_stop,
 	.release = &meson_vdec_adapter_release,
 };

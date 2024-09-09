@@ -40,15 +40,13 @@ struct meson_codec_job {
 };
 
 struct meson_codec_ops {
-	int (*init)(struct meson_codec_job *job, struct vb2_queue *vq);
-//	int (*configure)(struct meson_codec_job *job);
+	int (*init)(struct meson_codec_job *job);
 	int (*start)(struct meson_codec_job *job, struct vb2_queue *vq, u32 count);
 	int (*queue)(struct meson_codec_job *job, struct vb2_buffer *vb);
-//	irqreturn_t (*isr)(int irq, void *dev_id);
-//	int (*cancel)(struct meson_codec_job *job);
+	void (*run)(struct meson_codec_job *job);
+	void (*abort)(struct meson_codec_job *job);
 	int (*stop)(struct meson_codec_job *job, struct vb2_queue *vq);
-//	int (*reset)(struct meson_codec_job *job);
-	int (*release)(struct meson_codec_job *job, struct vb2_queue *vq);
+	int (*release)(struct meson_codec_job *job);
 };
 
 struct meson_codec_formats {

@@ -230,12 +230,15 @@ enum amvdec_status {
 struct amvdec_session {
 	struct amvdec_core *core;
 
-	struct v4l2_fh fh;
+	struct v4l2_fh _fh;
+	struct v4l2_fh *fh;
 	struct v4l2_m2m_dev *m2m_dev;
 	struct v4l2_m2m_ctx *m2m_ctx;
-	struct v4l2_ctrl_handler ctrl_handler;
+	struct v4l2_ctrl_handler _ctrl_handler;
+	struct v4l2_ctrl_handler *ctrl_handler;
 	struct v4l2_ctrl *ctrl_min_buf_capture;
-	struct mutex lock;
+	struct mutex _lock;
+	struct mutex *lock;
 
 	const struct amvdec_format *fmt_out;
 	u32 pixfmt_cap;
