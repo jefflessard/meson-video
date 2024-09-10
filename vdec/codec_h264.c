@@ -147,16 +147,12 @@ struct codec_h264 {
 
 static int codec_h264_can_recycle(struct amvdec_core *core)
 {
-	dev_dbg(core->dev, "%s", __func__);
-
 	return !amvdec_read_dos(core, AV_SCRATCH_7) ||
 	       !amvdec_read_dos(core, AV_SCRATCH_8);
 }
 
 static void codec_h264_recycle(struct amvdec_core *core, u32 buf_idx)
 {
-	dev_dbg(core->dev, "%s", __func__);
-
 	/*
 	 * Tell the firmware it can recycle this buffer.
 	 * AV_SCRATCH_8 serves the same purpose.
@@ -172,8 +168,6 @@ static int codec_h264_start(struct amvdec_session *sess)
 	u32 workspace_offset;
 	struct amvdec_core *core = sess->core;
 	struct codec_h264 *h264 = sess->priv;
-
-	dev_dbg(core->dev, "%s", __func__);
 
 	/* Allocate some memory for the H.264 decoder's state */
 	h264->workspace_vaddr =
@@ -211,8 +205,6 @@ static int codec_h264_stop(struct amvdec_session *sess)
 	struct codec_h264 *h264 = sess->priv;
 	struct amvdec_core *core = sess->core;
 
-	dev_dbg(core->dev, "%s", __func__);
-
 	if (h264->ext_fw_vaddr)
 		dma_free_coherent(core->dev, SIZE_EXT_FW,
 				  h264->ext_fw_vaddr, h264->ext_fw_paddr);
@@ -237,8 +229,6 @@ static int codec_h264_load_extended_firmware(struct amvdec_session *sess,
 {
 	struct codec_h264 *h264;
 	struct amvdec_core *core = sess->core;
-
-	dev_dbg(core->dev, "%s", __func__);
 
 	if (len < SIZE_EXT_FW)
 		return -EINVAL;
@@ -275,8 +265,6 @@ static void codec_h264_set_par(struct amvdec_session *sess)
 	u32 seq_info = amvdec_read_dos(core, AV_SCRATCH_2);
 	u32 ar_idc = (seq_info >> AR_IDC_BIT) & AR_IDC_MASK;
 
-	dev_dbg(core->dev, "%s", __func__);
-
 	if (!(seq_info & AR_PRESENT_FLAG))
 		return;
 
@@ -299,8 +287,6 @@ static void codec_h264_resume(struct amvdec_session *sess)
 	struct amvdec_core *core = sess->core;
 	struct codec_h264 *h264 = sess->priv;
 	u32 mb_width, mb_height, mb_total;
-
-	dev_dbg(core->dev, "%s", __func__);
 
 	amvdec_set_canvases(sess,
 			    (u32[]){ ANC0_CANVAS_ADDR, 0 },
@@ -342,8 +328,6 @@ static void codec_h264_src_change(struct amvdec_session *sess)
 	u32 parsed_info, mb_total;
 	u32 crop_infor, crop_bottom, crop_right;
 	u32 frame_width, frame_height;
-
-	dev_dbg(core->dev, "%s", __func__);
 
 	sess->keyframe_found = 1;
 
@@ -396,8 +380,6 @@ static void codec_h264_frames_ready(struct amvdec_session *sess, u32 status)
 	int num_frames;
 	int i;
 
-	dev_dbg(core->dev, "%s", __func__);
-
 	error_count = amvdec_read_dos(core, AV_SCRATCH_D);
 	num_frames = (status >> 8) & 0xff;
 	if (error_count) {
@@ -443,8 +425,6 @@ static irqreturn_t codec_h264_threaded_isr(struct amvdec_session *sess)
 	status = amvdec_read_dos(core, AV_SCRATCH_0);
 	cmd = status & CMD_MASK;
 
-	dev_dbg(core->dev, "%s: Enter status=%d, cmd=%d", __func__, status, cmd);
-
 	switch (cmd) {
 	case CMD_SRC_CHANGE:
 		codec_h264_src_change(sess);
@@ -478,11 +458,8 @@ static irqreturn_t codec_h264_threaded_isr(struct amvdec_session *sess)
 	if (amvdec_read_dos(core, AV_SCRATCH_J) & SEI_DATA_READY)
 		amvdec_write_dos(core, AV_SCRATCH_J, 0);
 
-	dev_dbg(core->dev, "%s: Exit", __func__);
-	
 	return IRQ_HANDLED;
 abort:
-	dev_dbg(core->dev, "%s: Abort", __func__);
 	amvdec_abort(sess);
 	return IRQ_HANDLED;
 }

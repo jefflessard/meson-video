@@ -117,6 +117,11 @@ int meson_vcodec_pwrc_on(struct meson_vcodec_core *core, enum meson_vcodec_pwrc 
 
 
 /* helper macros */
+#define HAS_ARGS_(N, ...) N
+#define HAS_ARGS(...) HAS_ARGS_(__VA_OPT__(1,) 0)
+#define MACRO_FN_N__(FN, N, ...) FN##_##N(__VA_ARGS__)
+#define MACRO_FN_N_(FN, N, ...) MACRO_FN_N__(FN, N, __VA_ARGS__)
+#define MACRO_FN_N(FN, N, ...) MACRO_FN_N_(FN, N, __VA_ARGS__)
 
 #define session_printk(__level, __session, __fmt, ...) \
 	dev_printk(__level, __session->core->dev, \
@@ -137,8 +142,14 @@ int meson_vcodec_pwrc_on(struct meson_vcodec_core *core, enum meson_vcodec_pwrc 
 			"Session %d type %d: " __fmt, \
 			__session->session_id, __session->type, ##__VA_ARGS__)
 
-#define session_trace(__session, __fmt, ...) \
-	session_dbg(__session, "%s: "#__fmt, __func__, ##__VA_ARGS__)
+#define session_trace_0(__session) \
+	session_dbg(__session, "%s", __func__)
+
+#define session_trace_1(__session, __fmt, ...) \
+	session_dbg(__session, "%s: " __fmt, __func__, ##__VA_ARGS__)
+
+#define session_trace(__session, ...) \
+	MACRO_FN_N(session_trace, HAS_ARGS(__VA_ARGS__), __session, ##__VA_ARGS__)
 
 #define stream_printk(__level, __session, __type, __fmt, ...) \
 	session_printk(__level, __session, \
@@ -159,8 +170,14 @@ int meson_vcodec_pwrc_on(struct meson_vcodec_core *core, enum meson_vcodec_pwrc 
 			"Stream type %d, status %d: " __fmt, __type, \
 			STREAM_STATUS(__session, __type), ##__VA_ARGS__)
 
-#define stream_trace(__session, __type, __fmt, ...) \
-	stream_dbg(__session, __type, "%s: "#__fmt, __func__, ##__VA_ARGS__)
+#define stream_trace_0(__session, __type) \
+	stream_dbg(__session, __type, "%s", __func__)
+
+#define stream_trace_1(__session, __type, __fmt, ...) \
+	stream_dbg(__session, __type, "%s: " __fmt, __func__, ##__VA_ARGS__)
+
+#define stream_trace(__session, __type, ...) \
+	MACRO_FN_N(stream_trace, HAS_ARGS(__VA_ARGS__), __session, __type, ##__VA_ARGS__)
 
 #define IS_SRC_STREAM(__type) (__type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE)
 

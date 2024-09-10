@@ -243,8 +243,6 @@ static int vdec_start_streaming(struct amvdec_session *sess, struct vb2_queue *q
 	if (!sess->streamon_out)
 		return 0;
 
-	dev_dbg(core->dev, "%s: tyoe=%d, status=%d, changed_format=%d", __func__, q->type, sess->status, sess->changed_format);
-
 	if (sess->status == STATUS_NEEDS_RESUME &&
 	    q->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE && sess->changed_format) {
 		codec_ops->resume(sess);
