@@ -90,7 +90,8 @@ struct amvdec_core {
 	struct v4l2_device v4l2_dev;
 
 	struct amvdec_session *cur_sess;
-	struct mutex lock;
+	struct mutex _lock;
+	struct mutex *lock;
 };
 
 /**

@@ -48,6 +48,8 @@ enum meson_stream_status: u8 {
 	STREAM_STATUS_QSETUP,
 	STREAM_STATUS_INIT,
 	STREAM_STATUS_START,
+	STREAM_STATUS_RUN,
+	STREAM_STATUS_ABORT,
 	STREAM_STATUS_STOP,
 	STREAM_STATUS_RELEASE = STREAM_STATUS_NONE,
 };
@@ -124,8 +126,19 @@ int meson_vcodec_pwrc_on(struct meson_vcodec_core *core, enum meson_vcodec_pwrc 
 #define session_err(__session, __fmt, ...) \
 	session_printk(KERN_ERR, __session, __fmt, ##__VA_ARGS__)
 
+#define session_warn(__session, __fmt, ...) \
+	session_printk(KERN_WARNING, __session, __fmt, ##__VA_ARGS__)
+
+#define session_info(__session, __fmt, ...) \
+	session_printk(KERN_INFO, __session, __fmt, ##__VA_ARGS__)
+
 #define session_dbg(__session, __fmt, ...) \
-	session_printk(KERN_DEBUG, __session, __fmt, ##__VA_ARGS__)
+	dev_dbg( __session->core->dev, \
+			"Session %d type %d: " __fmt, \
+			__session->session_id, __session->type, ##__VA_ARGS__)
+
+#define session_trace(__session, __fmt, ...) \
+	session_dbg(__session, "%s: "#__fmt, __func__, ##__VA_ARGS__)
 
 #define stream_printk(__level, __session, __type, __fmt, ...) \
 	session_printk(__level, __session, \
@@ -135,18 +148,31 @@ int meson_vcodec_pwrc_on(struct meson_vcodec_core *core, enum meson_vcodec_pwrc 
 #define stream_err(__session, __type, __fmt, ...) \
 	stream_printk(KERN_ERR, __session, __type, __fmt, ##__VA_ARGS__)
 
+#define stream_warn(__session, __type, __fmt, ...) \
+	stream_printk(KERN_WARNING, __session, __type, __fmt, ##__VA_ARGS__)
+
+#define stream_info(__session, __type, __fmt, ...) \
+	stream_printk(KERN_INFO, __session, __type, __fmt, ##__VA_ARGS__)
+
 #define stream_dbg(__session, __type, __fmt, ...) \
-	stream_printk(KERN_DEBUG, __session, __type, __fmt, ##__VA_ARGS__)
+	session_dbg(__session, \
+			"Stream type %d, status %d: " __fmt, __type, \
+			STREAM_STATUS(__session, __type), ##__VA_ARGS__)
+
+#define stream_trace(__session, __type, __fmt, ...) \
+	stream_dbg(__session, __type, "%s: "#__fmt, __func__, ##__VA_ARGS__)
+
+#define IS_SRC_STREAM(__type) (__type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE)
 
 #define SET_STREAM_STATUS(__session, __type, __status) { \
-	if (V4L2_TYPE_IS_OUTPUT(__type)) \
+	if (IS_SRC_STREAM(__type)) \
 		__session->src_status = __status; \
 	else \
 		__session->dst_status = __status; \
 }
 
 #define STREAM_STATUS(__session, __type) \
-	(V4L2_TYPE_IS_OUTPUT(__type) ? \
+	(IS_SRC_STREAM(__type) ? \
 	 __session->src_status : \
 	 __session->dst_status)
 

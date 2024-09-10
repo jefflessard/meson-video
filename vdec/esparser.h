@@ -33,4 +33,6 @@ void esparser_queue_all_src(struct work_struct *work);
 
 #define ESPARSER_MIN_PACKET_SIZE SZ_4K
 
+irqreturn_t esparser_isr(int irq, void *dev);
+
 #endif

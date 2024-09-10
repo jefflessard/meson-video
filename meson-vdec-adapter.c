@@ -40,8 +40,6 @@ struct meson_vdec_adapter {
 };
 
 // TODO meson_vcodec_queue_setup -> process_num_buffers
-// TODO vdec_decoder_cmd
-// TODO vdec_decoder_cmd -> vdec_wait_inactive
 // TODO vdec_g_pixelaspect
 
 static u32 get_output_size(u32 width, u32 height)
@@ -245,6 +243,8 @@ static int vdec_start_streaming(struct amvdec_session *sess, struct vb2_queue *q
 	if (!sess->streamon_out)
 		return 0;
 
+	dev_dbg(core->dev, "%s: tyoe=%d, status=%d, changed_format=%d", __func__, q->type, sess->status, sess->changed_format);
+
 	if (sess->status == STATUS_NEEDS_RESUME &&
 	    q->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE && sess->changed_format) {
 		codec_ops->resume(sess);
@@ -389,6 +389,8 @@ static irqreturn_t vdec_isr(int irq, void *data)
 	const struct meson_codec_job *job = data;
 	struct meson_vdec_adapter *adapter = job->priv;
 
+//	session_dbg(job->session, "%s", __func__);
+
 	adapter->vdec_sess.last_irq_jiffies = get_jiffies_64();
 
 	return adapter->vdec_codec_ops->isr(&adapter->vdec_sess);
@@ -398,6 +400,8 @@ static irqreturn_t vdec_threaded_isr(int irq, void *data)
 {
 	const struct meson_codec_job *job = data;
 	struct meson_vdec_adapter *adapter = job->priv;
+
+//	session_dbg(job->session, "%s", __func__);
 
 	return adapter->vdec_codec_ops->threaded_isr(&adapter->vdec_sess);
 }
@@ -448,13 +452,22 @@ static int meson_vdec_adapter_init(struct meson_codec_job *job) {
 	adapter->vdec_core.dev = session->core->dev;
 	adapter->vdec_core.cur_sess = &adapter->vdec_sess;
 	adapter->vdec_core.dev_dec = session->core->dev;
-	adapter->vdec_core.dos_base = session->core->regs[DOS_BASE];
-	adapter->vdec_core.esparser_base = session->core->regs[PARSER_BASE];
+	adapter->vdec_core.lock = &session->core->lock;
+
 	adapter->vdec_core.regmap_ao = session->core->regmap_ao;
+	adapter->vdec_core.dos_base = session->core->regs[DOS_BASE];
+	adapter->vdec_core.dos_clk = session->core->clks[CLK_DOS];
 	adapter->vdec_core.vdec_1_clk = session->core->clks[CLK_VDEC1];
 	adapter->vdec_core.vdec_hevc_clk = session->core->clks[CLK_HEVC];
 	adapter->vdec_core.vdec_hevcf_clk = session->core->clks[CLK_HEVCF];
-	//mutex_init(&adapter->vdec_core.lock);
+
+	adapter->vdec_core.dos_parser_clk = session->core->clks[CLK_PARSER];
+	adapter->vdec_core.esparser_base = session->core->regs[PARSER_BASE];
+	adapter->vdec_core.esparser_reset = session->core->resets[RESET_PARSER];
+	ret = request_irq(session->core->irqs[IRQ_PARSER], esparser_isr, IRQF_SHARED, "esparserirq", &adapter->vdec_core);
+	if (ret) {
+		return ret;
+	}
 
 	fmt_out->codec_ops = adapter->vdec_codec_ops;
 	fmt_out->pixfmt = job->src_fmt->pixelformat;
@@ -473,19 +486,31 @@ static int meson_vdec_adapter_init(struct meson_codec_job *job) {
 	adapter->vdec_sess.height = job->src_fmt->height;
 	adapter->vdec_sess.m2m_ctx = session->m2m_ctx;
 	adapter->vdec_sess.pixfmt_cap = job->dst_fmt->pixelformat;
-	adapter->vdec_sess.changed_format = 1;
 
 	// TODO IRQF_SHARED vs IRQF_ONESHOT
-	ret = request_threaded_irq(session->core->irqs[IRQ_VDEC], vdec_isr, vdec_threaded_isr, IRQF_SHARED, "vdec", job);
+	ret = request_threaded_irq(session->core->irqs[IRQ_VDEC], vdec_isr, vdec_threaded_isr, IRQF_ONESHOT, "vdec", job);
 	if (ret) {
 		return ret;
 	}
+
+#if 0
+	adapter->vdec_sess.num_dst_bufs = session->m2m_ctx->cap_q_ctx.q.num_buffers;
+	session_dbg(job->session, "%s: num_buffers=%d", __func__, adapter->vdec_sess.num_dst_bufs);
+#endif
 
 	return vdec_open(&adapter->vdec_sess);
 }
 
 static int meson_vdec_adapter_start(struct meson_codec_job *job, struct vb2_queue *vq, u32 count) {
 	struct meson_vdec_adapter *adapter = job->priv;
+
+	stream_dbg(job->session, vq->type, "%s: num_buffers=%d", __func__, vq->num_buffers);
+
+	if (!IS_SRC_STREAM(vq->type)) {
+		adapter->vdec_sess.num_dst_bufs = vq->num_buffers;
+	}
+
+	adapter->vdec_sess.changed_format = 1;
 
 	return vdec_start_streaming(&adapter->vdec_sess, vq, count);
 }
@@ -499,10 +524,34 @@ static int meson_vdec_adapter_queue(struct meson_codec_job *job, struct vb2_buff
 
 static void meson_vdec_adapter_run(struct meson_codec_job *job) {
 	struct meson_vdec_adapter *adapter = job->priv;
+	struct amvdec_session *sess = &adapter->vdec_sess;
+
+	v4l2_m2m_clear_state(sess->m2m_ctx);
+	sess->should_stop = 0;
+
 	schedule_work(&adapter->vdec_sess.esparser_queue_work);
 }
 
 static void meson_vdec_adapter_abort(struct meson_codec_job *job) {
+	struct meson_vdec_adapter *adapter = job->priv;
+	struct amvdec_session *sess = &adapter->vdec_sess;
+	struct amvdec_codec_ops *codec_ops = sess->fmt_out->codec_ops;
+
+	sess->should_stop = 1;
+
+	v4l2_m2m_mark_stopped(sess->m2m_ctx);
+
+	if (codec_ops->drain) {
+		vdec_wait_inactive(sess);
+		codec_ops->drain(sess);
+	} else if (codec_ops->eos_sequence) {
+		u32 len;
+		const u8 *data = codec_ops->eos_sequence(&len);
+
+		esparser_queue_eos(sess->core, data, len);
+		vdec_wait_inactive(sess);
+	}
+
 	v4l2_m2m_job_finish(job->session->core->m2m_dev, job->session->m2m_ctx);
 }
 
@@ -518,6 +567,7 @@ static int meson_vdec_adapter_release(struct meson_codec_job *job) {
 
 	vdec_close(&adapter->vdec_sess);
 
+	free_irq(job->session->core->irqs[IRQ_PARSER], (void *)&adapter->vdec_core);
 	free_irq(job->session->core->irqs[IRQ_VDEC], (void *)job);
 	job->priv = NULL;
 	kfree(adapter);

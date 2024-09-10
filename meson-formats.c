@@ -5,7 +5,7 @@
 
 const struct meson_format nv12 = {
 	.description="NV12 raw pixel format",
-	.pixelformat = V4L2_PIX_FMT_NV12,
+	.pixelformat = V4L2_PIX_FMT_NV12M,
 	.num_planes = 2,
 	.plane_size_denums = {1, 2},
 	.plane_line_denums = {1, 1},

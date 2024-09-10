@@ -559,7 +559,7 @@ vdec_try_fmt_common(struct amvdec_session *sess, u32 size,
 static int vdec_try_fmt(struct file *file, void *fh, struct v4l2_format *f)
 {
 	struct amvdec_session *sess =
-		container_of(file->private_data, struct amvdec_session, fh);
+		container_of(file->private_data, struct amvdec_session, _fh);
 
 	vdec_try_fmt_common(sess, sess->core->platform->num_formats, f);
 
@@ -569,7 +569,7 @@ static int vdec_try_fmt(struct file *file, void *fh, struct v4l2_format *f)
 static int vdec_g_fmt(struct file *file, void *fh, struct v4l2_format *f)
 {
 	struct amvdec_session *sess =
-		container_of(file->private_data, struct amvdec_session, fh);
+		container_of(file->private_data, struct amvdec_session, _fh);
 	struct v4l2_pix_format_mplane *pixmp = &f->fmt.pix_mp;
 
 	if (f->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE)
@@ -597,7 +597,7 @@ static int vdec_g_fmt(struct file *file, void *fh, struct v4l2_format *f)
 static int vdec_s_fmt(struct file *file, void *fh, struct v4l2_format *f)
 {
 	struct amvdec_session *sess =
-		container_of(file->private_data, struct amvdec_session, fh);
+		container_of(file->private_data, struct amvdec_session, _fh);
 	struct v4l2_pix_format_mplane *pixmp = &f->fmt.pix_mp;
 	u32 num_formats = sess->core->platform->num_formats;
 	const struct amvdec_format *fmt_out;
@@ -659,7 +659,7 @@ static int vdec_s_fmt(struct file *file, void *fh, struct v4l2_format *f)
 static int vdec_enum_fmt(struct file *file, void *fh, struct v4l2_fmtdesc *f)
 {
 	struct amvdec_session *sess =
-		container_of(file->private_data, struct amvdec_session, fh);
+		container_of(file->private_data, struct amvdec_session, _fh);
 	const struct vdec_platform *platform = sess->core->platform;
 	const struct amvdec_format *fmt_out;
 
@@ -689,7 +689,7 @@ static int vdec_enum_framesizes(struct file *file, void *fh,
 				struct v4l2_frmsizeenum *fsize)
 {
 	struct amvdec_session *sess =
-		container_of(file->private_data, struct amvdec_session, fh);
+		container_of(file->private_data, struct amvdec_session, _fh);
 	const struct amvdec_format *formats = sess->core->platform->formats;
 	const struct amvdec_format *fmt;
 	u32 num_formats = sess->core->platform->num_formats;
@@ -714,7 +714,7 @@ static int
 vdec_decoder_cmd(struct file *file, void *fh, struct v4l2_decoder_cmd *cmd)
 {
 	struct amvdec_session *sess =
-		container_of(file->private_data, struct amvdec_session, fh);
+		container_of(file->private_data, struct amvdec_session, _fh);
 	struct amvdec_codec_ops *codec_ops = sess->fmt_out->codec_ops;
 	struct device *dev = sess->core->dev;
 	int ret;
@@ -774,7 +774,7 @@ static int vdec_g_pixelaspect(struct file *file, void *fh, int type,
 			      struct v4l2_fract *f)
 {
 	struct amvdec_session *sess =
-		container_of(file->private_data, struct amvdec_session, fh);
+		container_of(file->private_data, struct amvdec_session, _fh);
 
 	if (type != V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE)
 		return -EINVAL;
@@ -934,7 +934,7 @@ err_free_sess:
 static int vdec_close(struct file *file)
 {
 	struct amvdec_session *sess =
-		container_of(file->private_data, struct amvdec_session, fh);
+		container_of(file->private_data, struct amvdec_session, _fh);
 
 	v4l2_m2m_ctx_release(sess->m2m_ctx);
 	v4l2_m2m_release(sess->m2m_dev);
@@ -1083,7 +1083,8 @@ static int vdec_probe(struct platform_device *pdev)
 
 	core->vdev_dec = vdev;
 	core->dev_dec = dev;
-	mutex_init(&core->lock);
+	core->lock = &core->_lock;
+	mutex_init(core->lock);
 
 	strscpy(vdev->name, "meson-video-decoder", sizeof(vdev->name));
 	vdev->release = video_device_release;
@@ -1091,7 +1092,7 @@ static int vdec_probe(struct platform_device *pdev)
 	vdev->ioctl_ops = &vdec_ioctl_ops;
 	vdev->vfl_dir = VFL_DIR_M2M;
 	vdev->v4l2_dev = &core->v4l2_dev;
-	vdev->lock = &core->lock;
+	vdev->lock = core->lock;
 	vdev->device_caps = V4L2_CAP_VIDEO_M2M_MPLANE | V4L2_CAP_STREAMING;
 
 	video_set_drvdata(vdev, core);

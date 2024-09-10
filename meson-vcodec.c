@@ -59,14 +59,9 @@ static int meson_vcodec_queue_setup(
 	struct meson_vcodec_session *session = vb2_get_drv_priv(vq);
 	struct v4l2_format *fmt;
 
-	stream_dbg(session, vq->type, "%s", __func__);	
+	stream_dbg(session, vq->type, "%s: n_buffers=%d", __func__, *nbuffers);
 
-	if (STREAM_STATUS(session, vq->type) != STREAM_STATUS_FMTSET) {
-		stream_err(session, vq->type, "invalid status to init");
-		return -EINVAL;
-	}
-
-	if(V4L2_TYPE_IS_OUTPUT(vq->type)) {
+	if(IS_SRC_STREAM(vq->type)) {
 		fmt = &session->src_fmt;
 	} else {
 		fmt = &session->dst_fmt;
@@ -87,13 +82,19 @@ static int meson_vcodec_queue_setup(
 
 		// TODO set number of buffers depending on the codec
 
-		SET_STREAM_STATUS(session, vq->type, STREAM_STATUS_QSETUP);
 		return 0;
 	}
 
+	if (STREAM_STATUS(session, vq->type) != STREAM_STATUS_FMTSET) {
+		stream_err(session, vq->type, "invalid status to init");
+		return -EINVAL;
+	}
+		
 	*nplanes = fmt->fmt.pix_mp.num_planes;
+	stream_dbg(session, vq->type, "%s: nplanes=%d\n", __func__, *nplanes);
 	for (int i = 0; i < *nplanes; i++) {
 		sizes[i] = fmt->fmt.pix_mp.plane_fmt[i].sizeimage;
+		stream_dbg(session, vq->type, "%s: plane=%d, size=%d\n", __func__, i, sizes[i]);
 	}
 
 	// TODO set number of buffers depending on the codec
@@ -108,9 +109,9 @@ static int meson_vcodec_buf_prepare(struct vb2_buffer *vb)
 	struct meson_vcodec_session *session = vb2_get_drv_priv(vb->vb2_queue);
 	struct v4l2_format *fmt;
 	
-	stream_dbg(session, vb->type, "%s", __func__);	
+//	stream_dbg(session, vb->type, "%s", __func__);	
 
-	if(V4L2_TYPE_IS_OUTPUT(vb->type)) {
+	if(IS_SRC_STREAM(vb->type)) {
 		fmt = &session->src_fmt;
 	} else {
 		fmt = &session->dst_fmt;
@@ -138,11 +139,11 @@ static void meson_vcodec_buf_queue(struct vb2_buffer *vb)
 	struct meson_vcodec_session *session = vb2_get_drv_priv(vb->vb2_queue);
 	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
 
-	stream_dbg(session, vb->type, "%s", __func__);	
+//	stream_dbg(session, vb->type, "%s", __func__);	
 
 	if (!(
-		STREAM_STATUS(session, vb->type) == STREAM_STATUS_INIT ||
-		STREAM_STATUS(session, vb->type) == STREAM_STATUS_START
+		STREAM_STATUS(session, vb->type) >= STREAM_STATUS_INIT &&
+		STREAM_STATUS(session, vb->type) <= STREAM_STATUS_RUN
 	)) {
 		stream_err(session, vb->type, "invalid status to buffer queue");
 		return;
@@ -159,7 +160,7 @@ static void meson_vcodec_buf_queue(struct vb2_buffer *vb)
 			break;
 		case SESSION_TYPE_TRANSCODE:
 			// TODO how to handle intermediate format buffers?
-			if(V4L2_TYPE_IS_OUTPUT(vb->type)) {
+			if(IS_SRC_STREAM(vb->type)) {
 				DECODER_OPS(session, queue, vb);
 			} else {
 				ENCODER_OPS(session, queue, vb);
@@ -188,12 +189,11 @@ static int meson_vcodec_prepare_streaming(struct vb2_queue *vq) {
 		return -EINVAL;
 	}
 
-	// init codec on first prepare streaming call
-	// no matter if its the src or dst queue
-	if ((
+	// Init codec as soon as src or dst queue gets prepared
+	if (
 		session->src_status < STREAM_STATUS_INIT &&
 		session->dst_status < STREAM_STATUS_INIT
-	)) {
+	) {
 		session_dbg(session, "Initializing codec");
 		switch (session->type) {
 			case SESSION_TYPE_ENCODE:
@@ -271,7 +271,7 @@ static int meson_vcodec_start_streaming(struct vb2_queue *vq, unsigned int count
 
 		case SESSION_TYPE_TRANSCODE:
 			// TODO how to handle intermediate format streaming ?
-			if(V4L2_TYPE_IS_OUTPUT(vq->type)) {
+			if(IS_SRC_STREAM(vq->type)) {
 				ret = DECODER_OPS(session, start, vq, count);
 				if (ret) {
 					stream_err(session, vq->type, "Failed to start decoder: %d", ret);
@@ -298,7 +298,7 @@ static int meson_vcodec_start_streaming(struct vb2_queue *vq, unsigned int count
 	return 0;
 
 release_buffers:
-	if (V4L2_TYPE_IS_OUTPUT(vq->type)) {
+	if (IS_SRC_STREAM(vq->type)) {
 		while ((vbuf = v4l2_m2m_src_buf_remove(session->m2m_ctx)))
 			v4l2_m2m_buf_done(vbuf, VB2_BUF_STATE_QUEUED);
 	} else {
@@ -316,9 +316,9 @@ static void meson_vcodec_stop_streaming(struct vb2_queue *vq)
 
 	stream_dbg(session, vq->type, "%s", __func__);
 
-	if (STREAM_STATUS(session, vq->type) != STREAM_STATUS_START) {
-		stream_err(session, vq->type, "invalid status to stop streaming");
-		return;
+	if (!(STREAM_STATUS(session, vq->type) >= STREAM_STATUS_START &&
+		STREAM_STATUS(session, vq->type) <= STREAM_STATUS_ABORT)) {
+		stream_warn(session, vq->type, "invalid status to stop streaming");
 	}
 
 	switch (session->type) {
@@ -332,7 +332,7 @@ static void meson_vcodec_stop_streaming(struct vb2_queue *vq)
 
 		case SESSION_TYPE_TRANSCODE:
 			// TODO how to handle intermediate format streaming ?
-			if(V4L2_TYPE_IS_OUTPUT(vq->type)) {
+			if(IS_SRC_STREAM(vq->type)) {
 				DECODER_OPS(session, stop, vq);
 			} else {
 				ENCODER_OPS(session, stop, vq);
@@ -345,7 +345,7 @@ static void meson_vcodec_stop_streaming(struct vb2_queue *vq)
 	}
 
 	// Return all buffers to vb2 in QUEUED state
-	if (V4L2_TYPE_IS_OUTPUT(vq->type)) {
+	if (IS_SRC_STREAM(vq->type)) {
 		while ((vbuf = v4l2_m2m_src_buf_remove(session->m2m_ctx)))
 			v4l2_m2m_buf_done(vbuf, VB2_BUF_STATE_ERROR);
 	} else {
@@ -363,8 +363,7 @@ static void meson_vcodec_unprepare_streaming(struct vb2_queue *vq)
 	stream_dbg(session, vq->type, "%s", __func__);	
 
 	if (STREAM_STATUS(session, vq->type) != STREAM_STATUS_STOP) {
-		stream_err(session, vq->type, "invalid status to release");
-		return;
+		stream_warn(session, vq->type, "invalid status to release");
 	}
 	
 	SET_STREAM_STATUS(session, vq->type, STREAM_STATUS_RELEASE);
@@ -416,6 +415,9 @@ static void meson_vcodec_m2m_device_run(void *priv)
 
 	session_dbg(session, "%s", __func__);
 
+	SET_STREAM_STATUS(session, V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE, STREAM_STATUS_RUN);
+	SET_STREAM_STATUS(session, V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE, STREAM_STATUS_RUN);
+
 	switch (session->type) {
 		case SESSION_TYPE_ENCODE:
 			ENCODER_OPS(session, run);
@@ -441,6 +443,9 @@ static void meson_vcodec_m2m_job_abort(void *priv)
 	struct meson_vcodec_session *session = priv;
 	
 	session_dbg(session, "%s", __func__);	
+
+	SET_STREAM_STATUS(session, V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE, STREAM_STATUS_ABORT);
+	SET_STREAM_STATUS(session, V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE, STREAM_STATUS_ABORT);
 
 	switch (session->type) {
 		case SESSION_TYPE_ENCODE:
@@ -595,7 +600,7 @@ static int filter_formats(struct meson_vcodec_session *session, u32 fmt_type, co
 	bool found, list_src;
 	int i, j, count = 0;
 
-	list_src = V4L2_TYPE_IS_OUTPUT(fmt_type);
+	list_src = IS_SRC_STREAM(fmt_type);
 	if (list_src) {
 		pixfmt_filter = session->dst_fmt.fmt.pix_mp.pixelformat;
 	} else {
@@ -729,6 +734,15 @@ static void set_buffer_sizes(struct v4l2_format *f, const struct meson_format *f
 	sizeimage = ALIGN(f->fmt.pix_mp.width * f->fmt.pix_mp.height, SZ_64K);
 	aligned_width = ALIGN(f->fmt.pix_mp.width, 32);
 
+#if 0
+	if (fmt == &nv12) {
+		f->fmt.pix_mp.num_planes = 1;
+		f->fmt.pix_mp.plane_fmt[0].sizeimage = sizeimage;
+		f->fmt.pix_mp.plane_fmt[0].bytesperline = 0;
+		return;
+	}
+#endif
+
 	f->fmt.pix_mp.num_planes = fmt->num_planes;
 	for (j = 0; j < fmt->num_planes; j++) {
 		memset(
@@ -754,93 +768,124 @@ static void set_buffer_sizes(struct v4l2_format *f, const struct meson_format *f
 static int common_try_fmt_vid(struct meson_vcodec_core *core, u32 fmt_type, struct v4l2_format *fmt_src, struct v4l2_format *fmt_dst)
 {
 	const struct meson_codec_formats *codecs = core->platform_specs->codecs;
-	const struct meson_codec_formats *codec;
 	int num_codecs = core->platform_specs->num_codecs;
+	const struct meson_codec_formats *codec = NULL;
 	struct v4l2_format *fmt_set;
 	u32 max_width, max_height, pxfmt_match;
+	bool is_set_src_fmt;
 	int i;
 
-	if (V4L2_TYPE_IS_OUTPUT(fmt_type)) {
-		fmt_set = fmt_src;
-	} else {
-		fmt_set = fmt_dst;
+	switch (fmt_type) {
+		case V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE:
+			fmt_set = fmt_src;
+			is_set_src_fmt = true;
+			break;
+		case V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE:
+			fmt_set = fmt_dst;
+			is_set_src_fmt = false;
+			break;
+		default:
+			dev_err(core->dev, "Format type not supported: %d\n", fmt_type);
+			return -EINVAL;
 	}
 
-	// Both formats set: exact match
-	if (	fmt_src->fmt.pix_mp.pixelformat &&
+	if (num_codecs == 0) {
+		dev_err(core->dev, "No codec formats supported\n");
+		return -EINVAL;
+	}
+
+	// Both formats set
+	if (fmt_src->fmt.pix_mp.pixelformat &&
 		fmt_dst->fmt.pix_mp.pixelformat
 	) {
-		// Find the codec
+		// Exact match
 		codec = find_codec(
 			core,
 			fmt_src->fmt.pix_mp.pixelformat,
 			fmt_dst->fmt.pix_mp.pixelformat
 		);
-		if (!codec) {
-			dev_err(core->dev, "Codec formats not found\n");
-			return -EINVAL;
+		if (codec) {
+			max_width = codec->max_width;
+			max_height = codec->max_height;
+
+		// Filter on the other set format to find a compatible format
+		} else {
+			dev_warn(core->dev, "Codec formats not found\n");
+
+			for(i = 0; i < num_codecs; i++) {
+				if ((is_set_src_fmt &&
+					fmt_dst->fmt.pix_mp.pixelformat == codecs[i].dst_fmt->pixelformat ) ||
+					fmt_src->fmt.pix_mp.pixelformat == codecs[i].src_fmt->pixelformat
+				) {
+					codec = &codecs[i];
+					max_width = codec->max_width;
+					max_height = codec->max_height;
+					fmt_set->fmt.pix_mp.pixelformat = 
+						is_set_src_fmt ?
+						codecs[i].src_fmt->pixelformat :
+						codecs[i].dst_fmt->pixelformat;
+					break;
+				}
+			}
 		}
+	}
 
-		// Match resolutions
-		fmt_src->fmt.pix_mp.width = clamp(
-			fmt_set->fmt.pix_mp.width,
-			MIN_RESOLUTION_WIDTH,
-			codec->max_width
-		);
-		fmt_src->fmt.pix_mp.height = clamp(
-			fmt_set->fmt.pix_mp.height,
-			MIN_RESOLUTION_HEIGHT,
-			codec->max_height
-		);
-		fmt_dst->fmt.pix_mp.width = fmt_src->fmt.pix_mp.width;
-		fmt_dst->fmt.pix_mp.height = fmt_src->fmt.pix_mp.height;
-
-		// Set buffer sizes
-		set_buffer_sizes(fmt_src, codec->src_fmt);
-		set_buffer_sizes(fmt_dst, codec->dst_fmt);
-
-	// Other format not set yet: heurisitc match
-	} else {
+	// Otherwise : heurisitc match
+	if (!codec) {
 		max_width = 0;
 		max_height = 0;
 
-		// Filter format
+		// Match the codecs of the set pixel format
 		for(i = 0; i < num_codecs; i++) {
-			codec = &codecs[i];
 
-			if (V4L2_TYPE_IS_OUTPUT(fmt_type)) {
-				pxfmt_match = codec->src_fmt->pixelformat;
-			} else {
-				pxfmt_match = codec->dst_fmt->pixelformat;
-			}
+			pxfmt_match = 
+				is_set_src_fmt ?
+				codecs[i].src_fmt->pixelformat :
+				codecs[i].dst_fmt->pixelformat;
 
 			if (fmt_set->fmt.pix_mp.pixelformat == pxfmt_match) {
-				if (codec->max_width > max_width) {
-					max_width = codec->max_width; 
+				if (codecs[i].max_width > max_width) {
+					max_width = codecs[i].max_width; 
 				}
 
-				if (codec->max_height > max_height) {
-					max_height = codec->max_height; 
+				if (codecs[i].max_height > max_height) {
+					max_height = codecs[i].max_height; 
 				}
+
+				codec = &codecs[i];
 			}
 		}
 
-		if (max_width == 0 || max_height == 0) {
-			dev_err(core->dev, "Matching format not found\n");
-			return -EINVAL;
+		// Fallback to the first supported codec format
+		if (!codec || max_width == 0 || max_height == 0) {
+			dev_warn(core->dev, "No matching pixel format found\n");
+			codec = &codecs[0];
+			max_width = codec->max_width;
+			max_height = codec->max_height;
+			fmt_set->fmt.pix_mp.pixelformat = 
+				is_set_src_fmt ?
+				codec->src_fmt->pixelformat :
+				codec->dst_fmt->pixelformat;
 		}
+	}
 
-		// Temporarily match resolution until both formats are set
-		fmt_set->fmt.pix_mp.width = clamp(
-			fmt_set->fmt.pix_mp.width,
-			MIN_RESOLUTION_WIDTH,
-			max_width
-		);
-		fmt_set->fmt.pix_mp.height = clamp(
-			fmt_set->fmt.pix_mp.height,
-			MIN_RESOLUTION_HEIGHT,
-			max_height
-		);
+	// Set max resolutions
+	fmt_set->fmt.pix_mp.width = clamp(
+		fmt_set->fmt.pix_mp.width,
+		MIN_RESOLUTION_WIDTH,
+		max_width
+	);
+	fmt_set->fmt.pix_mp.height = clamp(
+		fmt_set->fmt.pix_mp.height,
+		MIN_RESOLUTION_HEIGHT,
+		max_height
+	);
+
+	// Set buffer sizes
+	if (is_set_src_fmt) {
+		set_buffer_sizes(fmt_set, codec->src_fmt);
+	} else {
+		set_buffer_sizes(fmt_set, codec->dst_fmt);
 	}
 
 	return 0;
@@ -854,7 +899,7 @@ static int meson_vcodec_try_fmt_vid(struct file *file, void *priv, struct v4l2_f
 
 	stream_dbg(session, f->type, "%s fmt=%.4s\n", __func__, (char*)&f->fmt.pix_mp.pixelformat);
 
-	if (V4L2_TYPE_IS_OUTPUT(f->type)) {
+	if (IS_SRC_STREAM(f->type)) {
 		fmt_src = f;
 		fmt_dst = &session->dst_fmt;
 	} else {
@@ -875,7 +920,7 @@ static int meson_vcodec_s_fmt_vid(struct file *file, void *priv, struct v4l2_for
 
 	stream_dbg(session, f->type, "%s fmt=%.4s\n", __func__, (char*)&f->fmt.pix_mp.pixelformat);
 
-	if (V4L2_TYPE_IS_OUTPUT(f->type)) {
+	if (IS_SRC_STREAM(f->type)) {
 		fmt_src = f;
 		fmt_dst = &session->dst_fmt;
 	} else {
@@ -887,7 +932,7 @@ static int meson_vcodec_s_fmt_vid(struct file *file, void *priv, struct v4l2_for
 	if (ret)
 		return ret;
 
-	if (V4L2_TYPE_IS_OUTPUT(f->type)) {
+	if (IS_SRC_STREAM(f->type)) {
 		session->src_fmt = *f;
 	} else {
 		session->dst_fmt = *f;
@@ -903,6 +948,7 @@ static int meson_vcodec_s_fmt_vid(struct file *file, void *priv, struct v4l2_for
 	session->dec_job.src_fmt = NULL;
 	session->dec_job.dst_fmt = NULL;
 
+	// Once both source and destination formats are set
 	if (session->dst_fmt.fmt.pix_mp.pixelformat &&
 		session->dst_fmt.fmt.pix_mp.width &&
 		session->dst_fmt.fmt.pix_mp.height &&
@@ -922,6 +968,25 @@ static int meson_vcodec_s_fmt_vid(struct file *file, void *priv, struct v4l2_for
 			return -EINVAL;
 		}
 
+		// Set max resolutions
+		fmt_src->fmt.pix_mp.width = clamp(
+			fmt_src->fmt.pix_mp.width,
+			MIN_RESOLUTION_WIDTH,
+			codec->max_width
+		);
+		fmt_src->fmt.pix_mp.height = clamp(
+			fmt_src->fmt.pix_mp.height,
+			MIN_RESOLUTION_HEIGHT,
+			codec->max_height
+		);
+		fmt_dst->fmt.pix_mp.width = fmt_src->fmt.pix_mp.width;
+		fmt_dst->fmt.pix_mp.height = fmt_src->fmt.pix_mp.height;
+
+		// Set buffer sizes
+		set_buffer_sizes(fmt_src, codec->src_fmt);
+		set_buffer_sizes(fmt_dst, codec->dst_fmt);
+
+		// Set session type and codec jobs
 		session->enc_job.session = session;
 		session->dec_job.session = session;
 		session->enc_job.codec = codec->encoder;
@@ -958,6 +1023,7 @@ static int meson_vcodec_s_fmt_vid(struct file *file, void *priv, struct v4l2_for
 			return -EINVAL;
 		}
 
+		// Set stream status
 		session->src_status = STREAM_STATUS_FMTSET;
 		session->dst_status = STREAM_STATUS_FMTSET;
 	}
@@ -969,12 +1035,12 @@ static int meson_vcodec_g_fmt_vid(struct file *file, void *priv, struct v4l2_for
 {
 	struct meson_vcodec_session *session = container_of(file->private_data, struct meson_vcodec_session, fh);
 
-	if (V4L2_TYPE_IS_OUTPUT(f->type))
+	if (IS_SRC_STREAM(f->type))
 		*f = session->src_fmt;
 	else
 		*f = session->dst_fmt;
 
-	stream_dbg(session, f->type, "%s fmt=%.4s\n", __func__, (char*)&f->fmt.pix_mp.pixelformat);
+	stream_trace(session, f->type, "fmt=%.4s\n", (char*)&f->fmt.pix_mp.pixelformat);
 
 	return 0;
 }
@@ -983,7 +1049,7 @@ static int meson_vcodec_subscribe_event(struct v4l2_fh *fh, const struct v4l2_ev
 {
 	struct meson_vcodec_session *session = container_of(fh, struct meson_vcodec_session, fh);
 
-	session_dbg(session, "%s type=%d\n", __func__, sub->type);
+	session_trace(session, "type=%d\n", sub->type);
 
 	switch (sub->type) {
 		case V4L2_EVENT_EOS:
@@ -994,6 +1060,24 @@ static int meson_vcodec_subscribe_event(struct v4l2_fh *fh, const struct v4l2_ev
 		default:
 			return -EINVAL;
 	}
+}
+
+static int meson_vcodec_decoder_cmd(struct file *file, void *fh, struct v4l2_decoder_cmd *cmd)
+{
+	struct meson_vcodec_session *session = container_of(fh, struct meson_vcodec_session, fh);
+
+	session_dbg(session, "%s", __func__);
+
+	return v4l2_m2m_ioctl_decoder_cmd(file, fh, cmd);
+}
+
+static int meson_vcodec_encoder_cmd(struct file *file, void *fh, struct v4l2_encoder_cmd *cmd)
+{
+	struct meson_vcodec_session *session = container_of(fh, struct meson_vcodec_session, fh);
+
+	session_dbg(session, "%s", __func__);
+
+	return v4l2_m2m_ioctl_encoder_cmd(file, fh, cmd);
 }
 
 static const struct v4l2_ioctl_ops meson_vcodec_ioctl_ops = {
@@ -1018,14 +1102,13 @@ static const struct v4l2_ioctl_ops meson_vcodec_ioctl_ops = {
 	.vidioc_streamoff = v4l2_m2m_ioctl_streamoff,
 /* TODO
 	.vidioc_g_pixelaspect = meson_vcodec_g_pixelaspect,
-	.vidioc_decoder_cmd = meson_vcodec_decoder_cmd,
 */
 	.vidioc_subscribe_event = meson_vcodec_subscribe_event,
 	.vidioc_unsubscribe_event = v4l2_event_unsubscribe,
 	.vidioc_try_encoder_cmd = v4l2_m2m_ioctl_try_encoder_cmd,
-	.vidioc_encoder_cmd = v4l2_m2m_ioctl_encoder_cmd,
+	.vidioc_encoder_cmd = meson_vcodec_encoder_cmd,
 	.vidioc_try_decoder_cmd = v4l2_m2m_ioctl_try_decoder_cmd,
-	.vidioc_decoder_cmd = v4l2_m2m_ioctl_decoder_cmd,
+	.vidioc_decoder_cmd = meson_vcodec_decoder_cmd,
 };
 
 /* ressource helpers */

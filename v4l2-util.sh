@@ -51,8 +51,8 @@ stream_file() {
 		--stream-count=100
 }
 
-#show_formats
+show_formats
 
 #stream_file sample.hevc HEVC 1920 800 output.h264 H264
 #stream_file sample.nv12 NV12 1920 800 output.h264 H264
-stream_file sample.hevc HEVC 1920 800 output.nv12 NV12
+#stream_file sample.hevc HEVC 1920 800 output.nv12 NV12

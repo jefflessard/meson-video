@@ -56,7 +56,7 @@
 static DECLARE_WAIT_QUEUE_HEAD(wq);
 static int search_done;
 
-static irqreturn_t esparser_isr(int irq, void *dev)
+irqreturn_t esparser_isr(int irq, void *dev)
 {
 	int int_status;
 	struct amvdec_core *core = dev;
@@ -335,7 +335,7 @@ esparser_queue(struct amvdec_session *sess, struct vb2_v4l2_buffer *vbuf)
 		return ret;
 	}
 
-	dev_dbg(core->dev, "esparser: ts = %llu pld_size = %u offset = %08X flags = %08X\n",
+	dev_dbg(core->dev, "esparser: queuing ts = %llu pld_size = %u offset = %08X flags = %08X\n",
 		vb->timestamp, payload_size, offset, vbuf->flags);
 
 	vbuf->flags = 0;
