@@ -1,6 +1,17 @@
 #ifndef __AVC_ENCODER_HW_OPS_H__
 #define __AVC_ENCODER_HW_OPS_H__
 
+u8 get_cpu_type(void);
+
+void WRITE_HREG(u32 reg, u32 val);
+u32 READ_HREG(u32 reg);
+
+void WRITE_VREG(u32 reg, u32 val);
+u32 READ_VREG(u32 reg);
+
+s32 hcodec_hw_reset(void);
+
+
 /**
  * avc_configure_quantization_tables - Configure quantization tables for H.264 encoding
  *

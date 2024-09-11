@@ -1,18 +1,9 @@
 #include <linux/io.h>
 
-#include "h264_encoder_ops.h"
+#include "meson-platforms.h"
+#include "encoder_h264_hwops.h"
 #include "hcodec_regs.h"
 #include "dos_regs.h"
-
-// To be replaced with the device tree node register
-#define HCODEC_BASE NULL
-#define WRITE_HREG(reg, val) writel_relaxed((val), HCODEC_BASE + reg)
-#define READ_HREG(reg) readl_relaxed(HCODEC_BASE + reg)
-
-#define DOS_BASE NULL
-#define WRITE_VREG(reg, val) writel_relaxed((val), DOS_BASE + reg)
-#define READ_VREG(reg) readl_relaxed(DOS_BASE + reg)
-
 
 
 #define IE_PIPPELINE_BLOCK_SHIFT 0
@@ -454,18 +445,18 @@ void avc_configure_ie_me(u32 quant)
 
 void dos_reset(u32 dos_sw_reset1)
 {
-#if 0 // TODO: get_cpu_type() >= MESON_CPU_MAJOR_ID_SC2 && use_reset_control
-	hcodec_hw_reset();
-#else
-	READ_VREG(DOS_SW_RESET1);
-	READ_VREG(DOS_SW_RESET1);
-	READ_VREG(DOS_SW_RESET1);
-	WRITE_VREG(DOS_SW_RESET1, dos_sw_reset1);
-	WRITE_VREG(DOS_SW_RESET1, 0);
-	READ_VREG(DOS_SW_RESET1);
-	READ_VREG(DOS_SW_RESET1);
-	READ_VREG(DOS_SW_RESET1);
-#endif
+	if (get_cpu_type() >= MESON_CPU_MAJOR_ID_SC2) { // && use_reset_control ?
+		hcodec_hw_reset();
+	} else {
+		READ_VREG(DOS_SW_RESET1);
+		READ_VREG(DOS_SW_RESET1);
+		READ_VREG(DOS_SW_RESET1);
+		WRITE_VREG(DOS_SW_RESET1, dos_sw_reset1);
+		WRITE_VREG(DOS_SW_RESET1, 0);
+		READ_VREG(DOS_SW_RESET1);
+		READ_VREG(DOS_SW_RESET1);
+		READ_VREG(DOS_SW_RESET1);
+	}
 }
 
 void avc_encoder_reset(void)
@@ -542,7 +533,7 @@ void avc_configure_mfdin(
 	bool linear_enable = false;
 	bool format_err = false;
 
-	if (false) // TODO: get_cpu_type() >= MESON_CPU_MAJOR_ID_TXL)
+	if (get_cpu_type() >= MESON_CPU_MAJOR_ID_TXL)
 	{
 		if ((iformat == 7) && (ifmt_extra > 2))
 			format_err = true;
@@ -609,7 +600,7 @@ void avc_configure_mfdin(
 	else
 		linear_enable = true;
 
-	if (true) // TODO: get_cpu_type() >= MESON_CPU_MAJOR_ID_GXBB)
+	if (get_cpu_type() >= MESON_CPU_MAJOR_ID_GXBB)
 	{
 		reg_offset = -8;
 		/* nr_mode: 0:Disabled 1:SNR Only 2:TNR Only 3:3DNR */
@@ -695,7 +686,7 @@ void avc_configure_mfdin(
 				(r2y_mode << 13) | (ifmt_extra << 16) |
 				(nr_enable << 19));
 
-		if (false) //TODO: get_cpu_type() >= MESON_CPU_MAJOR_ID_SC2)
+		if (get_cpu_type() >= MESON_CPU_MAJOR_ID_SC2)
 		{
 			WRITE_HREG((HCODEC_MFDIN_REG8_DMBL + reg_offset),
 					(picsize_x << 16) | (picsize_y << 0));
@@ -1001,7 +992,7 @@ void avc_configure_cbr_settings(
 		u16 block_w, u16 block_h, u16 long_th,
 		u8 start_tbl_id, u8 short_shift, u8 long_mb_num
 		) {
-	if (true) // TODO: get_cpu_type() >= MESON_CPU_MAJOR_ID_GXTVBB)
+	if (get_cpu_type() >= MESON_CPU_MAJOR_ID_GXTVBB)
 	{
 		WRITE_HREG(H264_ENC_CBR_TABLE_ADDR, ddr_start_addr);
 		WRITE_HREG(H264_ENC_CBR_MB_SIZE_ADDR, ddr_start_addr + ddr_addr_length);
@@ -1389,7 +1380,7 @@ void avc_configure_ignore_config(bool ignore)
 				(1 << 5) |  /* ignore_cac_coeff_2 (<1) */
 				(3 << 0));  /* ignore_cac_coeff_1 (<2) */
 
-		if (true) // TODO: get_cpu_type() >= MESON_CPU_MAJOR_ID_GXTVBB)
+		if (get_cpu_type() >= MESON_CPU_MAJOR_ID_GXTVBB)
 			WRITE_HREG(HCODEC_IGNORE_CONFIG_2,
 					(1 << 31) |	   /* ignore_t_lac_coeff_en */
 					(1 << 26) | /* ignore_t_lac_coeff_else (<1) */
@@ -1469,7 +1460,7 @@ void avc_configure_me_skip_line(void)
 void avc_configure_v5_simple_mb(
 		u32 qp_mode, u32 dq_setting, u32 me_weight_setting
 		) {
-	if (false) // TODO: get_cpu_type() >= MESON_CPU_MAJOR_ID_TXL)
+	if (get_cpu_type() >= MESON_CPU_MAJOR_ID_TXL)
 	{
 		WRITE_HREG(HCODEC_V5_SIMPLE_MB_CTL, 0);
 		WRITE_HREG(HCODEC_V5_SIMPLE_MB_CTL,

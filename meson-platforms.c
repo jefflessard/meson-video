@@ -37,7 +37,7 @@ static const struct meson_codec_formats gxl_codecs[] = {
 };
 
 const struct meson_platform_specs gxl_platform_specs = {
-	.platform_id = MESON_MAJOR_ID_GXL,
+	.platform_id = MESON_CPU_MAJOR_ID_GXL,
 	.pwrc = gx_pwrc,
 	.codecs = gxl_codecs,
 	.num_codecs = ARRAY_SIZE(gxl_codecs),

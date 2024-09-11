@@ -1238,10 +1238,10 @@ static int meson_vcodec_probe(struct platform_device *pdev)
 	}
 
 	for (i = 0; i < MAX_CLKS; i++) {
-		if (i == CLK_HEVCF && platform_specs->platform_id < MESON_MAJOR_ID_G12A)
+		if (i == CLK_HEVCF && platform_specs->platform_id < MESON_CPU_MAJOR_ID_G12A)
 			continue;
 
-		if (i == CLK_HCODEC && platform_specs->platform_id < MESON_MAJOR_ID_SC2)
+		if (i == CLK_HCODEC && platform_specs->platform_id < MESON_CPU_MAJOR_ID_SC2)
 			continue;
 
 		core->clks[i] = devm_clk_get(&pdev->dev, clk_names[i]);
@@ -1255,7 +1255,7 @@ static int meson_vcodec_probe(struct platform_device *pdev)
 	}
 
 	for (i = 0; i < MAX_RESETS; i++) {
-		if (i == RESET_HCODEC && platform_specs->platform_id < MESON_MAJOR_ID_SC2)
+		if (i == RESET_HCODEC && platform_specs->platform_id < MESON_CPU_MAJOR_ID_SC2)
 			continue;
 
 		core->resets[i] = devm_reset_control_get(&pdev->dev, reset_names[i]);
