@@ -794,6 +794,15 @@ static int common_try_fmt_vid(struct meson_vcodec_core *core, u32 fmt_type, stru
 		return -EINVAL;
 	}
 
+	switch(fmt_set->fmt.pix_mp.pixelformat) {
+		case V4L2_PIX_FMT_YUV420:
+			fmt_set->fmt.pix_mp.pixelformat = V4L2_PIX_FMT_YUV420M;
+			break;
+		case V4L2_PIX_FMT_NV12:
+			fmt_set->fmt.pix_mp.pixelformat = V4L2_PIX_FMT_NV12M;
+			break;
+	}
+
 	// Both formats set
 	if (fmt_src->fmt.pix_mp.pixelformat &&
 		fmt_dst->fmt.pix_mp.pixelformat

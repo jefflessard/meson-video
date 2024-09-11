@@ -32,7 +32,7 @@ static const struct meson_codec_formats gxl_codecs[] = {
 	ENCODER(h264, 1920, 1280, nv12, yuv420)
 	// ENCODER(hevc, 1920, 1280, nv12, yuv420)
 	
-	TRANSCODER(h264, nv12, 1920, 1280, mpeg1, mpeg2, h264, vp9, hevc)
+	// TRANSCODER(h264, nv12, 1920, 1280, mpeg1, mpeg2, h264, vp9, hevc)
 	// TRANSCODER(hevc, nv12, 1920, 1280, mpeg1, mpeg2, h264, vp9, hevc)
 };
 

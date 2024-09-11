@@ -72,10 +72,14 @@ extern const struct meson_codec_spec hevc_encoder;
 
 /* helper macros */
 
-#define ENCODER_OPS(__session, __ops, ...) \
-	__session->enc_job.codec->ops->__ops(&__session->enc_job, ##__VA_ARGS__)
+#define ENCODER_OPS(__session, __ops, ...) (\
+	__session->enc_job.codec->ops->__ops ? \
+	__session->enc_job.codec->ops->__ops(&__session->enc_job, ##__VA_ARGS__) \
+	: 0)
 
-#define DECODER_OPS(__session, __ops, ...) \
-	__session->dec_job.codec->ops->__ops(&__session->dec_job, ##__VA_ARGS__)
+#define DECODER_OPS(__session, __ops, ...) ( \
+	__session->dec_job.codec->ops->__ops ? \
+	__session->dec_job.codec->ops->__ops(&__session->dec_job, ##__VA_ARGS__) \
+	: 0)
 
 #endif
