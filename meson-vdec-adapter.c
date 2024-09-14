@@ -430,19 +430,19 @@ static int meson_vdec_adapter_init(struct meson_codec_job *job) {
 	#pragma GCC diagnostic push
 	#pragma GCC diagnostic ignored "-Wswitch"
 	switch(session->core->platform_specs->platform_id) {
-		case MESON_CPU_MAJOR_ID_GXBB:
+		case AM_MESON_CPU_MAJOR_ID_GXBB:
 			platform->revision = VDEC_REVISION_GXBB;
 			break;
-		case MESON_CPU_MAJOR_ID_GXL:
+		case AM_MESON_CPU_MAJOR_ID_GXL:
 			platform->revision = VDEC_REVISION_GXL;
 			break;
-		case MESON_CPU_MAJOR_ID_GXM:
+		case AM_MESON_CPU_MAJOR_ID_GXM:
 			platform->revision = VDEC_REVISION_GXM;
 			break;
-		case MESON_CPU_MAJOR_ID_G12A:
+		case AM_MESON_CPU_MAJOR_ID_G12A:
 			platform->revision = VDEC_REVISION_G12A;
 			break;
-		case MESON_CPU_MAJOR_ID_SM1:
+		case AM_MESON_CPU_MAJOR_ID_SM1:
 			platform->revision = VDEC_REVISION_SM1;
 			break;
 	}

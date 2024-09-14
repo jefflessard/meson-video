@@ -5,19 +5,19 @@
 #include "meson-platforms.h"
 
 static const struct meson_ee_pwrc_top_domain gx_pwrc[MAX_PWRC] = {
-	[PWRC_VDEC1] = GX_EE_PD(
+	[PWRC_VDEC] = GX_EE_PD(
 			BIT(2) | BIT(3),
 			BIT(6) | BIT(7)),
 	[PWRC_HEVC] = GX_EE_PD(
 			BIT(6) | BIT(7),
 			BIT(6) | BIT(7)),
 	[PWRC_HCODEC] = GX_EE_PD(
-			BIT(3),
+			BIT(0) | BIT(1),
 			BIT(4) | BIT(5)),
 };
 
 static const struct meson_ee_pwrc_top_domain sm1_pwrc[MAX_PWRC] = {
-	[PWRC_VDEC1] = SM1_EE_PD(1),
+	[PWRC_VDEC] = SM1_EE_PD(1),
 	[PWRC_HEVC] = SM1_EE_PD(2),
 	[PWRC_HCODEC] = SM1_EE_PD(1),
 };
@@ -37,7 +37,7 @@ static const struct meson_codec_formats gxl_codecs[] = {
 };
 
 const struct meson_platform_specs gxl_platform_specs = {
-	.platform_id = MESON_CPU_MAJOR_ID_GXL,
+	.platform_id = AM_MESON_CPU_MAJOR_ID_GXL,
 	.pwrc = gx_pwrc,
 	.codecs = gxl_codecs,
 	.num_codecs = ARRAY_SIZE(gxl_codecs),

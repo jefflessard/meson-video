@@ -10,6 +10,7 @@
 enum meson_vcodec_regs: u8 {
 	DOS_BASE,
 	PARSER_BASE,
+	VENC_HEVC_BASE,
 	MAX_REGS
 };
 
@@ -32,6 +33,8 @@ enum meson_vcodec_reset: u8 {
 enum meson_vcodec_irq: u8 {
 	IRQ_VDEC,
 	IRQ_PARSER,
+	IRQ_VENC_AVC,
+	IRQ_VENC_HEVC,
 	MAX_IRQS
 };
 

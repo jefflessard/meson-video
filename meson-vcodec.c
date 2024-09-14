@@ -19,12 +19,14 @@
 #include "meson-codecs.h"
 #include "meson-platforms.h"
 #include "meson-vcodec.h"
+#include "amlogic.h"
 
 #define DRIVER_NAME "meson-vcodec"
 
 static const char* reg_names[MAX_REGS] = {
 	[DOS_BASE] = "dos",
 	[PARSER_BASE] = "esparser",
+	[VENC_HEVC_BASE] = "venc_hevc",
 };
 
 static const char* clk_names[MAX_CLKS] = {
@@ -44,6 +46,8 @@ static const char* reset_names[MAX_RESETS] = {
 static const char* irq_names[MAX_IRQS] = {
 	[IRQ_VDEC] = "vdec",
 	[IRQ_PARSER] = "esparser",
+	[IRQ_VENC_AVC] = "venc_avc",
+	[IRQ_VENC_HEVC] = "venc_hevc",
 };
 
 
@@ -1222,6 +1226,7 @@ static int meson_vcodec_probe(struct platform_device *pdev)
 	core->dev = &pdev->dev;
 	core->platform_specs = platform_specs;
 	platform_set_drvdata(pdev, core);
+	MESON_VCODEC_CORE = core;
 
 	core->regmap_ao = syscon_regmap_lookup_by_phandle(pdev->dev.of_node, "amlogic,ao-sysctrl");
 	if (IS_ERR(core->regmap_ao)) {
@@ -1238,10 +1243,10 @@ static int meson_vcodec_probe(struct platform_device *pdev)
 	}
 
 	for (i = 0; i < MAX_CLKS; i++) {
-		if (i == CLK_HEVCF && platform_specs->platform_id < MESON_CPU_MAJOR_ID_G12A)
+		if (i == CLK_HEVCF && platform_specs->platform_id < AM_MESON_CPU_MAJOR_ID_G12A)
 			continue;
 
-		if (i == CLK_HCODEC && platform_specs->platform_id < MESON_CPU_MAJOR_ID_SC2)
+		if (i == CLK_HCODEC && platform_specs->platform_id < AM_MESON_CPU_MAJOR_ID_SC2)
 			continue;
 
 		core->clks[i] = devm_clk_get(&pdev->dev, clk_names[i]);
@@ -1255,7 +1260,7 @@ static int meson_vcodec_probe(struct platform_device *pdev)
 	}
 
 	for (i = 0; i < MAX_RESETS; i++) {
-		if (i == RESET_HCODEC && platform_specs->platform_id < MESON_CPU_MAJOR_ID_SC2)
+		if (i == RESET_HCODEC && platform_specs->platform_id < AM_MESON_CPU_MAJOR_ID_SC2)
 			continue;
 
 		core->resets[i] = devm_reset_control_get(&pdev->dev, reset_names[i]);

@@ -13,7 +13,8 @@ meson_vcodec-objs += \
 	vdec/vdec_helpers.o \
 	vdec/vdec_1.o \
 	vdec/vdec_hevc.o \
-	encoder_h264_hwops.o \
+	amlogic.o \
+	amlvenc_h264.o \
 	encoder_h264.o \
 	meson-platforms.o \
 	meson-vcodec.o

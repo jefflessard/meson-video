@@ -8,79 +8,208 @@
 #include "meson-codecs.h"
 #include "meson-vcodec.h"
 
-#include "encoder_h264_hwops.h"
-
+#include "amlogic.h"
+#include "amlvenc_h264.h"
 
 #define MHz (1000000)
 
-struct meson_vcodec_core *MESON_VCODEC_CORE;
-
-inline u8 get_cpu_type(void) {
-	return MESON_VCODEC_CORE->platform_specs->platform_id;
+static void amvenc_reset(void) {
+	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_SC2) {
+		hcodec_hw_reset();
+	} else {
+		READ_VREG(DOS_SW_RESET1);
+		READ_VREG(DOS_SW_RESET1);
+		READ_VREG(DOS_SW_RESET1);
+		amlvenc_dos_sw_reset1(
+			(1 << 2)  | (1 << 6)  |
+			(1 << 7)  | (1 << 8)  |
+			(1 << 14) | (1 << 16) |
+			(1 << 17)
+		);
+		READ_VREG(DOS_SW_RESET1);
+		READ_VREG(DOS_SW_RESET1);
+		READ_VREG(DOS_SW_RESET1);
+	}
 }
 
-inline void WRITE_HREG(u32 reg, u32 val) {
-	meson_vcodec_reg_write(MESON_VCODEC_CORE, DOS_BASE, reg, val);
+static void amvenc_start(void) {
+	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_SC2) {
+		hcodec_hw_reset();
+	} else {
+		READ_VREG(DOS_SW_RESET1);
+		READ_VREG(DOS_SW_RESET1);
+		READ_VREG(DOS_SW_RESET1);
+		amlvenc_dos_sw_reset1(
+			(1 << 12) | (1 << 11)
+		);
+		READ_VREG(DOS_SW_RESET1);
+		READ_VREG(DOS_SW_RESET1);
+		READ_VREG(DOS_SW_RESET1);
+	}
+
+	amlvenc_hcodec_start();
 }
 
-inline u32 READ_HREG(u32 reg) {
-	return meson_vcodec_reg_read(MESON_VCODEC_CORE, DOS_BASE, reg);
+static void amvenc_stop(void)
+{
+	ulong timeout = jiffies + HZ;
+
+	amlvenc_hcodec_stop();
+
+	while (!amlvenc_hcodec_dma_completed()) {
+		if (time_after(jiffies, timeout))
+			break;
+	}
+
+	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_SC2) {
+		hcodec_hw_reset();
+	} else {
+		READ_VREG(DOS_SW_RESET1);
+		READ_VREG(DOS_SW_RESET1);
+		READ_VREG(DOS_SW_RESET1);
+		amlvenc_dos_sw_reset1(
+			(1 << 12) | (1 << 11) |
+			(1 << 2)  | (1 << 6)  |
+			(1 << 7)  | (1 << 8)  |
+			(1 << 14) | (1 << 16) |
+			(1 << 17)
+		);
+		READ_VREG(DOS_SW_RESET1);
+		READ_VREG(DOS_SW_RESET1);
+		READ_VREG(DOS_SW_RESET1);
+	}
 }
 
-inline void WRITE_VREG(u32 reg, u32 val) {
-	meson_vcodec_reg_write(MESON_VCODEC_CORE, DOS_BASE, reg, val);
-}
+static void amvenc_configure(void) {
+	/* encode_monitor_thread */
+	/* manager->inited == false */
+	/* avc_init */
+	/* amvenc_avc_start */
+	// encode_manager.need_reset = true
+	// avc_canvas_init
+	// amvenc_reset();
+	// amlvenc_h264_init_encoder
+	// amlvenc_h264_init_input_dct_buffer
+	// amlvenc_h264_init_output_stream_buffer
+	/* avc_prot_init */
+	// amlvenc_h264_configure_encoder
+	/* amvenc_avc_start */
+	// amlvenc_h264_init_dblk_buffer
+	// amlvenc_h264_init_input_reference_buffer
+	// amlvenc_h264_init_firmware_assist_buffer
+	// amlvenc_h264_configure_ie_me
+	// amlvenc_hcodec_clear_encoder_status
+	// amlvenc_h264_configure_fixed_slice
+	// amvenc_start();
 
-inline u32 READ_VREG(u32 reg) {
-	return meson_vcodec_reg_read(MESON_VCODEC_CORE, DOS_BASE, reg);
-}
+	/* encode_monitor_thread */
+	/* encode_process_request */
+	// #ifdef H264_ENC_CBR
 
-inline s32 hcodec_hw_reset(void) {
-	return meson_vcodec_reset(MESON_VCODEC_CORE, RESET_HCODEC);
-}
+	/* amvenc_avc_start_cmd encode_manager.need_reset */
+	// amvenc_stop
+	// amvenc_reset
+	// avc_canvas_init
+	// amlvenc_h264_init_encoder
+	// amlvenc_h264_init_input_dct_buffer
+	// amlvenc_h264_init_output_stream_buffer
+	/* avc_prot_init */
+	// amlvenc_h264_configure_encoder
+	/* amvenc_avc_start_cmd encode_manager.need_reset */
+	// amlvenc_h264_init_firmware_assist_buffer
 
+	/* amvenc_avc_start_cmd encode request */
+	// amlvenc_h264_configure_svc_pic
+	// amlvenc_h264_init_dblk_buffer
+	// amlvenc_h264_init_input_reference_buffer
+	/* set_input_format */
+	// canvas_config_proxy
+	// amlvenc_h264_configure_mdfin
+	/* amvenc_avc_start_cmd encode request */
+	// amlvenc_h264_configure_ie_me
+	// amlvenc_h264_configure_fixed_slice
+	// amlvenc_hcodec_set_encoder_status
 	
+	/* amvenc_avc_start_cmd encode_manager.need_reset */
+	// amvenc_start();
+}
+
 int encoder_h264_init(struct meson_codec_job *job) {
 	struct meson_vcodec_session *session = job->session;
 	struct meson_vcodec_core *core = session->core;
 	int ret;
 
-	MESON_VCODEC_CORE = core;
-
-	if (get_cpu_type() >= MESON_CPU_MAJOR_ID_SC2) {
+	/* amvenc_avc_probe */
+	// hcodec_clk_prepare hcodec_aclk
+	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_SC2) {
 		ret = meson_vcodec_clk_prepare(core, CLK_HCODEC, 667 * MHz);
 		if (ret) {
-			session_err(session, "Failed to init HCODEC clock");
+			session_err(session, "Failed to enable HCODEC clock");
 			return ret;
 		}
 	}
+	// hcodec_rst
+	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_SC2) {
+		if (!core->resets[RESET_HCODEC]) {
+			session_err(session, "Failed to get HCODEC reset");
+			return -EINVAL;
+		}
+	}
+	// irq
+	if (!core->resets[RESET_HCODEC]) {
+		session_err(session, "Failed to get HCODEC reset");
+		return -EINVAL;
+	}
+
+	/* encode_wq_init */
+	// amlvenc_h264_init_me
+	/* encode_start_monitor */
+	/* encode_monitor_thread */
+	/* manager->inited == false */
+	/* avc_init */
+	/* amvenc_avc_start */
+	/* avc_poweron */
 
 	/* avc_poweron */
-	// enable vdec power domain (switch gate)
-	// enable hcodec clock
-	// power on vdec_hcodec / dos_hcodec / hcodec power domain (aoreg)
-	// sw reset dos / internal dos clock gating / dos clock level
-	// power up HCODEC memory
+	// switch gate vdec
+	ret = meson_vcodec_pwrc_on(core, PWRC_VDEC);
+	if (ret) {
+		session_err(session, "Failed to power on VDEC");
+		return ret;
+	}
+	// hcodec_clk_config: clk_enable hcodec_aclk
+	// 	handled in previous meson_vcodec_clk_prepare
+	// TODO vdec_poweron(VDEC_HCODEC) or pwr_ctrl_psci_smc PDID_T3_DOS_HCODEC
+	// or
+	// TODO AO_RTI_PWR_CNTL_REG0 BITS 3 and 4
+	// Powerup HCODEC: AO_RTI_GEN_PWR_SLEEP0 BIT 0 or BITS 0 and 1
+	// Remove HCODEC ISO: AO_RTI_GEN_PWR_ISO0 BIT 0 or BITS 4 and 5
+	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_SC2) {
+	} else {
+		ret = meson_vcodec_pwrc_on(core, PWRC_HCODEC);
+		if (ret) {
+			session_err(session, "Failed to power on HCODEC");
+			return ret;
+		}
+	}
+	// DOS_SW_RESET1
+	amlvenc_dos_sw_reset1(0xffffffff);
+	// Enable Dos internal clock gating
+	// Powerup HCODEC memories
+	amlvenc_dos_hcodec_enable(6);
 	// Remove HCODEC ISO
-	// Disable auto-clock gate
+	//	managed by previous meson_vcodec_pwrc_on
+	//	TODO might be an issue when powering up HCODEC mem
+	// Disable auto-clock gate	
+	amlvenc_dos_disable_auto_clock_gate();
 
-	// init canvas
+	/* amvenc_avc_start */
 	// enable hcodec assist
-	// load firmware
-	// init encoder
-	// init input buffer
-	// init output buffer
-	// configure encoder parameters (vlc, qdtc, qp, cbr, ie/me, mv, sad, etc.)
-	// configure encoder irq
-	// configure decoder buffer
-	// configure reference buffer
-	// configure assist buffer
-	// init ie/me
-	// init encoder status
-	// configure slices
-	
-   /* amvenc_start */	
+	amlvenc_hcodec_assist_enable();
+	// TODO load firmware
 
+	// TODO request irq
+	
 	return 0;
 }
 
@@ -106,7 +235,10 @@ int encoder_h264_release(struct meson_codec_job *job) {
 	struct meson_vcodec_session *session = job->session;
 	struct meson_vcodec_core *core = session->core;
 
-	if (get_cpu_type() >= MESON_CPU_MAJOR_ID_SC2) {
+	meson_vcodec_clk_unprepare(core, CLK_VDEC1);
+	meson_vcodec_pwrc_off(core, PWRC_HCODEC);
+
+	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_SC2) {
 		 meson_vcodec_clk_unprepare(core, CLK_HCODEC);
 	}
 

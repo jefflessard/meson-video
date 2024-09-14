@@ -6,38 +6,10 @@
 
 #include "meson-formats.h"
 #include "meson-codecs.h"
-
-enum meson_platform_id: u8 {
-	MESON_CPU_MAJOR_ID_M8B = 0x1B,
-	MESON_CPU_MAJOR_ID_GXBB = 0x1F,
-	MESON_CPU_MAJOR_ID_GXTVBB,
-	MESON_CPU_MAJOR_ID_GXL,
-	MESON_CPU_MAJOR_ID_GXM,
-	MESON_CPU_MAJOR_ID_TXL,
-	MESON_CPU_MAJOR_ID_TXLX,
-	MESON_CPU_MAJOR_ID_AXG,
-	MESON_CPU_MAJOR_ID_GXLX,
-	MESON_CPU_MAJOR_ID_TXHD,
-	MESON_CPU_MAJOR_ID_G12A,
-	MESON_CPU_MAJOR_ID_G12B,
-	MESON_CPU_MAJOR_ID_SM1 = 0x2B,
-	MESON_CPU_MAJOR_ID_TL1 = 0x2E,
-	MESON_CPU_MAJOR_ID_TM2,
-	MESON_CPU_MAJOR_ID_C1,
-	MESON_CPU_MAJOR_ID_SC2 = 0x32,
-	MESON_CPU_MAJOR_ID_T5 = 0x34,
-	MESON_CPU_MAJOR_ID_T5D = 0x35,
-	MESON_CPU_MAJOR_ID_T7 = 0x36,
-	MESON_CPU_MAJOR_ID_S4 = 0x37,
-	MESON_CPU_MAJOR_ID_T3 = 0x38,
-	MESON_CPU_MAJOR_ID_S4D = 0x3a,
-	MESON_CPU_MAJOR_ID_T5W = 0x3b,
-	MESON_CPU_MAJOR_ID_S5 = 0x3e,
-	MAX_MESON_CPU_MAJOR_ID,
-};
+#include "amlogic.h"
 
 enum meson_vcodec_pwrc: u8 {
-	PWRC_VDEC1,
+	PWRC_VDEC,
 	PWRC_HEVC,
 	PWRC_HCODEC,
 	MAX_PWRC
@@ -46,7 +18,7 @@ enum meson_vcodec_pwrc: u8 {
 struct meson_ee_pwrc_top_domain;
 
 struct meson_platform_specs {
-	const enum meson_platform_id platform_id;
+	const enum AM_MESON_CPU_MAJOR_ID platform_id;
 	const struct meson_ee_pwrc_top_domain *pwrc;
 	const struct meson_codec_formats *codecs;
 	const u32 num_codecs;
