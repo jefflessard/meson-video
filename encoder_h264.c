@@ -247,10 +247,16 @@ int encoder_h264_release(struct meson_codec_job *job) {
 	return 0;
 }
 
-static const struct v4l2_ctrl_config h264_encoder_ctrls[] = {
-};
-
-static const struct v4l2_ctrl_ops h264_encoder_ctrl_ops = {
+static const struct v4l2_std_ctrl h264_encoder_ctrls[] = {
+	{ V4L2_CID_MPEG_VIDEO_B_FRAMES, 0, 16, 1, 2 },
+	{ V4L2_CID_MPEG_VIDEO_BITRATE, 100000, 10000000, 100000, 4000000 },
+	{ V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME, 0, 1, 1, 0 },
+	{ V4L2_CID_MPEG_VIDEO_FRAME_RC_ENABLE, 0, 1, 1, 1 },
+	{ V4L2_CID_MPEG_VIDEO_GOP_SIZE, 1, 300, 1, 30 },
+	{ V4L2_CID_MPEG_VIDEO_H264_MAX_QP, 0, 51, 1, 51 },
+	{ V4L2_CID_MPEG_VIDEO_H264_MIN_QP, 0, 51, 1, 10 },
+	{ V4L2_CID_MPEG_VIDEO_H264_PROFILE, 0, 4, 1, 0 },
+	{ V4L2_CID_MPEG_VIDEO_HEADER_MODE, 0, 1, 1, 0 }
 };
 
 static const struct meson_codec_ops h264_encoder_ops = {
@@ -266,7 +272,6 @@ static const struct meson_codec_ops h264_encoder_ops = {
 const struct meson_codec_spec h264_encoder = {
 	.type = H264_ENCODER,
 	.ops = &h264_encoder_ops,
-	.ctrl_ops = &h264_encoder_ctrl_ops,
 	.ctrls = h264_encoder_ctrls,
 	.num_ctrls = ARRAY_SIZE(h264_encoder_ctrls),
 };

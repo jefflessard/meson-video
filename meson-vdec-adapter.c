@@ -573,28 +573,16 @@ static int meson_vdec_adapter_release(struct meson_codec_job *job) {
 	return 0;
 }
 
-static const struct v4l2_ctrl_config mpeg12_decoder_ctrls[] = {
+static const struct v4l2_std_ctrl mpeg12_decoder_ctrls[] = {
 };
 
-static const struct v4l2_ctrl_ops mpeg12_decoder_ctrl_ops = {
+static const struct v4l2_std_ctrl h264_decoder_ctrls[] = {
 };
 
-static const struct v4l2_ctrl_config h264_decoder_ctrls[] = {
+static const struct v4l2_std_ctrl vp9_decoder_ctrls[] = {
 };
 
-static const struct v4l2_ctrl_ops h264_decoder_ctrl_ops = {
-};
-
-static const struct v4l2_ctrl_config vp9_decoder_ctrls[] = {
-};
-
-static const struct v4l2_ctrl_ops vp9_decoder_ctrl_ops = {
-};
-
-static const struct v4l2_ctrl_config hevc_decoder_ctrls[] = {
-};
-
-static const struct v4l2_ctrl_ops hevc_decoder_ctrl_ops = {
+static const struct v4l2_std_ctrl hevc_decoder_ctrls[] = {
 };
 
 const struct meson_codec_ops codec_ops_vdec_adapter = {
@@ -610,7 +598,6 @@ const struct meson_codec_ops codec_ops_vdec_adapter = {
 const struct meson_codec_spec mpeg1_decoder = {
 	.type = MPEG1_DECODER,
 	.ops = &codec_ops_vdec_adapter,
-	.ctrl_ops = &mpeg12_decoder_ctrl_ops,
 	.ctrls = mpeg12_decoder_ctrls,
 	.num_ctrls = ARRAY_SIZE(mpeg12_decoder_ctrls),
 };
@@ -618,7 +605,6 @@ const struct meson_codec_spec mpeg1_decoder = {
 const struct meson_codec_spec mpeg2_decoder = {
 	.type = MPEG2_DECODER,
 	.ops = &codec_ops_vdec_adapter,
-	.ctrl_ops = &mpeg12_decoder_ctrl_ops,
 	.ctrls = mpeg12_decoder_ctrls,
 	.num_ctrls = ARRAY_SIZE(mpeg12_decoder_ctrls),
 };
@@ -626,7 +612,6 @@ const struct meson_codec_spec mpeg2_decoder = {
 const struct meson_codec_spec h264_decoder = {
 	.type = H264_DECODER,
 	.ops = &codec_ops_vdec_adapter,
-	.ctrl_ops = &h264_decoder_ctrl_ops,
 	.ctrls = h264_decoder_ctrls,
 	.num_ctrls = ARRAY_SIZE(h264_decoder_ctrls),
 };
@@ -634,7 +619,6 @@ const struct meson_codec_spec h264_decoder = {
 const struct meson_codec_spec vp9_decoder = {
 	.type = VP9_DECODER,
 	.ops = &codec_ops_vdec_adapter,
-	.ctrl_ops = &vp9_decoder_ctrl_ops,
 	.ctrls = vp9_decoder_ctrls,
 	.num_ctrls = ARRAY_SIZE(vp9_decoder_ctrls),
 };
@@ -642,7 +626,6 @@ const struct meson_codec_spec vp9_decoder = {
 const struct meson_codec_spec hevc_decoder = {
 	.type = HEVC_DECODER,
 	.ops = &codec_ops_vdec_adapter,
-	.ctrl_ops = &hevc_decoder_ctrl_ops,
 	.ctrls = hevc_decoder_ctrls,
 	.num_ctrls = ARRAY_SIZE(hevc_decoder_ctrls),
 };

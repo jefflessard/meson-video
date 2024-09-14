@@ -24,11 +24,18 @@ enum meson_codecs: u8 {
 
 struct meson_vcodec_session;
 
+struct v4l2_std_ctrl {
+	u32 id;
+	s64 min;
+	s64 max;
+	s64 step;
+	s64 def;
+};
+
 struct meson_codec_spec {
 	enum meson_codecs type;
 	const struct meson_codec_ops *ops;
-	const struct v4l2_ctrl_ops *ctrl_ops;
-	const struct v4l2_ctrl_config *ctrls;
+	const struct v4l2_std_ctrl *ctrls;
 	const int num_ctrls;
 };
 

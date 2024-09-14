@@ -50,6 +50,22 @@ static const char* irq_names[MAX_IRQS] = {
 	[IRQ_VENC_HEVC] = "venc_hevc",
 };
 
+static void meson_vcodec_configure_ctrls(struct meson_codec_job *job) {
+	struct v4l2_ctrl_handler *handler = &job->session->ctrl_handler;
+	const struct v4l2_std_ctrl *controls = job->codec->ctrls;
+	size_t num_ctrls = job->codec->num_ctrls;
+	struct v4l2_ctrl *ctrl;
+	size_t i;
+
+	for (i = 0; i < num_ctrls; i++) {
+		ctrl = v4l2_ctrl_new_std(handler, NULL, controls[i].id, controls[i].min, controls[i].max, controls[i].step, controls[i].def);
+
+		if (ctrl == NULL) {
+			session_warn(job->session, "Failed to create control for CID %u\n", controls[i].id);
+			continue;
+		}
+	}
+}
 
 /* vb2_ops */
 
@@ -201,6 +217,7 @@ static int meson_vcodec_prepare_streaming(struct vb2_queue *vq) {
 		session_dbg(session, "Initializing codec");
 		switch (session->type) {
 			case SESSION_TYPE_ENCODE:
+				meson_vcodec_configure_ctrls(&session->enc_job);
 				ret = ENCODER_OPS(session, init);
 				if (ret) {
 					session_err(session, "Failed to init encoder: %d", ret);
@@ -209,6 +226,7 @@ static int meson_vcodec_prepare_streaming(struct vb2_queue *vq) {
 				break;
 
 			case SESSION_TYPE_DECODE:
+				meson_vcodec_configure_ctrls(&session->dec_job);
 				ret = DECODER_OPS(session, init);
 				if (ret) {
 					session_err(session, "Failed to init decoder: %d", ret);
@@ -217,11 +235,13 @@ static int meson_vcodec_prepare_streaming(struct vb2_queue *vq) {
 				break;
 
 			case SESSION_TYPE_TRANSCODE:
+				meson_vcodec_configure_ctrls(&session->dec_job);
 				ret = DECODER_OPS(session, init);
 				if (ret) {
 					session_err(session, "Failed to init decoder: %d", ret);
 					return ret;
 				}
+				meson_vcodec_configure_ctrls(&session->enc_job);
 				ret = ENCODER_OPS(session, init);
 				if (ret) {
 					session_err(session, "Failed to init encoder: %d", ret);

@@ -9,16 +9,12 @@
 static const struct meson_codec_ops hevc_encoder_ops = {
 };
 
-static const struct v4l2_ctrl_config hevc_encoder_ctrls[] = {
-};
-
-static const struct v4l2_ctrl_ops hevc_encoder_ctrl_ops = {
+static const struct v4l2_std_ctrl hevc_encoder_ctrls[] = {
 };
 
 const struct meson_codec_spec hevc_encoder = {
 	.type = HEVC_ENCODER,
 	.ops = &hevc_encoder_ops,
-	.ctrl_ops = &hevc_encoder_ctrl_ops,
 	.ctrls = hevc_encoder_ctrls,
 	.num_ctrls = ARRAY_SIZE(hevc_encoder_ctrls),
 };
