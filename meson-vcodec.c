@@ -26,7 +26,7 @@
 static const char* reg_names[MAX_REGS] = {
 	[DOS_BASE] = "dos",
 	[PARSER_BASE] = "esparser",
-	[VENC_HEVC_BASE] = "venc_hevc",
+	[HEVCENC_BASE] = "hevcenc",
 };
 
 static const char* clk_names[MAX_CLKS] = {
@@ -46,8 +46,8 @@ static const char* reset_names[MAX_RESETS] = {
 static const char* irq_names[MAX_IRQS] = {
 	[IRQ_VDEC] = "vdec",
 	[IRQ_PARSER] = "esparser",
-	[IRQ_VENC_AVC] = "venc_avc",
-	[IRQ_VENC_HEVC] = "venc_hevc",
+	[IRQ_HCODEC] = "hcodec",
+	[IRQ_HEVCENC] = "hevcenc",
 };
 
 static void meson_vcodec_configure_ctrls(struct meson_codec_job *job) {
@@ -173,17 +173,17 @@ static void meson_vcodec_buf_queue(struct vb2_buffer *vb)
 
 	switch (session->type) {
 		case SESSION_TYPE_ENCODE:
-			ENCODER_OPS(session, queue, vb);
+			ENCODER_OPS(session, queue, vbuf);
 			break;
 		case SESSION_TYPE_DECODE:
-			DECODER_OPS(session, queue, vb);
+			DECODER_OPS(session, queue, vbuf);
 			break;
 		case SESSION_TYPE_TRANSCODE:
 			// TODO how to handle intermediate format buffers?
 			if(IS_SRC_STREAM(vb->type)) {
-				DECODER_OPS(session, queue, vb);
+				DECODER_OPS(session, queue, vbuf);
 			} else {
-				ENCODER_OPS(session, queue, vb);
+				ENCODER_OPS(session, queue, vbuf);
 			}
 			break;
 		case SESSION_TYPE_NONE:
@@ -444,16 +444,16 @@ static void meson_vcodec_m2m_device_run(void *priv)
 
 	switch (session->type) {
 		case SESSION_TYPE_ENCODE:
-			ENCODER_OPS(session, run);
+			ENCODER_OPS(session, resume);
 			break;
 
 		case SESSION_TYPE_DECODE:
-			DECODER_OPS(session, run);
+			DECODER_OPS(session, resume);
 			break;
 
 		case SESSION_TYPE_TRANSCODE:
-			DECODER_OPS(session, run);
-			ENCODER_OPS(session, run);
+			DECODER_OPS(session, resume);
+			ENCODER_OPS(session, resume);
 			break;
 
 		case SESSION_TYPE_NONE:
@@ -1145,6 +1145,30 @@ static const struct v4l2_ioctl_ops meson_vcodec_ioctl_ops = {
 };
 
 /* ressource helpers */
+
+s32 meson_vcodec_g_ctrl(struct meson_vcodec_session *session, u32 id) {
+	struct v4l2_ctrl *ctrl;
+
+	ctrl = v4l2_ctrl_find(&session->ctrl_handler, id);
+	if (ctrl) {
+		return v4l2_ctrl_g_ctrl(ctrl);
+	} else {
+		session_warn(session, "ctrl %d not found", id);
+		return 0;
+	}
+}
+
+int meson_vcodec_s_ctrl(struct meson_vcodec_session *session, u32 id, s32 val) {
+	struct v4l2_ctrl *ctrl;
+
+	ctrl = v4l2_ctrl_find(&session->ctrl_handler, id);
+	if (ctrl) {
+		return v4l2_ctrl_s_ctrl(ctrl, val);
+	} else {
+		session_warn(session, "ctrl %d not found", id);
+		return -EINVAL;
+	}
+}
 
 int meson_vcodec_reset(struct meson_vcodec_core *core, enum meson_vcodec_reset index) {
 	int ret;

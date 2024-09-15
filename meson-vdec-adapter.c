@@ -513,14 +513,14 @@ static int meson_vdec_adapter_start(struct meson_codec_job *job, struct vb2_queu
 	return vdec_start_streaming(&adapter->vdec_sess, vq, count);
 }
 
-static int meson_vdec_adapter_queue(struct meson_codec_job *job, struct vb2_buffer *vb) {
+static int meson_vdec_adapter_queue(struct meson_codec_job *job, struct vb2_v4l2_buffer *vb) {
 	struct meson_vdec_adapter *adapter = job->priv;
 
-	vdec_vb2_buf_queue(&adapter->vdec_sess, vb);
+	vdec_vb2_buf_queue(&adapter->vdec_sess, &vb->vb2_buf);
 	return 0;
 }
 
-static void meson_vdec_adapter_run(struct meson_codec_job *job) {
+static void meson_vdec_adapter_resume(struct meson_codec_job *job) {
 	struct meson_vdec_adapter *adapter = job->priv;
 	struct amvdec_session *sess = &adapter->vdec_sess;
 
@@ -589,7 +589,7 @@ const struct meson_codec_ops codec_ops_vdec_adapter = {
 	.init = &meson_vdec_adapter_init,
 	.start = &meson_vdec_adapter_start,
 	.queue = &meson_vdec_adapter_queue,
-	.run = &meson_vdec_adapter_run,
+	.resume = &meson_vdec_adapter_resume,
 	.abort = &meson_vdec_adapter_abort,
 	.stop = &meson_vdec_adapter_stop,
 	.release = &meson_vdec_adapter_release,

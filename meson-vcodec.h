@@ -10,7 +10,7 @@
 enum meson_vcodec_regs: u8 {
 	DOS_BASE,
 	PARSER_BASE,
-	VENC_HEVC_BASE,
+	HEVCENC_BASE,
 	MAX_REGS
 };
 
@@ -33,8 +33,8 @@ enum meson_vcodec_reset: u8 {
 enum meson_vcodec_irq: u8 {
 	IRQ_VDEC,
 	IRQ_PARSER,
-	IRQ_VENC_AVC,
-	IRQ_VENC_HEVC,
+	IRQ_HCODEC,
+	IRQ_HEVCENC,
 	MAX_IRQS
 };
 
@@ -103,6 +103,8 @@ struct meson_vcodec_session {
 	enum meson_stream_status dst_status;
 };
 
+s32 meson_vcodec_g_ctrl(struct meson_vcodec_session *session, u32 id);
+int meson_vcodec_s_ctrl(struct meson_vcodec_session *session, u32 id, s32 val);
 
 int meson_vcodec_reset(struct meson_vcodec_core *core, enum meson_vcodec_reset index);
 

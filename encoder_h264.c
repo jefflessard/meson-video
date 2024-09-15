@@ -13,6 +13,10 @@
 
 #define MHz (1000000)
 
+struct encoder_h264_ctx {
+	enum amlvenc_hcodec_encoder_status status;
+};
+
 static void amvenc_reset(void) {
 	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_SC2) {
 		hcodec_hw_reset();
@@ -134,10 +138,79 @@ static void amvenc_configure(void) {
 	// amvenc_start();
 }
 
+static irqreturn_t hcodec_isr(int irq, void *data)
+{
+	const struct meson_codec_job *job = data;
+	struct encoder_h264_ctx *ctx = job->priv;
+
+	switch (ctx->status) {
+		case ENCODER_IDLE:
+		case ENCODER_SEQUENCE:
+		case ENCODER_PICTURE:
+		case ENCODER_IDR:
+		case ENCODER_NON_IDR:
+		case ENCODER_MB_HEADER:
+		case ENCODER_MB_DATA:
+		case ENCODER_MB_HEADER_DONE:
+		case ENCODER_MB_DATA_DONE:
+		case ENCODER_NON_IDR_INTRA:
+		case ENCODER_NON_IDR_INTER:
+		default:
+			return IRQ_HANDLED;
+		case ENCODER_SEQUENCE_DONE:
+		case ENCODER_PICTURE_DONE:
+		case ENCODER_IDR_DONE:
+		case ENCODER_NON_IDR_DONE:
+		case ENCODER_ERROR:
+			// read encoder status and clear interrupt
+			ctx->status = amlvenc_hcodec_encoder_status();
+			return IRQ_WAKE_THREAD;
+	}
+}
+
+static irqreturn_t hcodec_threaded_isr(int irq, void *data)
+{
+	const struct meson_codec_job *job = data;
+	struct encoder_h264_ctx *ctx = job->priv;
+
+	switch (ctx->status) {
+		case ENCODER_IDLE:
+		case ENCODER_SEQUENCE:
+		case ENCODER_PICTURE:
+		case ENCODER_IDR:
+		case ENCODER_NON_IDR:
+		case ENCODER_MB_HEADER:
+		case ENCODER_MB_DATA:
+		case ENCODER_MB_HEADER_DONE:
+		case ENCODER_MB_DATA_DONE:
+		case ENCODER_NON_IDR_INTRA:
+		case ENCODER_NON_IDR_INTER:
+		default:
+			break;
+		case ENCODER_SEQUENCE_DONE:
+		case ENCODER_PICTURE_DONE:
+		case ENCODER_IDR_DONE:
+		case ENCODER_NON_IDR_DONE:
+			// queue encoded bitstream
+			break;
+		case ENCODER_ERROR:
+			// stop encoding and report error
+			break;
+	}
+
+	return IRQ_HANDLED;
+}
+
 int encoder_h264_init(struct meson_codec_job *job) {
 	struct meson_vcodec_session *session = job->session;
 	struct meson_vcodec_core *core = session->core;
+	struct encoder_h264_ctx	*ctx;
 	int ret;
+
+	ctx = kcalloc(1, sizeof(*ctx), GFP_KERNEL);
+	if (!ctx)
+		return -ENOMEM;
+	job->priv = ctx;
 
 	/* amvenc_avc_probe */
 	// hcodec_clk_prepare hcodec_aclk
@@ -156,8 +229,8 @@ int encoder_h264_init(struct meson_codec_job *job) {
 		}
 	}
 	// irq
-	if (!core->resets[RESET_HCODEC]) {
-		session_err(session, "Failed to get HCODEC reset");
+	if (!core->irqs[IRQ_HCODEC]) {
+		session_err(session, "Failed to get HCODEC irq");
 		return -EINVAL;
 	}
 
@@ -208,20 +281,51 @@ int encoder_h264_init(struct meson_codec_job *job) {
 	amlvenc_hcodec_assist_enable();
 	// TODO load firmware
 
-	// TODO request irq
-	
+	// request irq
+	ret = request_threaded_irq(session->core->irqs[IRQ_HCODEC], hcodec_isr, hcodec_threaded_isr, IRQF_SHARED, "hcodec", job);
+	if (ret) {
+		session_err(session, "Failed to request HCODEC irq");
+		return ret;
+	}
+
 	return 0;
 }
 
 int encoder_h264_start(struct meson_codec_job *job, struct vb2_queue *vq, u32 count) {
+
+	if (IS_SRC_STREAM(vq->type)) {
+		// configure encoder
+		// encode queued frames
+	}
+
 	return 0;
 }
 
-int encoder_h264_queue(struct meson_codec_job *job, struct vb2_buffer *vb) {
+int encoder_h264_queue(struct meson_codec_job *job, struct vb2_v4l2_buffer *vb) {
+	bool force_key_frame;
+
+	if (IS_SRC_STREAM(vb->vb2_buf.type)) {
+		// handle force key frame
+		force_key_frame = meson_vcodec_g_ctrl(job->session, V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME);
+		if (force_key_frame) {
+			vb->flags |= V4L2_BUF_FLAG_KEYFRAME;
+			vb->flags &= ~(V4L2_BUF_FLAG_PFRAME | V4L2_BUF_FLAG_BFRAME);
+		}
+	}
+
+	// don't process buffer until started
+	if (STREAM_STATUS(job->session, vb->vb2_buf.type) == STREAM_STATUS_INIT) {
+		return 0;
+	}
+
+	if (IS_SRC_STREAM(vb->vb2_buf.type)) {
+		// encode frame
+	}
+
 	return 0;
 }
 
-void encoder_h264_run(struct meson_codec_job *job) {
+void encoder_h264_resume(struct meson_codec_job *job) {
 }
 
 void encoder_h264_abort(struct meson_codec_job *job) {
@@ -234,13 +338,20 @@ int encoder_h264_stop(struct meson_codec_job *job, struct vb2_queue *vq) {
 int encoder_h264_release(struct meson_codec_job *job) {
 	struct meson_vcodec_session *session = job->session;
 	struct meson_vcodec_core *core = session->core;
+	struct encoder_h264_ctx *ctx = job->priv;
 
-	meson_vcodec_clk_unprepare(core, CLK_VDEC1);
-	meson_vcodec_pwrc_off(core, PWRC_HCODEC);
+	free_irq(job->session->core->irqs[IRQ_HCODEC], (void *)job);
+
+	amlvenc_dos_hcodec_disable();
+	meson_vcodec_pwrc_off(core, PWRC_VDEC);
 
 	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_SC2) {
-		 meson_vcodec_clk_unprepare(core, CLK_HCODEC);
+		meson_vcodec_pwrc_off(core, PWRC_HCODEC);
+		meson_vcodec_clk_unprepare(core, CLK_HCODEC);
 	}
+
+	kfree(ctx);
+	job->priv = NULL;
 
 	MESON_VCODEC_CORE = NULL;
 
@@ -263,7 +374,7 @@ static const struct meson_codec_ops h264_encoder_ops = {
 	.init = &encoder_h264_init,
 	.start = &encoder_h264_start,
 	.queue = &encoder_h264_queue,
-	.run = &encoder_h264_run,
+	.resume = &encoder_h264_resume,
 	.abort = &encoder_h264_abort,
 	.stop = &encoder_h264_stop,
 	.release = &encoder_h264_release,

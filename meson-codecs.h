@@ -26,10 +26,10 @@ struct meson_vcodec_session;
 
 struct v4l2_std_ctrl {
 	u32 id;
-	s64 min;
-	s64 max;
-	s64 step;
-	s64 def;
+	s32 min;
+	s32 max;
+	s32 step;
+	s32 def;
 };
 
 struct meson_codec_spec {
@@ -50,8 +50,8 @@ struct meson_codec_job {
 struct meson_codec_ops {
 	int (*init)(struct meson_codec_job *job);
 	int (*start)(struct meson_codec_job *job, struct vb2_queue *vq, u32 count);
-	int (*queue)(struct meson_codec_job *job, struct vb2_buffer *vb);
-	void (*run)(struct meson_codec_job *job);
+	int (*queue)(struct meson_codec_job *job, struct vb2_v4l2_buffer *vb);
+	void (*resume)(struct meson_codec_job *job);
 	void (*abort)(struct meson_codec_job *job);
 	int (*stop)(struct meson_codec_job *job, struct vb2_queue *vq);
 	int (*release)(struct meson_codec_job *job);
