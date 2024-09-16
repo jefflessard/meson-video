@@ -355,9 +355,15 @@ u32 amlvenc_hcodec_debug(void);
 
 
 void amlvenc_dos_sw_reset1(u32 bits);
+void amlvenc_dos_hcodec_memory(bool enable);
+void amlvenc_dos_hcodec_gateclk(bool enable);
+void amlvenc_dos_disable_auto_gateclk(void);
 
-void amlvenc_dos_hcodec_enable(u32 clock_level);
-void amlvenc_dos_hcodec_disable(void);
-void amlvenc_dos_disable_auto_clock_gate(void);
+#ifdef CONFIG_AMLOGIC_MEDIA_MODULE
+void amlvenc_hhi_hcodec_clock_on(u8 clock_level);
+void amlvenc_hhi_hcodec_clock_off(void);
+void amlvenc_hcodec_power_on(u8 clocklevel);
+void amlvenc_hcodec_power_off(void);
+#endif
 
 #endif /* __AML_VENC_H264_H__ */

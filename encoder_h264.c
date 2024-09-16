@@ -13,6 +13,7 @@
 
 #include "amlogic.h"
 #include "amlvenc_h264.h"
+#include "register.h"
 
 #define MHz (1000000)
 
@@ -242,14 +243,6 @@ static int load_firmware(struct meson_codec_job *job) {
 		goto free_dma;
 	}
 
-#if 0
-	if (fw->size < fw_size) {
-		session_err(session, "Invalid firmware size: actual =%zd, expected=%zd", fw->size, fw_size);
-		ret = -EINVAL;
-		goto release_firmware;
-	}
-#endif
-
 	/* >= AM_MESON_CPU_MAJOR_ID_SC2 */
 	// amlvenc_hcodec_stop
 	// get_firmware_data VIDEO_ENC_H264
@@ -291,136 +284,87 @@ static int encoder_h264_init(struct meson_codec_job *job) {
 		return -ENOMEM;
 	job->priv = ctx;
 
-#if 0
-	/* amvenc_avc_probe */
-	// hcodec_clk_prepare hcodec_aclk
-	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_SC2) {
-		ret = meson_vcodec_clk_prepare(core, CLK_HCODEC, 667 * MHz);
-		if (ret) {
-			session_err(session, "Failed to enable HCODEC clock");
-			return ret;
-		}
+	/* hcodec_clk */
+	ret = meson_vcodec_clk_prepare(core, CLK_HCODEC, 667 * MHz);
+	if (ret) {
+		session_err(session, "Failed to enable HCODEC clock");
+		goto free_ctx;
 	}
-	// hcodec_rst
+
+	/* hcodec_rst */
 	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_SC2) {
 		if (!core->resets[RESET_HCODEC]) {
 			session_err(session, "Failed to get HCODEC reset");
-			return -EINVAL;
+			ret = -EINVAL;
+			goto disable_clk;
 		}
 	}
-#endif
-	// irq
+
+	/* hcodec power control */
+	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_SC2) {
+		// TODO vdec_poweron(VDEC_HCODEC) or pwr_ctrl_psci_smc PDID_T3_DOS_HCODEC
+	} else {
+		regmap_update_bits(core->regmaps[BUS_AO], AO_RTI_PWR_CNTL_REG0, BIT(4) | BIT(3), 0);
+		usleep_range(10, 20);
+	}
+
+	/* Powerup HCODEC & Remove HCODEC ISO */
+	ret = meson_vcodec_pwrc_on(core, PWRC_HCODEC);
+	if (ret) {
+		session_err(session, "Failed to power on HCODEC");
+		goto disable_clk;
+	}
+
+	/* DOS_SW_RESET1 */
+	amlvenc_dos_sw_reset1(0xffffffff);
+	/* dos internal clock gating */
+	amlvenc_dos_hcodec_gateclk(true);
+	/* Powerup HCODEC memories */
+	amlvenc_dos_hcodec_memory(true);
+	/* disable auto-clock gate */
+	amlvenc_dos_disable_auto_gateclk();
+	/* enable hcodec assist */
+	amlvenc_hcodec_assist_enable();
+
+	/* load firmware */
+	ret = load_firmware(job);
+	if (ret) {
+		session_err(session, "Failed to load firmware");
+		goto disable_hcodec;
+	}
+
+	/* request irq */
 	if (!core->irqs[IRQ_HCODEC]) {
 		session_err(session, "Failed to get HCODEC irq");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto disable_hcodec;
 	}
-
-	/* encode_wq_init */
-	// amlvenc_h264_init_me
-	/* encode_start_monitor */
-	/* encode_monitor_thread */
-	/* manager->inited == false */
-	/* avc_init */
-	/* amvenc_avc_start */
-	/* avc_poweron */
-
-#if 0
-	/* avc_poweron */
-	// switch gate vdec
-	ret = meson_vcodec_pwrc_on(core, PWRC_VDEC);
-	if (ret) {
-		session_err(session, "Failed to power on VDEC");
-		return ret;
-	}
-	// hcodec_clk_config: clk_enable hcodec_aclk
-	// 	handled in previous meson_vcodec_clk_prepare
-	// TODO vdec_poweron(VDEC_HCODEC) or pwr_ctrl_psci_smc PDID_T3_DOS_HCODEC
-	// or
-	// TODO AO_RTI_PWR_CNTL_REG0 BITS 3 and 4
-	// Powerup HCODEC: AO_RTI_GEN_PWR_SLEEP0 BIT 0 or BITS 0 and 1
-	// Remove HCODEC ISO: AO_RTI_GEN_PWR_ISO0 BIT 0 or BITS 4 and 5
-	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_SC2) {
-	} else {
-		ret = meson_vcodec_pwrc_on(core, PWRC_HCODEC);
-		if (ret) {
-			session_err(session, "Failed to power on HCODEC");
-			return ret;
-		}
-	}
-	// DOS_SW_RESET1
-	amlvenc_dos_sw_reset1(0xffffffff);
-	// Enable Dos internal clock gating
-	// Powerup HCODEC memories
-	amlvenc_dos_hcodec_enable(6);
-	// Remove HCODEC ISO
-	//	managed by previous meson_vcodec_pwrc_on
-	//	TODO might be an issue when powering up HCODEC mem
-	// Disable auto-clock gate	
-	amlvenc_dos_disable_auto_clock_gate();
-
-	/* amvenc_avc_start */
-	// enable hcodec assist
-	amlvenc_hcodec_assist_enable();
-#endif
-
-#if 0
-	clk_set_rate(core->clks[CLK_VDEC1], 666666666);
-	ret = clk_prepare_enable(core->clks[CLK_VDEC1]);
-	if (ret)
-		return ret;
-#endif
-
-	regmap_update_bits(core->regmaps[BUS_AO], AO_RTI_GEN_PWR_SLEEP0, BIT(3) | BIT(2), 0);
-	usleep_range(10, 20);
-
-	WRITE_AOREG(AO_RTI_PWR_CNTL_REG0,
-			(READ_AOREG(AO_RTI_PWR_CNTL_REG0) & (~0x18)));
-	udelay(10);
-
-	WRITE_AOREG(AO_RTI_GEN_PWR_SLEEP0,
-			READ_AOREG(AO_RTI_GEN_PWR_SLEEP0) &
-			((get_cpu_major_id() == AM_MESON_CPU_MAJOR_ID_SM1 ||
-			  get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_TM2)
-			 ? ~0x1 : ~0x3));
-	udelay(10);
-
-	amlvenc_dos_sw_reset1(0xffffffff);
-	amlvenc_dos_hcodec_enable(6);
-
-	WRITE_AOREG(AO_RTI_GEN_PWR_ISO0,
-			READ_AOREG(AO_RTI_GEN_PWR_ISO0) &
-			((get_cpu_major_id() == AM_MESON_CPU_MAJOR_ID_SM1 ||
-			  get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_TM2)
-			 ? ~0x1 : ~0x30));
-	udelay(10);
-
-	WRITE_VREG(DOS_GEN_CTRL0,
-			(READ_VREG(DOS_GEN_CTRL0) | 0x1));
-	WRITE_VREG(DOS_GEN_CTRL0,
-			(READ_VREG(DOS_GEN_CTRL0) & 0xFFFFFFFE));
-	mdelay(10);
-
-	amlvenc_hcodec_assist_enable();
-
-	// load firmware
-	load_firmware(job);
-
-#if 0
-	// request irq
 	ret = request_threaded_irq(session->core->irqs[IRQ_HCODEC], hcodec_isr, hcodec_threaded_isr, IRQF_SHARED, "hcodec", job);
 	if (ret) {
 		session_err(session, "Failed to request HCODEC irq");
-		return ret;
+		goto disable_hcodec;
 	}
-#endif
 
-#if 0
 	return 0;
-#endif
-	return -EINVAL;
+
+free_irq:
+	free_irq(job->session->core->irqs[IRQ_HCODEC], (void *)job);
+disable_hcodec:
+	amlvenc_dos_hcodec_memory(false);
+	amlvenc_dos_hcodec_gateclk(false);
+pwrc_off:
+	meson_vcodec_pwrc_off(core, PWRC_HCODEC);
+disable_clk:
+	meson_vcodec_clk_unprepare(core, CLK_HCODEC);
+free_ctx:
+	kfree(ctx);
+	job->priv = NULL;
+	return ret;
 }
 
 static int encoder_h264_start(struct meson_codec_job *job, struct vb2_queue *vq, u32 count) {
+
+	return -EINVAL;
 
 	if (IS_SRC_STREAM(vq->type)) {
 		// configure encoder
@@ -469,20 +413,11 @@ static int encoder_h264_release(struct meson_codec_job *job) {
 	struct meson_vcodec_core *core = session->core;
 	struct encoder_h264_ctx *ctx = job->priv;
 
-#if 0
 	free_irq(job->session->core->irqs[IRQ_HCODEC], (void *)job);
-#endif
-
-#if 0
-	amlvenc_dos_hcodec_disable();
-	meson_vcodec_pwrc_off(core, PWRC_VDEC);
-
-	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_SC2) {
-		meson_vcodec_pwrc_off(core, PWRC_HCODEC);
-		meson_vcodec_clk_unprepare(core, CLK_HCODEC);
-	}
-#endif
-
+	amlvenc_dos_hcodec_memory(false);
+	amlvenc_dos_hcodec_gateclk(false);
+	meson_vcodec_pwrc_off(core, PWRC_HCODEC);
+	meson_vcodec_clk_unprepare(core, CLK_HCODEC);
 	kfree(ctx);
 	job->priv = NULL;
 

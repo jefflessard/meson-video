@@ -8,6 +8,8 @@
 #include "meson-codecs.h"
 #include "amlogic.h"
 
+#include "clk/meson-eeclk.h"
+
 enum meson_vcodec_pwrc: u8 {
 	PWRC_VDEC,
 	PWRC_HEVC,
@@ -15,10 +17,12 @@ enum meson_vcodec_pwrc: u8 {
 	MAX_PWRC
 };
 
+struct meson_vcodec_core;
 struct meson_ee_pwrc_top_domain;
 
 struct meson_platform_specs {
 	const enum AM_MESON_CPU_MAJOR_ID platform_id;
+	const struct meson_eeclkc_data *clks;
 	const struct meson_ee_pwrc_top_domain *pwrc;
 	const struct meson_codec_formats *codecs;
 	const u32 num_codecs;
@@ -27,6 +31,7 @@ struct meson_platform_specs {
 
 extern const struct meson_platform_specs gxl_platform_specs;
 
+int meson_platform_register_clks(struct meson_vcodec_core *core);
 
 /* BEGIN taken from meson-ee-pwrc.c */
 

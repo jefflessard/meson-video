@@ -21,8 +21,6 @@
 
 #include <linux/types.h>
 
-#include "register.h"
-
 #define WRITE_VREG_BITS(r, val, start, len) \
 	WRITE_VREG(r, ( \
 		READ_VREG(r) & ~(((1L<<(len))-1)<<(start)) \

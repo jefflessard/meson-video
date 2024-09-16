@@ -391,7 +391,9 @@ static void meson_vcodec_unprepare_streaming(struct vb2_queue *vq)
 
 	stream_trace(session, vq->type);
 
-	if (STREAM_STATUS(session, vq->type) != STREAM_STATUS_STOP) {
+	if (STREAM_STATUS(session, vq->type) < STREAM_STATUS_INIT ||
+		STREAM_STATUS(session, vq->type) > STREAM_STATUS_STOP
+	) {
 		stream_warn(session, vq->type, "invalid status to release");
 	}
 	
@@ -1293,20 +1295,20 @@ static int meson_vcodec_probe(struct platform_device *pdev)
 		}
 	}
 
+	ret = meson_platform_register_clks(core);
+	if (ret) {
+		dev_err(&pdev->dev, "Failed to registers platform clocks\n");
+		return ret;
+	}
+
 	for (i = 0; i < MAX_CLKS; i++) {
 		if (i == CLK_HEVCF && platform_specs->platform_id < AM_MESON_CPU_MAJOR_ID_G12A)
 			continue;
 
-		if (i == CLK_HCODEC && platform_specs->platform_id < AM_MESON_CPU_MAJOR_ID_SC2)
-			continue;
-
 		core->clks[i] = devm_clk_get(&pdev->dev, clk_names[i]);
 		if (IS_ERR(core->clks[i])) {
-			if (PTR_ERR(core->clks[i]) != -ENOENT) {
-				dev_err(&pdev->dev, "Failed to get %s clock\n", clk_names[i]);
-				return PTR_ERR(core->clks[i]);
-			}
-			core->clks[i] = NULL;
+			dev_err(&pdev->dev, "Failed to get %s clock\n", clk_names[i]);
+			return PTR_ERR(core->clks[i]);
 		}
 	}
 
@@ -1316,11 +1318,8 @@ static int meson_vcodec_probe(struct platform_device *pdev)
 
 		core->resets[i] = devm_reset_control_get(&pdev->dev, reset_names[i]);
 		if (IS_ERR(core->resets[i])) {
-			if (PTR_ERR(core->resets[i]) != -ENOENT) {
-				dev_err(&pdev->dev, "Failed to get %s reset\n", reset_names[i]);
-				return PTR_ERR(core->resets[i]);
-			}
-			core->resets[i] = NULL;
+			dev_err(&pdev->dev, "Failed to get %s reset\n", reset_names[i]);
+			return PTR_ERR(core->resets[i]);
 		}
 	}
 

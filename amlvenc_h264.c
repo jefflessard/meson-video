@@ -24,6 +24,7 @@
 #else
 #include <linux/printk.h>
 #include "amlogic.h"
+#include "register.h"
 #endif
 
 #include "amlvenc_h264.h"
@@ -1676,6 +1677,36 @@ void amlvenc_dos_sw_reset1(u32 bits)
 	WRITE_VREG(DOS_SW_RESET1, 0);
 }
 
+void amlvenc_dos_hcodec_memory(bool enable) {
+	if (enable) {
+		/* Powerup HCODEC memories */
+		WRITE_VREG(DOS_MEM_PD_HCODEC, 0x0);
+	} else {
+		/* power off HCODEC memories */
+		WRITE_VREG(DOS_MEM_PD_HCODEC, 0xffffffffUL);
+	}
+}
+
+void amlvenc_dos_hcodec_gateclk(bool enable) {
+	if (enable) {
+		WRITE_VREG_BITS(DOS_GCLK_EN0, 0x7fff, 12, 15);
+		/*
+		 * WRITE_VREG(DOS_GCLK_EN0, 0xffffffff);
+		 */
+	} else {
+		WRITE_VREG_BITS(DOS_GCLK_EN0, 0, 12, 15);
+	}
+}
+
+void amlvenc_dos_disable_auto_gateclk(void) {
+	WRITE_VREG(DOS_GEN_CTRL0,
+		(READ_VREG(DOS_GEN_CTRL0) | 0x1));
+	WRITE_VREG(DOS_GEN_CTRL0,
+		(READ_VREG(DOS_GEN_CTRL0) & 0xFFFFFFFE));
+}
+
+#ifdef CONFIG_AMLOGIC_MEDIA_MODULE
+
 /* M8: 2550/10 = 255M GX: 2000/10 = 200M */
 #define HDEC_L0()   WRITE_HHI_REG(HHI_VDEC_CLK_CNTL, \
 			 (2 << 25) | (1 << 16) | (1 << 24) | \
@@ -1705,16 +1736,12 @@ void amlvenc_dos_sw_reset1(u32 bits)
 			 (1 << 25) | (0 << 16) | (1 << 24) | \
 			 (0xffff & READ_HHI_REG(HHI_VDEC_CLK_CNTL)))
 
-void amlvenc_dos_hcodec_enable(u32 clock_level) {
+void amlvenc_hhi_hcodec_clock_on(u8 clock_level) {
 
 	/* Enable Dos internal clock gating */
 	if ((get_cpu_major_id() == AM_MESON_CPU_MAJOR_ID_T3) ||
 		(get_cpu_major_id() == AM_MESON_CPU_MAJOR_ID_T5M) ||
 		(get_cpu_major_id() == AM_MESON_CPU_MAJOR_ID_T3X)) {
-		WRITE_VREG_BITS(DOS_GCLK_EN0, 0x7fff, 12, 15);
-		/*
-		 * WRITE_VREG(DOS_GCLK_EN0, 0xffffffff);
-		*/
 	} else {
 		if (clock_level == 0)
 			HDEC_L0();
@@ -1730,36 +1757,30 @@ void amlvenc_dos_hcodec_enable(u32 clock_level) {
 			HDEC_L5();
 		else if (clock_level == 6)
 			HDEC_L6();
-
-		WRITE_VREG_BITS(DOS_GCLK_EN0, 0x7fff, 12, 15);
 	}
-
-	/* Powerup HCODEC memories */
-	WRITE_VREG(DOS_MEM_PD_HCODEC, 0x0);
 }
 
-void amlvenc_dos_hcodec_disable(void) {
-	/* power off HCODEC memories */
-	WRITE_VREG(DOS_MEM_PD_HCODEC, 0xffffffffUL);
+void amlvenc_hhi_hcodec_clock_off(void) {
 
 	/* disable HCODEC clock */
 	if ((get_cpu_major_id() == AM_MESON_CPU_MAJOR_ID_T3) ||
 		(get_cpu_major_id() == AM_MESON_CPU_MAJOR_ID_T5M) ||
 		(get_cpu_major_id() == AM_MESON_CPU_MAJOR_ID_T3X)) {
-		WRITE_VREG_BITS(DOS_GCLK_EN0, 0, 12, 15);
 	} else {
-		WRITE_VREG_BITS(DOS_GCLK_EN0, 0, 12, 15);
-#ifdef CONFIG_AMLOGIC_MEDIA_MODULE
 		WRITE_HHI_REG_BITS(HHI_VDEC_CLK_CNTL,  0, 24, 1);
-#endif
 	}
 }
 
-void amlvenc_dos_disable_auto_clock_gate(void) {
-	WRITE_VREG(DOS_GEN_CTRL0,
-		(READ_VREG(DOS_GEN_CTRL0) | 0x1));
-	WRITE_VREG(DOS_GEN_CTRL0,
-		(READ_VREG(DOS_GEN_CTRL0) & 0xFFFFFFFE));
+void amlvenc_hcodec_power_on(u8 clocklevel) {
+	amlvenc_hhi_hcodec_clock_on(clocklevel);
+	amlvenc_dos_hcodec_gateclk(true);
+	amlvenc_dos_hcodec_memory(true);
 }
 
+void amlvenc_hcodec_power_off(void) {
+	amlvenc_dos_hcodec_memory(false);
+	amlvenc_dos_hcodec_gateclk(false);
+	amlvenc_hhi_hcodec_clock_off();
+}
 
+#endif
