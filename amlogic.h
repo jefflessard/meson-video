@@ -86,12 +86,16 @@ enum AM_MESON_CPU_MAJOR_ID: u8 {
 enum AM_MESON_CPU_MAJOR_ID get_cpu_major_id(void);
 
 void WRITE_HREG(u32 reg, u32 val);
-
 u32 READ_HREG(u32 reg);
 
 void WRITE_VREG(u32 reg, u32 val);
-
 u32 READ_VREG(u32 reg);
+
+void WRITE_HHI_REG(u32 reg, u32 val);
+u32 READ_HHI_REG(u32 reg);
+
+void WRITE_AOREG(u32 reg, u32 val);
+u32 READ_AOREG(u32 reg);
 
 s32 hcodec_hw_reset(void);
 

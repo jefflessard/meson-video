@@ -14,6 +14,12 @@ enum meson_vcodec_regs: u8 {
 	MAX_REGS
 };
 
+enum meson_vcodec_regmaps: u8 {
+	BUS_AO,
+	BUS_HHI,
+	MAX_BUS
+};
+
 enum meson_vcodec_clk: u8 {
 	CLK_DOS,
 	CLK_PARSER,
@@ -64,7 +70,7 @@ struct meson_vcodec_core {
 	struct device *dev;
 	struct mutex lock;
 
-	struct regmap *regmap_ao;
+	struct regmap *regmaps[MAX_BUS];
 	void __iomem *regs[MAX_REGS];
 	struct clk *clks[MAX_CLKS];
 	struct reset_control *resets[MAX_RESETS];

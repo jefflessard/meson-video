@@ -22,7 +22,7 @@ struct meson_platform_specs {
 	const struct meson_ee_pwrc_top_domain *pwrc;
 	const struct meson_codec_formats *codecs;
 	const u32 num_codecs;
-	const char *firmwares[MAX_FORMATS];
+	const char *firmwares[MAX_CODECS];
 };
 
 extern const struct meson_platform_specs gxl_platform_specs;

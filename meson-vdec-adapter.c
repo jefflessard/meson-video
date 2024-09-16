@@ -452,7 +452,7 @@ static int meson_vdec_adapter_init(struct meson_codec_job *job) {
 	adapter->vdec_core.dev_dec = session->core->dev;
 	adapter->vdec_core.lock = &session->core->lock;
 
-	adapter->vdec_core.regmap_ao = session->core->regmap_ao;
+	adapter->vdec_core.regmap_ao = session->core->regmaps[BUS_AO];
 	adapter->vdec_core.dos_base = session->core->regs[DOS_BASE];
 	adapter->vdec_core.dos_clk = session->core->clks[CLK_DOS];
 	adapter->vdec_core.vdec_1_clk = session->core->clks[CLK_VDEC1];

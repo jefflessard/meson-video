@@ -47,13 +47,13 @@ const struct meson_platform_specs gxl_platform_specs = {
 		[H264_DECODER] = "meson/vdec/gxl_h264.bin",
 		[VP9_DECODER] = "meson/vdec/gxl_vp9.bin",
 		[HEVC_DECODER] = "meson/vdec/gxl_hevc.bin",
-		[H264_ENCODER] = NULL,
+		[H264_ENCODER] = "meson/vdec/gxl_h264_enc.bin",
 		//[HEVC_ENCODER] = NULL,
 	},
 };
 
 MODULE_FIRMWARE("meson/vdec/gxl_mpeg12.bin");
 MODULE_FIRMWARE("meson/vdec/gxl_h264.bin");
-MODULE_FIRMWARE("meson/vdec/gxl_hevc.bin");
 MODULE_FIRMWARE("meson/vdec/gxl_vp9.bin");
-
+MODULE_FIRMWARE("meson/vdec/gxl_hevc.bin");
+MODULE_FIRMWARE("meson/vdec/gxl_h264_enc.bin");

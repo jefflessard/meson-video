@@ -29,6 +29,11 @@ static const char* reg_names[MAX_REGS] = {
 	[HEVCENC_BASE] = "hevcenc",
 };
 
+static const char* regmap_names[MAX_BUS] = {
+	[BUS_AO] = "amlogic,ao-sysctrl",
+	[BUS_HHI] = "amlogic,hhi-sysctrl",
+};
+
 static const char* clk_names[MAX_CLKS] = {
 	[CLK_DOS] = "dos",
 	[CLK_PARSER] = "dos_parser",
@@ -1212,14 +1217,14 @@ void meson_vcodec_reg_write(struct meson_vcodec_core *core, enum meson_vcodec_re
 int meson_vcodec_pwrc_off(struct meson_vcodec_core *core, enum meson_vcodec_pwrc index) {
 	int ret;
 
-	ret = regmap_update_bits(core->regmap_ao,
+	ret = regmap_update_bits(core->regmaps[BUS_AO],
 			core->platform_specs->pwrc[index].sleep_reg,
 			core->platform_specs->pwrc[index].sleep_mask,
 			core->platform_specs->pwrc[index].sleep_mask);
 	if (ret < 0)
 		return ret;
 
-	ret = regmap_update_bits(core->regmap_ao,
+	ret = regmap_update_bits(core->regmaps[BUS_AO],
 			core->platform_specs->pwrc[index].iso_reg,
 			core->platform_specs->pwrc[index].iso_mask,
 			core->platform_specs->pwrc[index].iso_mask);
@@ -1232,13 +1237,13 @@ int meson_vcodec_pwrc_off(struct meson_vcodec_core *core, enum meson_vcodec_pwrc
 int meson_vcodec_pwrc_on(struct meson_vcodec_core *core, enum meson_vcodec_pwrc index) {
 	int ret;
 
-	ret = regmap_update_bits(core->regmap_ao,
+	ret = regmap_update_bits(core->regmaps[BUS_AO],
 			core->platform_specs->pwrc[index].sleep_reg,
 			core->platform_specs->pwrc[index].sleep_mask, 0);
 	if (ret < 0)
 		return ret;
 
-	ret = regmap_update_bits(core->regmap_ao,
+	ret = regmap_update_bits(core->regmaps[BUS_AO],
 			core->platform_specs->pwrc[index].iso_reg,
 			core->platform_specs->pwrc[index].iso_mask, 0);
 	if (ret < 0)
@@ -1272,10 +1277,12 @@ static int meson_vcodec_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, core);
 	MESON_VCODEC_CORE = core;
 
-	core->regmap_ao = syscon_regmap_lookup_by_phandle(pdev->dev.of_node, "amlogic,ao-sysctrl");
-	if (IS_ERR(core->regmap_ao)) {
-		dev_err(&pdev->dev, "Failed to get ao-sysctrl regmap\n");
-		return PTR_ERR(core->regmap_ao);
+	for (i = 0; i < MAX_BUS; i++) {
+		core->regmaps[i] = syscon_regmap_lookup_by_phandle(pdev->dev.of_node, regmap_names[i]);
+		if (IS_ERR(core->regmaps[i])) {
+			dev_err(&pdev->dev, "Failed to get %s regmap\n", regmap_names[i]);
+			return PTR_ERR(core->regmaps[i]);
+		}
 	}
 
 	for (i = 0; i < MAX_REGS; i++) {
@@ -1378,6 +1385,7 @@ static int meson_vcodec_remove(struct platform_device *pdev)
 {
 	struct meson_vcodec_core *core = platform_get_drvdata(pdev);
 
+	MESON_VCODEC_CORE = NULL;
 	video_unregister_device(&core->vfd);
 	v4l2_m2m_release(core->m2m_dev);
 	v4l2_device_unregister(&core->v4l2_dev);

@@ -1609,7 +1609,8 @@ void amlvenc_hcodec_assist_enable(void)
 void amlvenc_hcodec_dma_load_firmware(dma_addr_t dma_handle, size_t size)
 {
     WRITE_HREG(HCODEC_IMEM_DMA_ADR, dma_handle);
-    WRITE_HREG(HCODEC_IMEM_DMA_COUNT, size >> 2);
+    // WRITE_HREG(HCODEC_IMEM_DMA_COUNT, size >> 2);
+    WRITE_HREG(HCODEC_IMEM_DMA_COUNT, 0x1000);
     // WRITE_HREG(HCODEC_IMEM_DMA_CTRL, (0x8000 | (7 << 16)));
     WRITE_VREG(HCODEC_IMEM_DMA_CTRL, (0x8000 | (0xf << 16)));
 }
@@ -1675,7 +1676,6 @@ void amlvenc_dos_sw_reset1(u32 bits)
 	WRITE_VREG(DOS_SW_RESET1, 0);
 }
 
-#ifdef CONFIG_AMLOGIC_MEDIA_MODULE
 /* M8: 2550/10 = 255M GX: 2000/10 = 200M */
 #define HDEC_L0()   WRITE_HHI_REG(HHI_VDEC_CLK_CNTL, \
 			 (2 << 25) | (1 << 16) | (1 << 24) | \
@@ -1704,7 +1704,6 @@ void amlvenc_dos_sw_reset1(u32 bits)
 #define HDEC_L6()   WRITE_HHI_REG(HHI_VDEC_CLK_CNTL, \
 			 (1 << 25) | (0 << 16) | (1 << 24) | \
 			 (0xffff & READ_HHI_REG(HHI_VDEC_CLK_CNTL)))
-#endif
 
 void amlvenc_dos_hcodec_enable(u32 clock_level) {
 
@@ -1717,7 +1716,6 @@ void amlvenc_dos_hcodec_enable(u32 clock_level) {
 		 * WRITE_VREG(DOS_GCLK_EN0, 0xffffffff);
 		*/
 	} else {
-#ifdef CONFIG_AMLOGIC_MEDIA_MODULE
 		if (clock_level == 0)
 			HDEC_L0();
 		else if (clock_level == 1)
@@ -1732,7 +1730,7 @@ void amlvenc_dos_hcodec_enable(u32 clock_level) {
 			HDEC_L5();
 		else if (clock_level == 6)
 			HDEC_L6();
-#endif
+
 		WRITE_VREG_BITS(DOS_GCLK_EN0, 0x7fff, 12, 15);
 	}
 
