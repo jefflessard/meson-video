@@ -28,19 +28,25 @@ inline enum AM_MESON_CPU_MAJOR_ID get_cpu_major_id(void) {
 }
 
 inline void WRITE_HREG(u32 reg, u32 val) {
-	meson_vcodec_reg_write(MESON_VCODEC_CORE, DOS_BASE, reg << 2, val);
+	regmap_write(MESON_VCODEC_CORE->regmaps[BUS_DOS], reg << 2, val);
 }
 
 inline u32 READ_HREG(u32 reg) {
-	return meson_vcodec_reg_read(MESON_VCODEC_CORE, DOS_BASE, reg << 2);
+	u32 val=0;
+
+	regmap_read(MESON_VCODEC_CORE->regmaps[BUS_DOS], reg << 2, &val);
+	return val;
 }
 
 inline void WRITE_VREG(u32 reg, u32 val) {
-	meson_vcodec_reg_write(MESON_VCODEC_CORE, DOS_BASE, reg << 2, val);
+	regmap_write(MESON_VCODEC_CORE->regmaps[BUS_DOS], reg << 2, val);
 }
 
 inline u32 READ_VREG(u32 reg) {
-	return meson_vcodec_reg_read(MESON_VCODEC_CORE, DOS_BASE, reg << 2);
+	u32 val=0;
+
+	regmap_read(MESON_VCODEC_CORE->regmaps[BUS_DOS], reg << 2, &val);
+	return val;
 }
 
 inline void WRITE_HHI_REG(u32 reg, u32 val) {

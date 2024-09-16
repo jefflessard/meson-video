@@ -44,7 +44,7 @@ preprocess: $(patsubst %.c, %.i, $(SRC_FILES))
 	$(MAKE) -C $(KDIR) M=$(PWD) EXTRA_CFLAGS="$(CCFLAGS) -E" $@
 
 probe: modules_install
-	rmmod meson_vcodec || true
+	rmmod -f meson_vcodec || true
 	dmesg -c > /dev/null
 	modprobe meson_vcodec
 

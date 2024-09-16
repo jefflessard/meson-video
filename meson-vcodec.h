@@ -7,6 +7,7 @@
 #include "meson-codecs.h"
 #include "meson-platforms.h"
 
+// TODO remove this once vdec adapter is gone
 enum meson_vcodec_regs: u8 {
 	DOS_BASE,
 	PARSER_BASE,
@@ -15,6 +16,9 @@ enum meson_vcodec_regs: u8 {
 };
 
 enum meson_vcodec_regmaps: u8 {
+	BUS_DOS,
+	BUS_PARSER,
+	BUS_HEVCENC,
 	BUS_AO,
 	BUS_HHI,
 	MAX_BUS
@@ -117,10 +121,6 @@ int meson_vcodec_reset(struct meson_vcodec_core *core, enum meson_vcodec_reset i
 void meson_vcodec_clk_unprepare(struct meson_vcodec_core *core, enum meson_vcodec_clk index);
 
 int meson_vcodec_clk_prepare(struct meson_vcodec_core *core, enum meson_vcodec_clk index, u64 rate);
-
-u32 meson_vcodec_reg_read(struct meson_vcodec_core *core, enum meson_vcodec_regs index, u32 reg);
-
-void meson_vcodec_reg_write(struct meson_vcodec_core *core, enum meson_vcodec_regs index, u32 reg, u32 value);
 
 int meson_vcodec_pwrc_off(struct meson_vcodec_core *core, enum meson_vcodec_pwrc index);
 

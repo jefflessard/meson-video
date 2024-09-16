@@ -23,10 +23,10 @@
 
 #define DRIVER_NAME "meson-vcodec"
 
-static const char* reg_names[MAX_REGS] = {
-	[DOS_BASE] = "dos",
-	[PARSER_BASE] = "esparser",
-	[HEVCENC_BASE] = "hevcenc",
+static const char* reg_names[MAX_BUS] = {
+	[BUS_DOS] = "dos",
+	[BUS_PARSER] = "esparser",
+	[BUS_HEVCENC] = "hevcenc",
 };
 
 static const char* regmap_names[MAX_BUS] = {
@@ -1208,14 +1208,6 @@ int meson_vcodec_clk_prepare(struct meson_vcodec_core *core, enum meson_vcodec_c
 	return 0;
 }
 
-u32 meson_vcodec_reg_read(struct meson_vcodec_core *core, enum meson_vcodec_regs index, u32 reg) {
-	return readl_relaxed(core->regs[index] + reg);
-}
-
-void meson_vcodec_reg_write(struct meson_vcodec_core *core, enum meson_vcodec_regs index, u32 reg, u32 value) {
-	writel_relaxed(value, core->regs[index] + reg);
-}
-
 int meson_vcodec_pwrc_off(struct meson_vcodec_core *core, enum meson_vcodec_pwrc index) {
 	int ret;
 
@@ -1261,6 +1253,9 @@ static int meson_vcodec_probe(struct platform_device *pdev)
 	struct meson_vcodec_core *core;
 	const struct meson_platform_specs *platform_specs;
 	struct video_device *vfd;
+	struct resource *res;
+	resource_size_t reg_size;
+	void __iomem *base_addr;
 	int ret, i;
 
 	platform_specs = of_device_get_match_data(&pdev->dev);
@@ -1280,6 +1275,9 @@ static int meson_vcodec_probe(struct platform_device *pdev)
 	MESON_VCODEC_CORE = core;
 
 	for (i = 0; i < MAX_BUS; i++) {
+		if (!regmap_names[i])
+			continue;
+
 		core->regmaps[i] = syscon_regmap_lookup_by_phandle(pdev->dev.of_node, regmap_names[i]);
 		if (IS_ERR(core->regmaps[i])) {
 			dev_err(&pdev->dev, "Failed to get %s regmap\n", regmap_names[i]);
@@ -1287,11 +1285,39 @@ static int meson_vcodec_probe(struct platform_device *pdev)
 		}
 	}
 
-	for (i = 0; i < MAX_REGS; i++) {
-		core->regs[i] = devm_platform_ioremap_resource_byname(pdev, reg_names[i]);
-		if (IS_ERR(core->regs[i])) {
-			dev_err(&pdev->dev, "Failed to map %s registers\n", reg_names[i]);
-			return PTR_ERR(core->regs[i]);
+	for (i = 0; i < MAX_BUS; i++) {
+		if (!reg_names[i])
+			continue;
+
+		res = platform_get_resource_byname(pdev, IORESOURCE_MEM, reg_names[i]);
+		if (!res) {
+			dev_err(&pdev->dev, "Failed to get register %s\n", reg_names[i]);
+			return -ENODEV;
+		}
+
+		reg_size = resource_size(res);
+		base_addr = devm_ioremap_resource(&pdev->dev, res);
+		if (IS_ERR(base_addr)) {
+			dev_err(&pdev->dev, "Failed to map %s register\n", reg_names[i]);
+			return PTR_ERR(base_addr);
+		}
+
+		core->regs[i] = base_addr;
+
+		static struct regmap_config regmap_config = {
+			.reg_bits = 32,
+			.val_bits = 32,
+			.reg_stride = 4,
+			//.reg_base = -0x1000,
+			//.reg_shift = -2
+			.use_relaxed_mmio = true,
+		};
+		regmap_config.max_register = ((reg_size - 1) - regmap_config.reg_base) << regmap_config.reg_shift;
+
+		core->regmaps[i] = devm_regmap_init_mmio(&pdev->dev, base_addr, &regmap_config);
+		if (IS_ERR(core->regmaps[i])) {
+			dev_err(&pdev->dev, "Failed to init %s regmap\n", regmap_names[i]);
+			return PTR_ERR(core->regmaps[i]);
 		}
 	}
 
