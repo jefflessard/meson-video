@@ -14,6 +14,10 @@ int meson_platform_register_clks(struct meson_vcodec_core *core) {
 	const struct meson_eeclkc_data *data = core->platform_specs->clks;
 	int ret, i;
 
+	if (!data) {
+		return 0;
+	}
+
 	for (i = 0; i < data->regmap_clk_num; i++)
 		data->regmap_clks[i]->map = map;
 
@@ -22,6 +26,7 @@ int meson_platform_register_clks(struct meson_vcodec_core *core) {
 		if (!data->hw_clks.hws[i])
 			continue;
 
+		dev_dbg(dev,"Registering clock %s\n",  data->hw_clks.hws[i]->init->name);
 		ret = devm_clk_hw_register(dev, data->hw_clks.hws[i]);
 		if (ret) {
 			dev_err(dev, "Clock registration failed\n");
@@ -29,8 +34,7 @@ int meson_platform_register_clks(struct meson_vcodec_core *core) {
 		}
 	}
 
-	return devm_of_clk_add_hw_provider(dev, meson_clk_hw_get, (void *)&data->hw_clks);
-
+	return 0;
 }
 
 static struct clk_regmap gxbb_vdec_hcodec_sel = {
@@ -144,6 +148,9 @@ static const struct meson_codec_formats gxl_codecs[] = {
 const struct meson_platform_specs gxl_platform_specs = {
 	.platform_id = AM_MESON_CPU_MAJOR_ID_GXL,
 	.clks = &gxbb_clkc_data,
+	.hwclks = {
+		[CLK_HCODEC] = &gxbb_vdec_hcodec.hw,
+	},
 	.pwrc = gx_pwrc,
 	.codecs = gxl_codecs,
 	.num_codecs = ARRAY_SIZE(gxl_codecs),

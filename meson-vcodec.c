@@ -40,7 +40,7 @@ static const char* clk_names[MAX_CLKS] = {
 	[CLK_VDEC1] = "vdec_1",
 	[CLK_HEVC] = "vdec_hevc",
 	[CLK_HEVCF] = "vdec_hevcf",
-	[CLK_HCODEC] = "hcodec",
+	[CLK_HCODEC] = "vdec_hcodec",
 };
 
 static const char* reset_names[MAX_RESETS] = {
@@ -1313,6 +1313,7 @@ static int meson_vcodec_probe(struct platform_device *pdev)
 			.use_relaxed_mmio = true,
 		};
 		regmap_config.max_register = ((reg_size - 1) - regmap_config.reg_base) << regmap_config.reg_shift;
+		regmap_config.name = reg_names[i];
 
 		core->regmaps[i] = devm_regmap_init_mmio(&pdev->dev, base_addr, &regmap_config);
 		if (IS_ERR(core->regmaps[i])) {
@@ -1331,7 +1332,14 @@ static int meson_vcodec_probe(struct platform_device *pdev)
 		if (i == CLK_HEVCF && platform_specs->platform_id < AM_MESON_CPU_MAJOR_ID_G12A)
 			continue;
 
-		core->clks[i] = devm_clk_get(&pdev->dev, clk_names[i]);
+		// prefer platform defined clocks when defined
+		if (platform_specs->hwclks[i]) {
+			dev_dbg(&pdev->dev, "Using driver defined %s clock\n", clk_names[i]);
+			core->clks[i] = clk_hw_get_clk((struct clk_hw *) platform_specs->hwclks[i], NULL);
+		} else {
+			core->clks[i] = devm_clk_get(&pdev->dev, clk_names[i]);
+		}
+
 		if (IS_ERR(core->clks[i])) {
 			dev_err(&pdev->dev, "Failed to get %s clock\n", clk_names[i]);
 			return PTR_ERR(core->clks[i]);
