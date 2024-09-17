@@ -26,6 +26,12 @@ exec_time() {
 	echo "$func executed in $dur_ns ms"
 }
 
-#time h264_decode
-time h264_encode
+test_fn=$1
+if [ -z "$test_fn" ]
+then
+	#time h264_decode
+	time h264_encode
+else
+	$test_fn
+fi
 

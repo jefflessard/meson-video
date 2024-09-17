@@ -3,6 +3,7 @@
 #include <linux/of.h>
 #include <linux/interrupt.h>
 #include <linux/clk.h>
+#include <linux/clk-provider.h>
 #include <linux/regmap.h>
 #include <linux/reset.h>
 #include <linux/mfd/syscon.h>
@@ -70,6 +71,18 @@ static void meson_vcodec_configure_ctrls(struct meson_codec_job *job) {
 			continue;
 		}
 	}
+}
+
+static void meson_vcodec_release_ctrls(struct meson_vcodec_session *session) {
+	int ret;
+
+	v4l2_ctrl_handler_free(&session->ctrl_handler);
+
+	ret = v4l2_ctrl_handler_init(&session->ctrl_handler, 0);
+	if (ret) {
+		session_err(session, "Failed to initialize control handler");
+	}
+	session->fh.ctrl_handler = &session->ctrl_handler;
 }
 
 /* vb2_ops */
@@ -423,6 +436,7 @@ static void meson_vcodec_unprepare_streaming(struct vb2_queue *vq)
 			default:
 				break;
 		}
+		meson_vcodec_release_ctrls(session);
 	}
 }
 
@@ -1335,7 +1349,7 @@ static int meson_vcodec_probe(struct platform_device *pdev)
 		// prefer platform defined clocks when defined
 		if (platform_specs->hwclks[i]) {
 			dev_dbg(&pdev->dev, "Using driver defined %s clock\n", clk_names[i]);
-			core->clks[i] = clk_hw_get_clk((struct clk_hw *) platform_specs->hwclks[i], NULL);
+			core->clks[i] = platform_specs->hwclks[i]->clk;
 		} else {
 			core->clks[i] = devm_clk_get(&pdev->dev, clk_names[i]);
 		}
