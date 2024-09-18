@@ -2,6 +2,7 @@
 #include <linux/firmware.h>
 #include <linux/iopoll.h>
 #include <linux/regmap.h>
+#include <linux/soc/amlogic/meson-canvas.h>
 #include <media/v4l2-ctrls.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-mem2mem.h>
@@ -36,6 +37,9 @@ enum cma_buffers {
 	BUF_DBLK_UV,
 	BUF_REF_Y,
 	BUF_REF_UV,
+	BUF_ASSIST,
+	BUF_DUMP_INFO,
+	BUF_CBR_INFO,
 	MAX_BUFFERS,
 };
 
@@ -311,7 +315,7 @@ static void configure_encoder(struct encoder_h264_ctx *ctx) {
 	ctx->conf_params.i16_weight = I16MB_WEIGHT_OFFSET;
 	ctx->conf_params.me_weight = ME_WEIGHT_OFFSET;
 #ifdef H264_ENC_CBR
-	ctx->conf_params.cbr_ddr_start_addr = 0; // TODO
+	ctx->conf_params.cbr_ddr_start_addr = ctx->buffers[BUF_CBR_INFO].paddr;
 	ctx->conf_params.cbr_start_tbl_id = START_TABLE_ID;
 	ctx->conf_params.cbr_short_shift = CBR_SHORT_SHIFT;
 	ctx->conf_params.cbr_long_mb_num = CBR_LONG_MB_NUM;
@@ -319,10 +323,12 @@ static void configure_encoder(struct encoder_h264_ctx *ctx) {
 	ctx->conf_params.cbr_block_w = 16;
 	ctx->conf_params.cbr_block_h = 9;
 #endif
-	ctx->conf_params.dump_ddr_start_addr = 0; //TODO
+	ctx->conf_params.dump_ddr_start_addr = ctx->buffers[BUF_DUMP_INFO].paddr;
 	init_linear_quant(ctx, quant);
+	amlvenc_h264_configure_encoder(&ctx->conf_params);
 
 	// amlvenc_h264_init_firmware_assist_buffer
+	amlvenc_h264_init_firmware_assist_buffer(ctx->buffers[BUF_ASSIST].paddr);
 
 
 	/* amvenc_avc_start_cmd encode request */
@@ -511,6 +517,28 @@ free_buffers:
 	return ret;
 }
 
+static int canvas_config(struct meson_vcodec_session *session, u8 *canvas_index, u32 paddr, u32 width, u32 height) {
+	int ret;
+
+	ret = meson_canvas_alloc(session->core->canvas, canvas_index);
+	if (ret)
+		return ret;
+
+	ret = meson_canvas_config(
+			session->core->canvas,
+			*canvas_index, paddr, width, height,
+			MESON_CANVAS_WRAP_NONE, MESON_CANVAS_BLKMODE_LINEAR, 0
+		);
+	if (ret)
+		goto free_canvas;
+
+	return 0;
+
+free_canvas:
+	meson_canvas_free(session->core->canvas, *canvas_index);
+	return ret;
+}
+
 static int __encoder_h264_configure(struct meson_codec_job *job) {
 	struct meson_vcodec_session *session = job->session;
 	struct encoder_h264_ctx	*ctx;
@@ -539,16 +567,37 @@ static int __encoder_h264_configure(struct meson_codec_job *job) {
 
 	u32 width = job->src_fmt->width;
 	u32 height = job->src_fmt->height;
+	u32 canvas_width = ((width + 31) >> 5) << 5;
+	u32 canvas_height = ((height + 15) >> 4) << 4;
+	u32 mb_width = (width + 15) >> 4;
+	u32 mb_height = (height + 15) >> 4;
 
-	ctx->buffers[BUF_DBLK_Y].size = width * height;
-	ctx->buffers[BUF_DBLK_UV].size = width * height / 2;
-	ctx->buffers[BUF_REF_Y].size = width * height;
-	ctx->buffers[BUF_REF_UV].size = width * height / 2;
+	ctx->buffers[BUF_ASSIST].size = 0xc0000;
+	ctx->buffers[BUF_CBR_INFO].size = 0x2000;
+	ctx->buffers[BUF_DUMP_INFO].size = mb_width * mb_height * 80;
+	ctx->buffers[BUF_DBLK_Y].size = canvas_width * canvas_height;
+	ctx->buffers[BUF_DBLK_UV].size = canvas_width * canvas_height / 2;
+	ctx->buffers[BUF_REF_Y].size = canvas_width * canvas_height;
+	ctx->buffers[BUF_REF_UV].size = canvas_width * canvas_height / 2;
 
 	ret = cma_buffers_allocate(session->core->dev, ctx->buffers, MAX_BUFFERS);
 	if (ret) {
 		goto free_ctx;
 	}
+
+	ret = canvas_config(session, &ctx->dblk_buf_canvas[0], ctx->buffers[BUF_DBLK_Y].paddr, canvas_width, canvas_height);
+	if (ret) goto free_buffers;
+	ret = canvas_config(session, &ctx->dblk_buf_canvas[1], ctx->buffers[BUF_DBLK_UV].paddr, canvas_width, canvas_height / 2);
+	if (ret) goto free_buffers;
+	ret = canvas_config(session, &ctx->dblk_buf_canvas[2], ctx->buffers[BUF_DBLK_UV].paddr, canvas_width, canvas_height / 2);
+	if (ret) goto free_buffers;
+	ret = canvas_config(session, &ctx->ref_buf_canvas[0], ctx->buffers[BUF_REF_Y].paddr, canvas_width, canvas_height);
+	if (ret) goto free_buffers;
+	ret = canvas_config(session, &ctx->ref_buf_canvas[1], ctx->buffers[BUF_REF_UV].paddr, canvas_width, canvas_height / 2);
+	if (ret) goto free_buffers;
+	ret = canvas_config(session, &ctx->ref_buf_canvas[2], ctx->buffers[BUF_REF_UV].paddr, canvas_width, canvas_height / 2);
+	if (ret) goto free_buffers;
+	// TODO free canvas on error
 
 	ret = request_threaded_irq(session->core->irqs[IRQ_HCODEC], hcodec_isr, hcodec_threaded_isr, IRQF_SHARED, "hcodec", job);
 	if (ret) {
