@@ -453,13 +453,13 @@ void amlvenc_h264_init_input_dct_buffer(u32 dct_buff_start_addr, u32 dct_buff_en
     WRITE_HREG(HCODEC_QDCT_MB_BUFF, 0);
 }
 
-void amlvenc_h264_init_input_reference_buffer(s32 canvas)
+void amlvenc_h264_init_input_reference_buffer(u32 canvas)
 {
     WRITE_HREG(HCODEC_ANC0_CANVAS_ADDR, canvas);
     WRITE_HREG(HCODEC_VLC_HCMD_CONFIG, 0);
 }
 
-void amlvenc_h264_init_dblk_buffer(s32 canvas)
+void amlvenc_h264_init_dblk_buffer(u32 canvas)
 {
     WRITE_HREG(HCODEC_REC_CANVAS_ADDR, canvas);
     WRITE_HREG(HCODEC_DBKR_CANVAS_ADDR, canvas);
@@ -1534,6 +1534,7 @@ void amlvenc_h264_configure_encoder(const struct amlvenc_h264_configure_encoder_
 	WRITE_HREG(HCODEC_IRQ_MBOX_MASK, 1);
 }
 
+#ifdef CONFIG_AMLOGIC_MEDIA_MODULE
 void amlvenc_hcodec_canvas_config(u32 index, ulong addr, u32 width, u32 height, u32 wrap, u32 blkmode) {
 	unsigned long datah_temp, datal_temp;
 #if 1
@@ -1590,16 +1591,16 @@ void amlvenc_hcodec_canvas_config(u32 index, ulong addr, u32 width, u32 height, 
 	}
 	*/
 }
+#endif
 
-void amlvenc_hcodec_start(void)
+void amlvenc_hcodec_encode(bool enabled)
 {
-	WRITE_HREG(HCODEC_MPSR, 0x0001);
-}
-
-void amlvenc_hcodec_stop(void)
-{
-	WRITE_HREG(HCODEC_MPSR, 0);
-	WRITE_HREG(HCODEC_CPSR, 0);
+	if (enabled) {
+		WRITE_HREG(HCODEC_MPSR, 0x0001);
+	} else {
+		WRITE_HREG(HCODEC_MPSR, 0);
+		WRITE_HREG(HCODEC_CPSR, 0);
+	}
 }
 
 void amlvenc_hcodec_assist_enable(void)

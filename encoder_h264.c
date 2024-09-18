@@ -4,8 +4,9 @@
 #include <linux/regmap.h>
 #include <media/v4l2-ctrls.h>
 #include <media/v4l2-device.h>
-#include <media/videobuf2-core.h>
 #include <media/v4l2-mem2mem.h>
+#include <media/videobuf2-core.h>
+#include <media/videobuf2-dma-contig.h>
 
 #include "meson-formats.h"
 #include "meson-codecs.h"
@@ -17,9 +18,134 @@
 
 #define MHz (1000000)
 
-struct encoder_h264_ctx {
-	enum amlvenc_hcodec_encoder_status status;
+enum encoder_state {
+	INIT = 0,
+	STARTED_SRC = BIT(1),
+	STARTED_DST = BIT(2),
+	STARTED = BIT(2) | BIT(1),
+	READY,
+	ENCODING,
+	PAUSED,
+	ABORTING,
+	DRAINING,
+	STOPPED,
 };
+
+enum cma_buffers {
+	BUF_DBLK_Y,
+	BUF_DBLK_UV,
+	BUF_REF_Y,
+	BUF_REF_UV,
+	MAX_BUFFERS,
+};
+
+struct cma_buffer {
+	size_t size;
+	void* vaddr;
+	dma_addr_t paddr;
+};
+
+struct encoder_h264_ctx {
+	struct meson_codec_job *job;
+	struct meson_vcodec_session *session;
+	struct v4l2_m2m_ctx *m2m_ctx;
+	struct work_struct encode_work;
+
+	atomic_t encoder_state;
+	enum amlvenc_hcodec_encoder_status hcodec_status;
+
+	struct vb2_v4l2_buffer *src_buf;
+	struct vb2_v4l2_buffer *dst_buf;
+
+	u32 src_frame_count;
+	u32 dst_frame_count;
+
+	struct cma_buffer buffers[MAX_BUFFERS];
+
+	u8 dblk_buf_canvas[3]; // index 0, 1, 2
+	u8 ref_buf_canvas[3];  // index 3, 4, 5
+	u8 input_canvas[3];    // index 6, 7, 8
+	//u8 scale_canvas[3];  // index 9, 10, 11
+
+	qp_table_t qtable;
+
+	struct amlvenc_h264_init_encoder_params init_params;
+	struct amlvenc_h264_qtable_params qtable_params;
+	struct amlvenc_h264_me_params me_params;
+	struct amlvenc_h264_configure_encoder_params conf_params;
+};
+
+static int wait_hcodec_dma_completed(void) {
+	int ret;
+
+	ret = read_poll_timeout(amlvenc_hcodec_dma_completed, ret, ret, 10000, 1000000, true);
+	if (ret) {
+		return -ETIMEDOUT;
+	}
+
+	return 0;
+}
+
+static int load_firmware(struct meson_vcodec_core *core) {
+	struct device *dev = core->dev;
+	const char *path = core->platform_specs->firmwares[H264_ENCODER];
+	const struct firmware *fw;
+	static void *fw_vaddr;
+	static dma_addr_t fw_paddr;
+	size_t fw_size;
+	int ret;
+
+	if (!path) {
+		dev_info(dev, "h264 encoder: No firmware");
+		return 0;
+	}
+
+	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_SC2) {
+		fw_size = 4096 * 16;
+	} else {
+		fw_size = 4096 * 8;
+	}
+
+	fw_vaddr = dma_alloc_coherent(dev, fw_size, &fw_paddr, GFP_KERNEL);
+	if (!fw_vaddr) {
+		return -ENOMEM;
+	}
+
+	ret = request_firmware_into_buf(&fw, path, dev, fw_vaddr, fw_size);
+	if (ret < 0) {
+		dev_err(dev, "h264 encoder: Failed to request firmware %s", path);
+		goto free_dma;
+	}
+
+	/* >= AM_MESON_CPU_MAJOR_ID_SC2 */
+	// amlvenc_hcodec_stop
+	// get_firmware_data VIDEO_ENC_H264
+	// amvdec_loadmc_ex VFORMAT_H264_ENC
+	//	am_loadmc_ex 
+	//	amvdec_loadmc 
+	//	tee_load_video_fw VIDEO_ENC_H264 OPTEE_VDEC_HCDEC
+	//	tee_load_firmware
+	//	arm_smccc_smc TEE_SMC_LOAD_VIDEO_FW
+	// return 0
+
+	amlvenc_hcodec_encode(false);
+
+	amlvenc_hcodec_dma_load_firmware(fw_paddr, fw_size);
+
+	ret = wait_hcodec_dma_completed();
+	if (ret) {
+		dev_err(dev, "h264 encoder: Load firmware timed out (dma hang?)");
+		goto release_firmware;
+	}
+
+	dev_info(dev, "h264 encoder: Firmware %s loaded", path);
+
+release_firmware:
+	release_firmware(fw);
+free_dma:
+	dma_free_coherent(dev, fw_size, fw_vaddr, fw_paddr);
+	return ret;
+}
 
 static void amvenc_reset(void) {
 	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_SC2) {
@@ -55,18 +181,18 @@ static void amvenc_start(void) {
 		READ_VREG(DOS_SW_RESET1);
 	}
 
-	amlvenc_hcodec_start();
+	amlvenc_hcodec_encode(true);
 }
 
 static void amvenc_stop(void)
 {
-	ulong timeout = jiffies + HZ;
+	int ret;
 
-	amlvenc_hcodec_stop();
+	amlvenc_hcodec_encode(false);
 
-	while (!amlvenc_hcodec_dma_completed()) {
-		if (time_after(jiffies, timeout))
-			break;
+	ret = wait_hcodec_dma_completed();
+	if (ret) {
+		pr_warn("HCODEC dma timed out (dma hang?)");
 	}
 
 	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_SC2) {
@@ -88,58 +214,186 @@ static void amvenc_stop(void)
 	}
 }
 
-static void amvenc_configure(void) {
-	/* encode_monitor_thread */
-	/* manager->inited == false */
-	/* avc_init */
-	/* amvenc_avc_start */
-	// encode_manager.need_reset = true
-	// avc_canvas_init
+static void init_fixed_quant(struct encoder_h264_ctx *ctx, u32 quant) {
+	qp_table_t *qtable = &ctx->qtable;
+
+	memset(qtable, quant, sizeof(qp_table_t));
+}
+
+static void init_linear_quant(struct encoder_h264_ctx *ctx, u32 quant) {
+	qp_table_t *qtable = &ctx->qtable;
+
+	if (quant < 4)
+		quant = 4;
+	for (int i = 0; i < 8; i++) {
+		memset(qtable + i, quant + (i - 4), 4);
+		memset(qtable + sizeof(qp_table_t) / 4 / 3 + i, quant + (i - 4), 4);
+		memset(qtable + sizeof(qp_table_t) / 4 / 3 * 2 + i, quant + (i - 4), 4);
+	}	
+}
+
+static void init_encoder(struct encoder_h264_ctx *ctx) {
 	// amvenc_reset();
+	// avc_canvas_init
 	// amlvenc_h264_init_encoder
 	// amlvenc_h264_init_input_dct_buffer
 	// amlvenc_h264_init_output_stream_buffer
-	/* avc_prot_init */
 	// amlvenc_h264_configure_encoder
-	/* amvenc_avc_start */
+	// amlvenc_h264_init_firmware_assist_buffer
+
 	// amlvenc_h264_init_dblk_buffer
 	// amlvenc_h264_init_input_reference_buffer
-	// amlvenc_h264_init_firmware_assist_buffer
 	// amlvenc_h264_configure_ie_me
 	// amlvenc_hcodec_clear_encoder_status
 	// amlvenc_h264_configure_fixed_slice
-	// amvenc_start();
+	// amvenc_start
+}
 
-	/* encode_monitor_thread */
-	/* encode_process_request */
-	// #ifdef H264_ENC_CBR
+static void configure_encoder(struct encoder_h264_ctx *ctx) {
+	dma_addr_t buf_paddr;
+	u64 buf_size;
+	bool is_idr;
+	u32 quant, width, height;
+
+	is_idr = (ctx->src_buf->flags & V4L2_BUF_FLAG_KEYFRAME) == V4L2_BUF_FLAG_KEYFRAME;
+	quant = meson_vcodec_g_ctrl(ctx->session, V4L2_CID_MPEG_VIDEO_H264_MIN_QP);
+	if (!quant) quant = 26;
+	width = ctx->job->src_fmt->width;
+	height = ctx->job->src_fmt->height;
 
 	/* amvenc_avc_start_cmd encode_manager.need_reset */
 	// amvenc_stop
+	amvenc_stop();
+
 	// amvenc_reset
+	amvenc_reset();
+
 	// avc_canvas_init
+	
 	// amlvenc_h264_init_encoder
+	if (is_idr) {
+		ctx->init_params.idr = is_idr;
+		ctx->init_params.idr_pic_id = (ctx->init_params.idr_pic_id + 1) % 65536;
+		ctx->init_params.frame_number = 1;
+		ctx->init_params.pic_order_cnt_lsb = 2;
+	} else {
+		ctx->init_params.idr = is_idr;
+
+#if 0 // TODO
+		/* only update when there is reference frame */
+		if (wq->pic.enable_svc == 0 || wq->pic.non_ref_cnt == 0) {
+			wq->pic.frame_number++;
+			enc_pr(LOG_INFO, "Increase frame_num to %d\n",
+					wq->pic.frame_number);
+		}
+#endif
+
+		ctx->init_params.frame_number = (ctx->init_params.frame_number + 1) % 65536;
+		ctx->init_params.pic_order_cnt_lsb += 2;
+	}
+	ctx->init_params.init_qppicture = quant;
+	amlvenc_h264_init_encoder(&ctx->init_params);
+
 	// amlvenc_h264_init_input_dct_buffer
+
 	// amlvenc_h264_init_output_stream_buffer
-	/* avc_prot_init */
+	buf_paddr = vb2_dma_contig_plane_dma_addr(&ctx->dst_buf->vb2_buf, 0);
+	buf_size = vb2_plane_size(&ctx->dst_buf->vb2_buf, 0);
+	amlvenc_h264_init_output_stream_buffer(buf_paddr, buf_paddr + buf_size - 1);
+
 	// amlvenc_h264_configure_encoder
-	/* amvenc_avc_start_cmd encode_manager.need_reset */
+	ctx->conf_params.idr = is_idr;
+	ctx->conf_params.quant = quant;
+	ctx->conf_params.qp_mode = 1;
+	ctx->conf_params.encoder_width = width;
+	ctx->conf_params.encoder_height = height;
+	ctx->conf_params.i4_weight = I4MB_WEIGHT_OFFSET;
+	ctx->conf_params.i16_weight = I16MB_WEIGHT_OFFSET;
+	ctx->conf_params.me_weight = ME_WEIGHT_OFFSET;
+#ifdef H264_ENC_CBR
+	ctx->conf_params.cbr_ddr_start_addr = 0; // TODO
+	ctx->conf_params.cbr_start_tbl_id = START_TABLE_ID;
+	ctx->conf_params.cbr_short_shift = CBR_SHORT_SHIFT;
+	ctx->conf_params.cbr_long_mb_num = CBR_LONG_MB_NUM;
+	ctx->conf_params.cbr_long_th = CBR_LONG_THRESH;
+	ctx->conf_params.cbr_block_w = 16;
+	ctx->conf_params.cbr_block_h = 9;
+#endif
+	ctx->conf_params.dump_ddr_start_addr = 0; //TODO
+	init_linear_quant(ctx, quant);
+
 	// amlvenc_h264_init_firmware_assist_buffer
+
 
 	/* amvenc_avc_start_cmd encode request */
 	// amlvenc_h264_configure_svc_pic
+
 	// amlvenc_h264_init_dblk_buffer
+	amlvenc_h264_init_dblk_buffer(
+			COMBINE_CANVAS(
+				ctx->dblk_buf_canvas[0],
+				ctx->dblk_buf_canvas[1],
+				ctx->dblk_buf_canvas[2]
+			));
+
 	// amlvenc_h264_init_input_reference_buffer
-	/* set_input_format */
+	amlvenc_h264_init_input_reference_buffer(
+			COMBINE_CANVAS(
+				ctx->ref_buf_canvas[0],
+				ctx->ref_buf_canvas[1],
+				ctx->ref_buf_canvas[2]
+			));
+
 	// canvas_config_proxy
+
 	// amlvenc_h264_configure_mdfin
-	/* amvenc_avc_start_cmd encode request */
+
 	// amlvenc_h264_configure_ie_me
+
 	// amlvenc_h264_configure_fixed_slice
+
 	// amlvenc_hcodec_set_encoder_status
-	
+
 	/* amvenc_avc_start_cmd encode_manager.need_reset */
-	// amvenc_start();
+	// amvenc_start
+	amvenc_start();
+}
+
+static void maybe_start_encoding(struct work_struct *work) {
+	struct encoder_h264_ctx *ctx = container_of(work, struct encoder_h264_ctx, encode_work);
+
+	if (v4l2_m2m_num_src_bufs_ready(ctx->m2m_ctx) == 0 ||
+		v4l2_m2m_num_dst_bufs_ready(ctx->m2m_ctx) == 0)
+		return;
+
+	if (atomic_cmpxchg(&ctx->encoder_state, READY, ENCODING) != READY)
+		return;
+
+	ctx->src_buf = v4l2_m2m_next_src_buf(ctx->m2m_ctx);
+	if (!ctx->src_buf) {
+		atomic_cmpxchg(&ctx->encoder_state, ENCODING, READY);
+		return;
+	}
+
+	ctx->dst_buf = v4l2_m2m_next_dst_buf(ctx->m2m_ctx);
+	if (!ctx->dst_buf) {
+		atomic_cmpxchg(&ctx->encoder_state, ENCODING, READY);
+		return;
+	}
+
+	// Setup memory registers
+#if 0
+	vb2_dma_contig_plane_dma_addr(&ctx->src_buf->vb2_buf, plane)
+		vb2_plane_size(&ctx->src_buf->vb2_buf, plane)
+		vb2_dma_contig_plane_dma_addr(&dst_buf->vb2_buf, 0)
+#endif
+
+	// Configure encoding parameters
+	configure_encoder(ctx);
+
+	// Start encoding
+	ctx->src_frame_count++;
+	amvenc_start();
 }
 
 static irqreturn_t hcodec_isr(int irq, void *data)
@@ -148,9 +402,9 @@ static irqreturn_t hcodec_isr(int irq, void *data)
 	struct encoder_h264_ctx *ctx = job->priv;
 
 	// read encoder status and clear interrupt
-	enum amlvenc_hcodec_encoder_status status = amlvenc_hcodec_encoder_status();
+	enum amlvenc_hcodec_encoder_status hcodec_status = amlvenc_hcodec_encoder_status();
 
-	switch (status) {
+	switch (hcodec_status) {
 		case ENCODER_IDLE:
 		case ENCODER_SEQUENCE:
 		case ENCODER_PICTURE:
@@ -164,14 +418,14 @@ static irqreturn_t hcodec_isr(int irq, void *data)
 		case ENCODER_NON_IDR_INTER:
 		default:
 			// ignore irq
-			return IRQ_HANDLED;
+			return IRQ_NONE;
 		case ENCODER_SEQUENCE_DONE:
 		case ENCODER_PICTURE_DONE:
 		case ENCODER_IDR_DONE:
 		case ENCODER_NON_IDR_DONE:
 		case ENCODER_ERROR:
 			// save status for threaded isr
-			ctx->status = status;
+			ctx->hcodec_status = hcodec_status;
 			return IRQ_WAKE_THREAD;
 	}
 }
@@ -181,7 +435,7 @@ static irqreturn_t hcodec_threaded_isr(int irq, void *data)
 	const struct meson_codec_job *job = data;
 	struct encoder_h264_ctx *ctx = job->priv;
 
-	switch (ctx->status) {
+	switch (ctx->hcodec_status) {
 		case ENCODER_IDLE:
 		case ENCODER_SEQUENCE:
 		case ENCODER_PICTURE:
@@ -201,6 +455,12 @@ static irqreturn_t hcodec_threaded_isr(int irq, void *data)
 		case ENCODER_IDR_DONE:
 		case ENCODER_NON_IDR_DONE:
 			// queue encoded bitstream
+
+			ctx->dst_frame_count++;
+			// maybe start encoding
+			if (atomic_cmpxchg(&ctx->encoder_state, ENCODING, READY) == ENCODING) {
+				schedule_work(&ctx->encode_work);
+			}
 			break;
 		case ENCODER_ERROR:
 			// stop encoding and report error
@@ -210,91 +470,118 @@ static irqreturn_t hcodec_threaded_isr(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
-static int load_firmware(struct meson_codec_job *job) {
-	struct meson_vcodec_session *session = job->session;
-	struct meson_vcodec_core *core = session->core;
-	struct device *dev = core->dev;
-	const char *path = core->platform_specs->firmwares[job->codec->type];
-	const struct firmware *fw;
-	static void *fw_vaddr;
-	static dma_addr_t fw_paddr;
-	size_t fw_size;
-	int ret;
+static void cma_buffers_free(struct device *dev, struct cma_buffer *buffers, int num_buffers) {
+	int i;
 
-	if (!path) {
-		session_info(session, "Codec has no firmware");
-		return 0;
+	for (i = 0; i < num_buffers; i++) {
+		if (buffers[i].size) {
+
+			dma_free_coherent(dev, buffers[i].size, buffers[i].vaddr, buffers[i].paddr);
+		}
+
+		buffers[i].vaddr = NULL;
+		buffers[i].paddr = 0;
+	}
+}
+
+static int cma_buffers_allocate(struct device *dev, struct cma_buffer *buffers, int num_buffers) {
+	int i, ret;
+
+	for (i = 0; i < num_buffers; i++) {
+		if (buffers[i].size) {
+
+			buffers[i].vaddr = dma_alloc_coherent(dev, buffers[i].size, &buffers[i].paddr, GFP_KERNEL);
+			if (!buffers[i].vaddr) {
+				ret = -ENOMEM;
+				goto free_buffers;
+			}
+		}
 	}
 
-	//if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_SC2) {
-	//	fw_size = 4096 * 16;
-	//} else {
-		fw_size = 4096 * 8;
-	//}
+	return 0;
 
-	fw_vaddr = dma_alloc_coherent(dev, fw_size, &fw_paddr, GFP_KERNEL);
-	if (!fw_vaddr) {
-		return -ENOMEM;
+free_buffers:
+	while (--i >= 0) {
+		if (buffers[i].size) {
+			dma_free_coherent(dev, buffers[i].size, buffers[i].vaddr, buffers[i].paddr);
+		}
+		buffers[i].vaddr = NULL;
+		buffers[i].paddr = 0;
 	}
-
-	ret = request_firmware_into_buf(&fw, path, dev, fw_vaddr, fw_size);
-	if (ret < 0) {
-		session_err(session, "Failed to request firmware %s", path);
-		goto free_dma;
-	}
-
-	/* >= AM_MESON_CPU_MAJOR_ID_SC2 */
-	// amlvenc_hcodec_stop
-	// get_firmware_data VIDEO_ENC_H264
-	// amvdec_loadmc_ex VFORMAT_H264_ENC
-	//	am_loadmc_ex 
-	//	amvdec_loadmc 
-	//	tee_load_video_fw VIDEO_ENC_H264 OPTEE_VDEC_HCDEC
-	//	tee_load_firmware
-	//	arm_smccc_smc TEE_SMC_LOAD_VIDEO_FW
-	// return 0
-
-	amlvenc_hcodec_stop();
-
-	amlvenc_hcodec_dma_load_firmware(fw_paddr, fw_size);
-
-	ret = read_poll_timeout(amlvenc_hcodec_dma_completed, ret, ret, 10000, 1000000, true);
-	if (ret) {
-		session_err(session, "Load firmware timed out (dma hang?)");
-		goto release_firmware;
-	}
-
-	session_info(session, "Firmware %s loaded", path);
-
-release_firmware:
-	release_firmware(fw);
-free_dma:
-	dma_free_coherent(dev, fw_size, fw_vaddr, fw_paddr);
 	return ret;
 }
 
-static int encoder_h264_init(struct meson_codec_job *job) {
+static int __encoder_h264_configure(struct meson_codec_job *job) {
 	struct meson_vcodec_session *session = job->session;
-	struct meson_vcodec_core *core = session->core;
 	struct encoder_h264_ctx	*ctx;
 	int ret;
 
 	ctx = kcalloc(1, sizeof(*ctx), GFP_KERNEL);
 	if (!ctx)
 		return -ENOMEM;
+	ctx->job = job;
+	ctx->session = session;
+	ctx->m2m_ctx = job->session->m2m_ctx;
+	atomic_set(&ctx->encoder_state, INIT);
+	INIT_WORK(&ctx->encode_work, maybe_start_encoding);
+	ctx->init_params.init_qppicture = 26;
+	ctx->init_params.log2_max_frame_num = 4;
+	ctx->init_params.log2_max_pic_order_cnt_lsb = 4;
+	ctx->init_params.idr_pic_id = 0;
+	ctx->init_params.frame_number = 0;
+	ctx->init_params.pic_order_cnt_lsb = 0;
+	ctx->qtable_params.quant_tbl_i4 = (u32 *) &ctx->qtable.i4_qp;
+	ctx->qtable_params.quant_tbl_i16 = (u32 *) &ctx->qtable.i16_qp;
+	ctx->qtable_params.quant_tbl_me = (u32 *) &ctx->qtable.p16_qp;
+	ctx->conf_params.qtable = &ctx->qtable_params;
+	ctx->conf_params.me = &ctx->me_params;
 	job->priv = ctx;
+
+	u32 width = job->src_fmt->width;
+	u32 height = job->src_fmt->height;
+
+	ctx->buffers[BUF_DBLK_Y].size = width * height;
+	ctx->buffers[BUF_DBLK_UV].size = width * height / 2;
+	ctx->buffers[BUF_REF_Y].size = width * height;
+	ctx->buffers[BUF_REF_UV].size = width * height / 2;
+
+	ret = cma_buffers_allocate(session->core->dev, ctx->buffers, MAX_BUFFERS);
+	if (ret) {
+		goto free_ctx;
+	}
+
+	ret = request_threaded_irq(session->core->irqs[IRQ_HCODEC], hcodec_isr, hcodec_threaded_isr, IRQF_SHARED, "hcodec", job);
+	if (ret) {
+		session_err(session, "Failed to request HCODEC irq");
+		goto free_buffers;
+	}
+
+	return 0;
+
+//free_irq:
+	free_irq(job->session->core->irqs[IRQ_HCODEC], (void *)job);
+free_buffers:
+	cma_buffers_free(session->core->dev, ctx->buffers, MAX_BUFFERS);
+free_ctx:
+	kfree(ctx);
+	job->priv = NULL;
+	return ret;
+}
+
+static int __encoder_h264_init(struct meson_vcodec_core *core) {
+	int ret;
 
 	/* hcodec_clk */
 	ret = meson_vcodec_clk_prepare(core, CLK_HCODEC, 667 * MHz);
 	if (ret) {
-		session_err(session, "Failed to enable HCODEC clock");
-		goto free_ctx;
+		dev_err(core->dev, "Failed to enable HCODEC clock");
+		return ret;
 	}
 
 	/* hcodec_rst */
 	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_SC2) {
 		if (!core->resets[RESET_HCODEC]) {
-			session_err(session, "Failed to get HCODEC reset");
+			dev_err(core->dev, "Failed to get HCODEC reset");
 			ret = -EINVAL;
 			goto disable_clk;
 		}
@@ -311,7 +598,7 @@ static int encoder_h264_init(struct meson_codec_job *job) {
 	/* Powerup HCODEC & Remove HCODEC ISO */
 	ret = meson_vcodec_pwrc_on(core, PWRC_HCODEC);
 	if (ret) {
-		session_err(session, "Failed to power on HCODEC");
+		dev_err(core->dev, "Failed to power on HCODEC");
 		goto disable_clk;
 	}
 
@@ -327,54 +614,52 @@ static int encoder_h264_init(struct meson_codec_job *job) {
 	amlvenc_hcodec_assist_enable();
 
 	/* load firmware */
-	ret = load_firmware(job);
+	ret = load_firmware(core);
 	if (ret) {
-		session_err(session, "Failed to load firmware");
+		dev_err(core->dev, "Failed to load firmware");
 		goto disable_hcodec;
 	}
 
 	/* request irq */
 	if (!core->irqs[IRQ_HCODEC]) {
-		session_err(session, "Failed to get HCODEC irq");
+		dev_err(core->dev, "Failed to get HCODEC irq");
 		ret = -EINVAL;
-		goto disable_hcodec;
-	}
-	ret = request_threaded_irq(session->core->irqs[IRQ_HCODEC], hcodec_isr, hcodec_threaded_isr, IRQF_SHARED, "hcodec", job);
-	if (ret) {
-		session_err(session, "Failed to request HCODEC irq");
 		goto disable_hcodec;
 	}
 
 	return 0;
 
-free_irq:
-	free_irq(job->session->core->irqs[IRQ_HCODEC], (void *)job);
 disable_hcodec:
 	amlvenc_dos_hcodec_memory(false);
 	amlvenc_dos_hcodec_gateclk(false);
-pwrc_off:
+//pwrc_off:
 	meson_vcodec_pwrc_off(core, PWRC_HCODEC);
 disable_clk:
 	meson_vcodec_clk_unprepare(core, CLK_HCODEC);
-free_ctx:
-	kfree(ctx);
-	job->priv = NULL;
 	return ret;
 }
 
 static int encoder_h264_start(struct meson_codec_job *job, struct vb2_queue *vq, u32 count) {
+	struct encoder_h264_ctx *ctx = job->priv;
 
 	return -EINVAL;
 
 	if (IS_SRC_STREAM(vq->type)) {
-		// configure encoder
-		// encode queued frames
+		atomic_or(STARTED_SRC, &ctx->encoder_state);
+	} else {
+		atomic_or(STARTED_DST, &ctx->encoder_state);
+	}
+
+	// maybe start encoding
+	if (atomic_cmpxchg(&ctx->encoder_state, STARTED, READY) == STARTED) {
+		schedule_work(&ctx->encode_work);
 	}
 
 	return 0;
 }
 
 static int encoder_h264_queue(struct meson_codec_job *job, struct vb2_v4l2_buffer *vb) {
+	struct encoder_h264_ctx *ctx = job->priv;
 	bool force_key_frame;
 
 	if (IS_SRC_STREAM(vb->vb2_buf.type)) {
@@ -386,41 +671,80 @@ static int encoder_h264_queue(struct meson_codec_job *job, struct vb2_v4l2_buffe
 		}
 	}
 
-	// don't process buffer until started
-	if (STREAM_STATUS(job->session, vb->vb2_buf.type) == STREAM_STATUS_INIT) {
-		return 0;
-	}
-
-	if (IS_SRC_STREAM(vb->vb2_buf.type)) {
-		// encode queued frames
+	// maybe start encoding
+	if (atomic_read(&ctx->encoder_state) == READY) {
+		schedule_work(&ctx->encode_work);
 	}
 
 	return 0;
 }
 
 static void encoder_h264_resume(struct meson_codec_job *job) {
+	struct encoder_h264_ctx *ctx = job->priv;
+
+	atomic_set(&ctx->encoder_state, READY);
+
+	// maybe start encoding
+	schedule_work(&ctx->encode_work);
 }
 
 static void encoder_h264_abort(struct meson_codec_job *job) {
+	struct encoder_h264_ctx *ctx = job->priv;
+
+	atomic_set(&ctx->encoder_state, ABORTING);
+	// stop encoder?
 }
 
 static int encoder_h264_stop(struct meson_codec_job *job, struct vb2_queue *vq) {
+	struct encoder_h264_ctx *ctx = job->priv;
+
+	atomic_set(&ctx->encoder_state, DRAINING);
+
+	// when both queues stopped
+	//atomic_set(&ctx->encoder_state, STOPPED);
+
 	return 0;
 }
 
-static int encoder_h264_release(struct meson_codec_job *job) {
-	struct meson_vcodec_session *session = job->session;
-	struct meson_vcodec_core *core = session->core;
+static void __encoder_h264_unconfigure(struct meson_codec_job *job) {
 	struct encoder_h264_ctx *ctx = job->priv;
 
 	free_irq(job->session->core->irqs[IRQ_HCODEC], (void *)job);
+
+	cma_buffers_free(job->session->core->dev, ctx->buffers, MAX_BUFFERS);
+
+	kfree(ctx);
+	job->priv = NULL;
+}
+
+static void __encoder_h264_release(struct meson_vcodec_core *core) {
+
 	amlvenc_dos_hcodec_memory(false);
 	amlvenc_dos_hcodec_gateclk(false);
 	meson_vcodec_pwrc_off(core, PWRC_HCODEC);
 	meson_vcodec_clk_unprepare(core, CLK_HCODEC);
-	kfree(ctx);
-	job->priv = NULL;
+}
 
+static int encoder_h264_init(struct meson_codec_job *job) {
+	int ret;
+
+	ret = __encoder_h264_init(job->session->core);
+	if (ret) {
+		return ret;
+	}
+
+	ret = __encoder_h264_configure(job);
+	if (ret) {
+		__encoder_h264_release(job->session->core);
+		return ret;
+	}
+	
+	return 0;
+}
+
+static int encoder_h264_release(struct meson_codec_job *job) {
+	__encoder_h264_unconfigure(job);
+	__encoder_h264_release(job->session->core);
 	return 0;
 }
 

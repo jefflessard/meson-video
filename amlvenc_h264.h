@@ -100,6 +100,13 @@ enum amlvenc_henc_mb_type {
     HENC_SKIP_RUN_AUTO = 0xffff,
 };
 
+#define QP_TAB_NUM 32
+typedef struct {
+	u8 i4_qp[QP_TAB_NUM];
+	u8 i16_qp[QP_TAB_NUM];
+	u8 p16_qp[QP_TAB_NUM];
+} qp_table_t;
+
 /**
  * struct amlvenc_h264_qtable_params - Quantization table prameters of H.264 encoder
  * @quant_tbl_i4: Quantization table for I4 mode
@@ -279,15 +286,15 @@ void amlvenc_h264_init_input_dct_buffer(u32 dct_buff_start_addr, u32 dct_buff_en
 
 /**
  * amlvenc_h264_init_input_reference_buffer - Initialize input reference buffer
- * @canvas: Canvas number for the reference buffer
+ * @canvas: Combined canvas indexes of the reference buffers
  */
-void amlvenc_h264_init_input_reference_buffer(int canvas);
+void amlvenc_h264_init_input_reference_buffer(u32 canvas);
 
 /**
  * amlvenc_h264_init_dblk_buffer - Initialize deblocking buffer
- * @canvas: Canvas number for the deblocking buffer
+ * @canvas: Combined canvas indexes of the deblocking buffers
  */
-void amlvenc_h264_init_dblk_buffer(int canvas);
+void amlvenc_h264_init_dblk_buffer(u32 canvas);
 
 /**
  * amlvenc_h264_init_output_stream_buffer - Initialize output stream buffer for H.264 encoding
@@ -335,10 +342,11 @@ void amlvenc_h264_configure_encoder(const struct amlvenc_h264_configure_encoder_
  */
 void amlvenc_h264_configure_me(const struct amlvenc_h264_me_params *p);
 
+#ifdef CONFIG_AMLOGIC_MEDIA_MODULE
 void amlvenc_hcodec_canvas_config(u32 index, ulong addr, u32 width, u32 height, u32 wrap, u32 blkmode);
+#endif
 
-void amlvenc_hcodec_start(void);
-void amlvenc_hcodec_stop(void);
+void amlvenc_hcodec_encode(bool enabled);
 void amlvenc_hcodec_assist_enable(void);
 void amlvenc_hcodec_dma_load_firmware(dma_addr_t dma_handle, size_t size);
 bool amlvenc_hcodec_dma_completed(void);
@@ -365,5 +373,11 @@ void amlvenc_hhi_hcodec_clock_off(void);
 void amlvenc_hcodec_power_on(u8 clocklevel);
 void amlvenc_hcodec_power_off(void);
 #endif
+
+#define COMBINE_CANVAS_HELPER(index1, index2, index3, index4, ...) \
+	((index1) | ((index2) << 8) | ((index3) << 16) | ((index4) << 24))
+
+#define COMBINE_CANVAS(...) \
+	COMBINE_CANVAS_HELPER(__VA_ARGS__, 0, 0, 0, 0)
 
 #endif /* __AML_VENC_H264_H__ */
