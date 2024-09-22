@@ -1,4 +1,5 @@
 #include <linux/clk.h>
+#include <linux/reset.h>
 #include <linux/types.h>
 
 #include "meson-formats.h"
@@ -7,6 +8,81 @@
 #include "meson-vcodec.h"
 
 #include "clk/gxbb.h"
+
+
+/* helper functions */
+
+int meson_vcodec_reset(struct meson_vcodec_core *core, enum meson_vcodec_reset index) {
+	int ret;
+
+	ret = reset_control_reset(core->resets[index]);
+	if (ret < 0)
+		return ret;
+
+	return 0;
+}
+
+void meson_vcodec_clk_unprepare(struct meson_vcodec_core *core, enum meson_vcodec_clk index) {
+	clk_disable_unprepare(core->clks[index]);
+}
+
+
+int meson_vcodec_clk_prepare(struct meson_vcodec_core *core, enum meson_vcodec_clk index, u64 rate) {
+	int ret;
+
+	if (rate) {
+		ret = clk_set_rate(core->clks[index], rate);
+		if (ret < 0)
+			return ret;
+	}
+
+	ret = clk_prepare_enable(core->clks[index]);
+	if (ret < 0)
+		return ret;
+
+	return 0;
+}
+
+int meson_vcodec_pwrc_on(struct meson_vcodec_core *core, enum meson_vcodec_pwrc index) {
+	int ret;
+
+	ret = regmap_update_bits(core->regmaps[BUS_AO],
+			core->platform_specs->pwrc[index].sleep_reg,
+			core->platform_specs->pwrc[index].sleep_mask, 0);
+	if (ret < 0)
+		return ret;
+
+	ret = regmap_update_bits(core->regmaps[BUS_AO],
+			core->platform_specs->pwrc[index].iso_reg,
+			core->platform_specs->pwrc[index].iso_mask, 0);
+	if (ret < 0)
+		return ret;
+
+	return 0;
+}
+
+int meson_vcodec_pwrc_off(struct meson_vcodec_core *core, enum meson_vcodec_pwrc index) {
+	int ret;
+
+	ret = regmap_update_bits(core->regmaps[BUS_AO],
+			core->platform_specs->pwrc[index].sleep_reg,
+			core->platform_specs->pwrc[index].sleep_mask,
+			core->platform_specs->pwrc[index].sleep_mask);
+	if (ret < 0)
+		return ret;
+
+	ret = regmap_update_bits(core->regmaps[BUS_AO],
+			core->platform_specs->pwrc[index].iso_reg,
+			core->platform_specs->pwrc[index].iso_mask,
+			core->platform_specs->pwrc[index].iso_mask);
+	if (ret < 0)
+		return ret;
+
+	return 0;
+}
+
+
+/* platform functions */
 
 int meson_platform_register_clks(struct meson_vcodec_core *core) {
 	struct device *dev = core->dev;
@@ -36,6 +112,9 @@ int meson_platform_register_clks(struct meson_vcodec_core *core) {
 
 	return 0;
 }
+
+
+/* platform specific specs */
 
 static struct clk_regmap gxbb_vdec_hcodec_sel = {
 	.data = &(struct clk_regmap_mux_data){

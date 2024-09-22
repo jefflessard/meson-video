@@ -17,7 +17,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
  */
 
-#ifdef CONFIG_AMLOGIC_MEDIA_MODULE
+#ifdef AML_FRAME_SINK
 #include "../../../common/chips/decoder_cpu_ver_info.h"
 // #include <linux/amlogic/media/registers/register.h>
 #include "../../../frame_provider/decoder/utils/vdec.h"
@@ -550,99 +550,17 @@ void amlvenc_h264_configure_svc_pic(bool is_slc_ref) {
 	WRITE_HREG(H264_ENC_SVC_PIC_TYPE, is_slc_ref ? ENC_SLC_REF : ENC_SLC_NON_REF);
 }
 
-void amlvenc_h264_configure_mdfin(struct amlvenc_h264_mdfin_params *p) {
-	u8 dsample_en; /* Downsample Enable */
-	u8 interp_en;  /* Interpolation Enable */
-	u8 y_size;     /* 0:16 Pixels for y direction pickup; 1:8 pixels */
-	u8 r2y_mode;   /* RGB2YUV Mode, range(0~3) */
-	/* mfdin_reg3_canv[25:24];
-	 *  // bytes per pixel in x direction for index0, 0:half 1:1 2:2 3:3
-	 */
-	u8 canv_idx0_bppx;
-	/* mfdin_reg3_canv[27:26];
-	 *  // bytes per pixel in x direction for index1-2, 0:half 1:1 2:2 3:3
-	 */
-	u8 canv_idx1_bppx;
-	/* mfdin_reg3_canv[29:28];
-	 *  // bytes per pixel in y direction for index0, 0:half 1:1 2:2 3:3
-	 */
-	u8 canv_idx0_bppy;
-	/* mfdin_reg3_canv[31:30];
-	 *  // bytes per pixel in y direction for index1-2, 0:half 1:1 2:2 3:3
-	 */
-	u8 canv_idx1_bppy;
-	u8 ifmt444, ifmt422, ifmt420, linear_bytes4p;
-	u8 nr_enable;
+static void amlvenc_h264_configure_mdfin_nr(s32 reg_offset, struct amlvenc_h264_mdfin_params *p) {
 	u8 cfg_y_snr_en;
 	u8 cfg_y_tnr_en;
-	u8 cfg_c_snr_en;
-	u8 cfg_c_tnr_en;
-	u32 linear_bytesperline;
-	s32 reg_offset;
-	bool linear_enable = false;
-	bool format_err = false;
-
-	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_TXL) {
-		if ((p->iformat == 7) && (p->ifmt_extra > 2))
-			format_err = true;
-	} else if (p->iformat == 7)
-		format_err = true;
-
-	if (format_err) {
-		printk(KERN_ERR
-            "mfdin format err, iformat:%d, ifmt_extra:%d\n",
-			p->iformat, p->ifmt_extra);
-		return;
-	}
-	if (p->iformat != 7)
-		p->ifmt_extra = 0;
-
-	ifmt444 = ((p->iformat == 1) || (p->iformat == 5) || (p->iformat == 8) ||
-		(p->iformat == 9) || (p->iformat == 12)) ? 1 : 0;
-	if (p->iformat == 7 && p->ifmt_extra == 1)
-		ifmt444 = 1;
-	ifmt422 = ((p->iformat == 0) || (p->iformat == 10)) ? 1 : 0;
-	if (p->iformat == 7 && p->ifmt_extra != 1)
-		ifmt422 = 1;
-	ifmt420 = ((p->iformat == 2) || (p->iformat == 3) || (p->iformat == 4) ||
-		(p->iformat == 11)) ? 1 : 0;
-	dsample_en = ((ifmt444 && (p->oformat != 2)) ||
-		(ifmt422 && (p->oformat == 0))) ? 1 : 0;
-	interp_en = ((ifmt422 && (p->oformat == 2)) ||
-		(ifmt420 && (p->oformat != 0))) ? 1 : 0;
-	y_size = (p->oformat != 0) ? 1 : 0;
-	if (p->iformat == 12)
-		y_size = 0;
-	r2y_mode = (p->r2y_en == 1) ? 1 : 0; /* Fixed to 1 (TODO) */
-	canv_idx0_bppx = (p->iformat == 1) ? 3 : (p->iformat == 0) ? 2 : 1;
-	canv_idx1_bppx = (p->iformat == 4) ? 0 : 1;
-	canv_idx0_bppy = 1;
-	canv_idx1_bppy = (p->iformat == 5) ? 1 : 0;
-
-	if ((p->iformat == 8) || (p->iformat == 9) || (p->iformat == 12))
-		linear_bytes4p = 3;
-	else if (p->iformat == 10)
-		linear_bytes4p = 2;
-	else if (p->iformat == 11)
-		linear_bytes4p = 1;
-	else
-		linear_bytes4p = 0;
-	if (p->iformat == 12)
-		linear_bytesperline = p->picsize_x * 4;
-	else
-		linear_bytesperline = p->picsize_x * linear_bytes4p;
-
-	if (p->iformat < 8)
-		linear_enable = false;
-	else
-		linear_enable = true;
+    u8 cfg_c_snr_en;
+    u8 cfg_c_tnr_en;
 
 	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_GXBB) {
 		reg_offset = -8;
-		/* nr_mode: 0:Disabled 1:SNR Only 2:TNR Only 3:3DNR */
-		nr_enable = (p->nr_mode) ? 1 : 0;
-		cfg_y_snr_en = ((p->nr_mode == 1) || (p->nr_mode == 3)) ? 1 : 0;
-		cfg_y_tnr_en = ((p->nr_mode == 2) || (p->nr_mode == 3)) ? 1 : 0;
+
+		cfg_y_snr_en = (p->nr_mode == 1) || (p->nr_mode == 3);
+		cfg_y_tnr_en = (p->nr_mode == 2) || (p->nr_mode == 3);
 		cfg_c_snr_en = cfg_y_snr_en;
 		/* cfg_c_tnr_en = cfg_y_tnr_en; */
 		cfg_c_tnr_en = 0;
@@ -682,7 +600,7 @@ void amlvenc_h264_configure_mdfin(struct amlvenc_h264_mdfin_params *p) {
 
 		/* NR For C */
 		WRITE_HREG((HCODEC_MFDIN_REG12 + reg_offset),
-			((cfg_y_snr_en << 0) |
+			((cfg_c_snr_en << 0) |
 			(p->c_snr->err_norm << 1) |
 			(p->c_snr->gau_bld_core << 2) |
 			(((p->c_snr->gau_bld_ofst) & 0xff) << 6) |
@@ -714,51 +632,68 @@ void amlvenc_h264_configure_mdfin(struct amlvenc_h264_mdfin_params *p) {
 			((p->c_snr->beta2alp_rate << 0) |
 			(p->c_snr->beta_min << 8) |
 			(p->c_snr->beta_max << 14)));
+	}
+}
+
+void amlvenc_h264_configure_mdfin(struct amlvenc_h264_mdfin_params *p) {
+	s32 reg_offset;
+	bool r2y_en;
+	bool nr_enable;
+	bool linear_enable;
+
+	r2y_en = (p->r2y_mode) ? 1 : 0;
+	nr_enable = (p->nr_mode) ? 1 : 0;
+	linear_enable = (p->iformat >= 8);
+
+	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_GXBB) {
+		reg_offset = -8;
+
+        amlvenc_h264_configure_mdfin_nr(reg_offset, p);
 
 		WRITE_HREG((HCODEC_MFDIN_REG1_CTRL + reg_offset),
 			(p->iformat << 0) | (p->oformat << 4) |
-			(dsample_en << 6) | (y_size << 8) |
-			(interp_en << 9) | (p->r2y_en << 12) |
-			(r2y_mode << 13) | (p->ifmt_extra << 16) |
+			(p->dsample_en << 6) | (p->y_sampl_rate << 8) |
+			(p->interp_en << 9) | (r2y_en << 12) |
+			(p->r2y_mode << 13) | (p->ifmt_extra << 16) |
 			(nr_enable << 19));
 		if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_SC2) {
 			WRITE_HREG((HCODEC_MFDIN_REG8_DMBL + reg_offset),
-				(p->picsize_x << 16) | (p->picsize_y << 0));
+				(p->width << 16) | (p->height << 0));
 		} else {
 			WRITE_HREG((HCODEC_MFDIN_REG8_DMBL + reg_offset),
-				(p->picsize_x << 14) | (p->picsize_y << 0));
+				(p->width << 14) | (p->height << 0));
 		}
 	} else {
 		reg_offset = 0;
 		WRITE_HREG((HCODEC_MFDIN_REG1_CTRL + reg_offset),
 			(p->iformat << 0) | (p->oformat << 4) |
-			(dsample_en << 6) | (y_size << 8) |
-			(interp_en << 9) | (p->r2y_en << 12) |
-			(r2y_mode << 13));
+			(p->dsample_en << 6) | (p->y_sampl_rate << 8) |
+			(p->interp_en << 9) | (r2y_en << 12) |
+			(p->r2y_mode << 13));
 
 		WRITE_HREG((HCODEC_MFDIN_REG8_DMBL + reg_offset),
-			(p->picsize_x << 12) | (p->picsize_y << 0));
+			(p->width << 12) | (p->height << 0));
 	}
 
 	if (linear_enable == false) {
 		WRITE_HREG((HCODEC_MFDIN_REG3_CANV + reg_offset),
-			(p->input & 0xffffff) |
-			(canv_idx1_bppy << 30) |
-			(canv_idx0_bppy << 28) |
-			(canv_idx1_bppx << 26) |
-			(canv_idx0_bppx << 24));
+			(p->input.canvas & 0xffffff) |
+			(p->canv_idx1_bppy << 30) |
+			(p->canv_idx0_bppy << 28) |
+			(p->canv_idx1_bppx << 26) |
+			(p->canv_idx0_bppx << 24));
 		WRITE_HREG((HCODEC_MFDIN_REG4_LNR0 + reg_offset),
 			(0 << 16) | (0 << 0));
 		WRITE_HREG((HCODEC_MFDIN_REG5_LNR1 + reg_offset), 0);
 	} else {
 		WRITE_HREG((HCODEC_MFDIN_REG3_CANV + reg_offset),
-			(canv_idx1_bppy << 30) |
-			(canv_idx0_bppy << 28) |
-			(canv_idx1_bppx << 26) |
-			(canv_idx0_bppx << 24));
+			(p->canv_idx1_bppy << 30) |
+			(p->canv_idx0_bppy << 28) |
+			(p->canv_idx1_bppx << 26) |
+			(p->canv_idx0_bppx << 24));
 		WRITE_HREG((HCODEC_MFDIN_REG4_LNR0 + reg_offset),
-			(linear_bytes4p << 16) | (linear_bytesperline << 0));
-		WRITE_HREG((HCODEC_MFDIN_REG5_LNR1 + reg_offset), p->input);
+			(p->linear_bpp << 16) | (p->linear_stride << 0));
+		WRITE_HREG((HCODEC_MFDIN_REG5_LNR1 + reg_offset), p->input.addr);
 	}
 
 	if (p->iformat == 12)
@@ -771,6 +706,64 @@ void amlvenc_h264_configure_mdfin(struct amlvenc_h264_mdfin_params *p) {
 			(7 << 0) | (6 << 3) | (5 << 6) |
 			(4 << 9) | (3 << 12) | (2 << 15) |
 			(1 << 18) | (0 << 21));
+}
+
+int amlvenc_h264_init_mdfin(struct amlvenc_h264_mdfin_params *p) {
+	u8 ifmt444, ifmt422, ifmt420;
+	bool format_err = false;
+
+	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_TXL) {
+		if ((p->iformat == 7) && (p->ifmt_extra > 2))
+			format_err = true;
+	} else if (p->iformat == 7)
+		format_err = true;
+
+	if (format_err) {
+		printk(KERN_ERR
+            "mfdin format err, iformat:%d, ifmt_extra:%d\n",
+			p->iformat, p->ifmt_extra);
+		return -1;
+	}
+	if (p->iformat != 7)
+		p->ifmt_extra = 0;
+
+	ifmt444 = ((p->iformat == 1) || (p->iformat == 5) || (p->iformat == 8) ||
+		(p->iformat == 9) || (p->iformat == 12)) ? 1 : 0;
+	if (p->iformat == 7 && p->ifmt_extra == 1)
+		ifmt444 = 1;
+	ifmt422 = ((p->iformat == 0) || (p->iformat == 10)) ? 1 : 0;
+	if (p->iformat == 7 && p->ifmt_extra != 1)
+		ifmt422 = 1;
+	ifmt420 = ((p->iformat == 2) || (p->iformat == 3) || (p->iformat == 4) ||
+		(p->iformat == 11)) ? 1 : 0;
+	p->dsample_en = ((ifmt444 && (p->oformat != 2)) ||
+		(ifmt422 && (p->oformat == 0))) ? 1 : 0;
+	p->interp_en = ((ifmt422 && (p->oformat == 2)) ||
+		(ifmt420 && (p->oformat != 0))) ? 1 : 0;
+	p->y_sampl_rate = (p->oformat != 0) ? 1 : 0;
+	if (p->iformat == 12)
+		p->y_sampl_rate = 0;
+	p->canv_idx0_bppx = (p->iformat == 1) ? 3 : (p->iformat == 0) ? 2 : 1;
+	p->canv_idx1_bppx = (p->iformat == 4) ? 0 : 1;
+	p->canv_idx0_bppy = 1;
+	p->canv_idx1_bppy = (p->iformat == 5) ? 1 : 0;
+
+	if ((p->iformat == 8) || (p->iformat == 9) || (p->iformat == 12))
+		p->linear_bpp = 3;
+	else if (p->iformat == 10)
+		p->linear_bpp = 2;
+	else if (p->iformat == 11)
+		p->linear_bpp = 1;
+	else
+		p->linear_bpp = 0;
+	if (p->iformat == 12)
+		p->linear_stride = p->width * 4;
+	else
+		p->linear_stride = p->width * p->linear_bpp;
+
+	amlvenc_h264_configure_mdfin(p);
+
+	return 0;
 }
 
 void amlvenc_h264_configure_encoder(const struct amlvenc_h264_configure_encoder_params *p) {
@@ -1534,7 +1527,7 @@ void amlvenc_h264_configure_encoder(const struct amlvenc_h264_configure_encoder_
 	WRITE_HREG(HCODEC_IRQ_MBOX_MASK, 1);
 }
 
-#ifdef CONFIG_AMLOGIC_MEDIA_MODULE
+#ifdef AML_FRAME_SINK
 void amlvenc_hcodec_canvas_config(u32 index, ulong addr, u32 width, u32 height, u32 wrap, u32 blkmode) {
 	unsigned long datah_temp, datal_temp;
 #if 1
@@ -1674,11 +1667,35 @@ u32 amlvenc_hcodec_debug(void)
 
 void amlvenc_dos_sw_reset1(u32 bits)
 {
+#define DOS_SW_RESET1_HCODEC_QDCT		BIT(17)
+#define DOS_SW_RESET1_HCODEC_VLC		BIT(16)
+#define DOS_SW_RESET1_HCODEC_AFIFO		BIT(14)
+#define DOS_SW_RESET1_HCODEC_DDR		BIT(13)
+#define DOS_SW_RESET1_HCODEC_CCPU		BIT(12)
+#define DOS_SW_RESET1_HCODEC_MCPU		BIT(11)
+#define DOS_SW_RESET1_HCODEC_PSC		BIT(10)
+#define DOS_SW_RESET1_HCODEC_PIC_DC		BIT( 9)
+#define DOS_SW_RESET1_HCODEC_DBLK		BIT( 8)
+#define DOS_SW_RESET1_HCODEC_MC			BIT( 7)
+#define DOS_SW_RESET1_HCODEC_IQIDCT		BIT( 6)
+#define DOS_SW_RESET1_HCODEC_VIFIFO		BIT( 5)
+#define DOS_SW_RESET1_HCODEC_VLD_PART	BIT( 4)
+#define DOS_SW_RESET1_HCODEC_VLD		BIT( 3)
+#define DOS_SW_RESET1_HCODEC_ASSIST		BIT( 2)
 	WRITE_VREG(DOS_SW_RESET1, bits);
 	WRITE_VREG(DOS_SW_RESET1, 0);
 }
 
 void amlvenc_dos_hcodec_memory(bool enable) {
+#define DOS_MEM_PD_HCODEC_PRE_ARB GENMASK(17,16)
+#define DOS_MEM_PD_HCODEC_PIC_DC  GENMASK(15,14)
+#define DOS_MEM_PD_HCODEC_MFDIN   GENMASK(13,12)
+#define DOS_MEM_PD_HCODEC_MCRCC   GENMASK(11,10)
+#define DOS_MEM_PD_HCODEC_DBLK    GENMASK( 9, 8)
+#define DOS_MEM_PD_HCODEC_MC      GENMASK( 7, 6)
+#define DOS_MEM_PD_HCODEC_QDCT    GENMASK( 5, 4)
+#define DOS_MEM_PD_HCODEC_VLC     GENMASK( 3, 2)
+#define DOS_MEM_PD_HCODEC_VCPU    GENMASK( 1, 0)
 	if (enable) {
 		/* Powerup HCODEC memories */
 		WRITE_VREG(DOS_MEM_PD_HCODEC, 0x0);
@@ -1706,7 +1723,7 @@ void amlvenc_dos_disable_auto_gateclk(void) {
 		(READ_VREG(DOS_GEN_CTRL0) & 0xFFFFFFFE));
 }
 
-#ifdef CONFIG_AMLOGIC_MEDIA_MODULE
+#ifdef AML_FRAME_SINK
 
 /* M8: 2550/10 = 255M GX: 2000/10 = 200M */
 #define HDEC_L0()   WRITE_HHI_REG(HHI_VDEC_CLK_CNTL, \

@@ -20,9 +20,9 @@ enum meson_formats: u8 {
 struct meson_format {
 	const u32 pixelformat;
 	const char *description;
-	const u32 num_planes;
-	const u8 plane_size_denums[MAX_NUM_PLANES];
-	const u8 plane_line_denums[MAX_NUM_PLANES];
+	const u8 num_planes;
+	const u8 bits_per_px[MAX_NUM_PLANES];
+	const u8 align_bits;
 	const u32 flags;
 };
 

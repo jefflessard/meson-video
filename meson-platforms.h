@@ -34,11 +34,31 @@ extern const struct meson_platform_specs gxl_platform_specs;
 
 int meson_platform_register_clks(struct meson_vcodec_core *core);
 
+
 /* BEGIN taken from meson-ee-pwrc.c */
 
 /* AO Offsets */
 #define GX_AO_RTI_GEN_PWR_SLEEP0	(0x3a << 2)
+	#define DOS_HEVC _D1_PWR_OFF	BIT(7)
+	#define DOS_HEVC_PWR_OFF		BIT(6)
+	#define DOS_VDEC2_D1_PWR_OFF	BIT(5)
+	#define DOS_VDEC2_PWR_OFF		BIT(4)
+	#define DOS_VDEC1_D1_PWR_OFF	BIT(3)
+	#define DOS_VDEC1_PWR_OFF		BIT(2)
+	#define DOS_HCODEC_D1_PWR_OFF	BIT(1)
+	#define DOS_HCODEC_PWR_OFF		BIT(0)
+
 #define GX_AO_RTI_GEN_PWR_ISO0		(0x3b << 2)
+	#define DOS_HEVC_OUT_EN			BIT(11)
+	#define DOS_HEVC_IN_EN		    BIT(10)
+	#define DOS_VDEC2_ISO_OUT_EN	BIT( 9)	
+	#define DOS_VDEC2_ISO_IN_EN		BIT( 8)	
+	#define DOS_VDEC1_ISO_OUT_EN	BIT( 7)	
+	#define DOS_VDEC1_ISO_IN_EN		BIT( 6)	
+	#define DOS_HCODEC_ISO_OUT_EN	BIT( 5)
+	#define DOS_HCODEC_ISO_IN_EN	BIT( 4)	
+	#define GPU_ISO_OUT_EN			BIT( 3)
+	#define GPU_ISO_IN_EN			BIT( 2)
 
 struct meson_ee_pwrc_top_domain {
 	unsigned int sleep_reg;

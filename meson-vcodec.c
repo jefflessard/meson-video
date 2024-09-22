@@ -773,20 +773,13 @@ static const struct meson_codec_formats* find_codec(struct meson_vcodec_core *co
 }
 
 static void set_buffer_sizes(struct v4l2_format *f, const struct meson_format *fmt) {
-	u32 sizeimage, aligned_width;
+	u32 width, height;
+	u32 sizeimage, stride;
+	u8 bits_per_px;
 	int j;
 
-	sizeimage = ALIGN(f->fmt.pix_mp.width * f->fmt.pix_mp.height, SZ_64K);
-	aligned_width = ALIGN(f->fmt.pix_mp.width, 32);
-
-#if 0
-	if (fmt == &nv12) {
-		f->fmt.pix_mp.num_planes = 1;
-		f->fmt.pix_mp.plane_fmt[0].sizeimage = sizeimage;
-		f->fmt.pix_mp.plane_fmt[0].bytesperline = 0;
-		return;
-	}
-#endif
+	width = f->fmt.pix_mp.width;
+	height = f->fmt.pix_mp.height;
 
 	f->fmt.pix_mp.num_planes = fmt->num_planes;
 	for (j = 0; j < fmt->num_planes; j++) {
@@ -796,17 +789,13 @@ static void set_buffer_sizes(struct v4l2_format *f, const struct meson_format *f
 			sizeof(f->fmt.pix_mp.plane_fmt[j].reserved)
 		);
 
-		if (fmt->plane_size_denums[j]) {
-			f->fmt.pix_mp.plane_fmt[j].sizeimage = sizeimage / fmt->plane_size_denums[j];
-		} else {
-			f->fmt.pix_mp.plane_fmt[j].sizeimage = sizeimage;
-		}
+		bits_per_px = fmt->bits_per_px[j];
+		stride = (width * bits_per_px) >> 3; // bits to bytes /8
+		stride = ALIGN(stride, fmt->align_bits);
+		sizeimage = ALIGN(stride * height, fmt->align_bits);
 
-		if (fmt->plane_line_denums[j]) {
-			f->fmt.pix_mp.plane_fmt[j].bytesperline = aligned_width / fmt->plane_line_denums[j];
-		} else {
-			f->fmt.pix_mp.plane_fmt[j].bytesperline = 0;
-		}
+		f->fmt.pix_mp.plane_fmt[j].bytesperline = stride;
+		f->fmt.pix_mp.plane_fmt[j].sizeimage = sizeimage;
 	}
 }
 
@@ -1177,87 +1166,6 @@ s32 meson_vcodec_g_ctrl(struct meson_vcodec_session *session, u32 id) {
 		session_warn(session, "ctrl %d not found", id);
 		return 0;
 	}
-}
-
-int meson_vcodec_s_ctrl(struct meson_vcodec_session *session, u32 id, s32 val) {
-	struct v4l2_ctrl *ctrl;
-
-	ctrl = v4l2_ctrl_find(&session->ctrl_handler, id);
-	if (ctrl) {
-		return v4l2_ctrl_s_ctrl(ctrl, val);
-	} else {
-		session_warn(session, "ctrl %d not found", id);
-		return -EINVAL;
-	}
-}
-
-int meson_vcodec_reset(struct meson_vcodec_core *core, enum meson_vcodec_reset index) {
-	int ret;
-
-	ret = reset_control_reset(core->resets[index]);
-	if (ret < 0)
-		return ret;
-
-	return 0;
-}
-
-void meson_vcodec_clk_unprepare(struct meson_vcodec_core *core, enum meson_vcodec_clk index) {
-	clk_disable_unprepare(core->clks[index]);
-}
-
-
-int meson_vcodec_clk_prepare(struct meson_vcodec_core *core, enum meson_vcodec_clk index, u64 rate) {
-	int ret;
-
-	if (rate) {
-		ret = clk_set_rate(core->clks[index], rate);
-		if (ret < 0)
-			return ret;
-	}
-
-	ret = clk_prepare_enable(core->clks[index]);
-	if (ret < 0)
-		return ret;
-
-	return 0;
-}
-
-int meson_vcodec_pwrc_off(struct meson_vcodec_core *core, enum meson_vcodec_pwrc index) {
-	int ret;
-
-	ret = regmap_update_bits(core->regmaps[BUS_AO],
-			core->platform_specs->pwrc[index].sleep_reg,
-			core->platform_specs->pwrc[index].sleep_mask,
-			core->platform_specs->pwrc[index].sleep_mask);
-	if (ret < 0)
-		return ret;
-
-	ret = regmap_update_bits(core->regmaps[BUS_AO],
-			core->platform_specs->pwrc[index].iso_reg,
-			core->platform_specs->pwrc[index].iso_mask,
-			core->platform_specs->pwrc[index].iso_mask);
-	if (ret < 0)
-		return ret;
-
-	return 0;
-}
-
-int meson_vcodec_pwrc_on(struct meson_vcodec_core *core, enum meson_vcodec_pwrc index) {
-	int ret;
-
-	ret = regmap_update_bits(core->regmaps[BUS_AO],
-			core->platform_specs->pwrc[index].sleep_reg,
-			core->platform_specs->pwrc[index].sleep_mask, 0);
-	if (ret < 0)
-		return ret;
-
-	ret = regmap_update_bits(core->regmaps[BUS_AO],
-			core->platform_specs->pwrc[index].iso_reg,
-			core->platform_specs->pwrc[index].iso_mask, 0);
-	if (ret < 0)
-		return ret;
-
-	return 0;
 }
 
 /* platform_driver */

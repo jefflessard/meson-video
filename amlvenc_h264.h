@@ -22,6 +22,7 @@
 #include <linux/types.h>
 
 #ifdef CONFIG_AMLOGIC_MEDIA_MODULE
+#define AML_FRAME_SINK
 #define H264_ENC_CBR
 #define MULTI_SLICE_MC
 #endif
@@ -239,20 +240,101 @@ struct amlvenc_h264_configure_encoder_params {
     struct amlvenc_h264_me_params *me;
 };
 
+
+
+
 // Struct for amlvenc_h264_configure_mdfin parameters
+/*
+ *
+* FORMAT        IFMT, SFMT, RGB, SUBS, LBP, LBL, Wb, PL, W0, H0, W1, H1, W2, H2,  X0, Y0, X+, Y+                                     *
+* YUV422S          0,    0,   -,  422,   -,   -, 16,  1,  1,  1,  -,  -,  -,  -,   2,  1,  -,  -                                     *
+* YUV444S          1,    0,   -,  444,   -,   -, 24,  1,  1,  1,  -,  -,  -,  -,   3,  1,  -,  -                                     *
+* RGB888S          1,    0,   1,  444,   -,   -, 24,  1,  1,  1,  -,  -,  -,  -,   3,  1,  -,  -                                     *
+* NV21P            2,    0,   -,  420,   -,   -,  8,  2,  1,  1,  1, /2,  -,  -,   1,  1,  1, /2                                     *
+* NV12P            3,    0,   -,  420,   -,   -,  8,  2,  1,  1,  1, /2,  -,  -,   1,  1,  1, /2                                     *
+* YUV420P          4,    0,   -,  420,   -,   -,  8,  3,  1,  1, /2, /2, /2, /2,   1,  1, /2, /2                                     *
+* YUV444P          5,    0,   -,  444,   -,   -,  8,  3,  1,  1,  1,  1,  1,  1,   1,  1,  1,  1                                     *
+* RGB888P          5,    0,   1,  444,   -,   -,  8,  3,  1,  1,  1,  1,  1,  1,   1,  1,  1,  1                                     *
+* YUV422P          6,    0,   -,  422,   -,   -,  8,  3,  1,  1, /2,  1, /2,  1,   1,  1, /2,  1                                     *
+* YUV422S_12BIT    7,    0,   -,  422,   -,   -, 24,  1,  1,  1,  -,  -,  -,  -,   1,  1,  -,  -  >= AM_MESON_CPU_MAJOR_ID_TXL       *
+* YUV444S_10BIT    7,    1,   -,  444,   -,   -, 30,  1,  1,  1,  -,  -,  -,  -,   1,  1,  -,  -  >= AM_MESON_CPU_MAJOR_ID_TXL       *
+* YUV422S_10BIT    7,    2,   -,  422,   -,   -, 20,  1,  1,  1,  -,  -,  -,  -,   1,  1,  -,  -  >= AM_MESON_CPU_MAJOR_ID_TXL       *
+* UNKNOWN_8L       8,    0,   ?,  444,   3,   3, 24,  -,  1,  1,  -,  -,  -,  -,   1,  1,  -,  -                                     *
+* UNKNOWN_9L       9,    0,   ?,  444,   3,   3, 24,  -,  1,  1,  -,  -,  -,  -,   1,  1,  -,  -                                     *
+* YUV422L         10,    0,   -,  422,   2,   2, 16,  -,  1,  1,  -,  -,  -,  -,   1,  1,  -,  -                                     *
+* UNKNOWN_11L     11,    0,   ?,  420,   1,   1,  8,  -,  1,  1,  -,  -,  -,  -,   1,  1,  -,  -                                     *
+* RGBA8888L       12,    0,   1,  444,   3,   4, 32,  -,  1,  1,  -,  -,  -,  -,   1,  1,  -,  -                                     *
+*/
 struct amlvenc_h264_mdfin_params {
-    u32 input;
-    u8 iformat;
-    u8 oformat;
-    u32 picsize_x;
-    u32 picsize_y;
-    u8 r2y_en;
-    u8 nr_mode;
-    u8 ifmt_extra;
-    struct amlvenc_h264_snr_params *y_snr;
-    struct amlvenc_h264_snr_params *c_snr;
-    struct amlvenc_h264_tnr_params *y_tnr;
-    struct amlvenc_h264_tnr_params *c_tnr;
+    u32 width;
+    u32 height;
+	union {
+    	u32 canvas;      /* combined canvas indexes */
+		u32 addr;        /* paddr for linear input format (iformat >=8) */
+	} input;
+    enum mdfin_iformat_enum : u8 {
+		MDFIN_IFMT_YUV422S        =  0,
+		MDFIN_IFMT_YUV444S        =  1,
+		MDFIN_IFMT_NV21P          =  2,
+		MDFIN_IFMT_NV12P          =  3,
+		MDFIN_IFMT_YUV420P        =  4,
+		MDFIN_IFMT_YUV444P        =  5,
+		MDFIN_IFMT_YUV422P        =  6, /* unconfirmed */
+		MDFIN_IFMT_HIGH_BIT_DEPTH =  7, /* ifmt_extra */
+		MDFIN_IFMT_UNKNOWN_8L     =  8, /* unkown 4:4:4 24 b/px linear format */
+		MDFIN_IFMT_UNKOWNN_9L     =  9, /* unkown 4:4:4 24 b/px linear format */
+		MDFIN_IFMT_YUV422L        = 10,
+		MDFIN_IFMT_UNKOWN_11L     = 11, /* unkown 4:2:0 8 b/px linear format */
+		MDFIN_IFMT_RGBA8888L      = 12,
+	} iformat;           /* input raw format betweeen 0 and 12 */
+    enum mdfin_ifmt_extra_enum: u8 {
+		MDFIN_IFMT_EXTRA_NONE = 0,
+		MDFIN_IFMT_EXTRA_YUV422S_12BIT = 0,
+		MDFIN_IFMT_EXTRA_YUV444S_10BIT = 1,
+		MDFIN_IFMT_EXTRA_YUV422S_10BIT = 2,
+	} ifmt_extra;        /* subformat specifier for iformat = 7 */
+    enum mdfin_subsampling_enum : u8 {
+		MDFIN_SUBSAMPLING_420 = 0,
+		MDFIN_SUBSAMPLING_422 = 1,
+		MDFIN_SUBSAMPLING_424 = 2,
+	} oformat;			 /* output format = 0 */
+    enum mddfin_nr_mode_enum : u8 {
+		MDFIN_NR_DISABLED = 0,
+		MDFIN_NR_SNR      = 1,
+		MDFIN_NR_TNR      = 2,
+		MDFIN_NR_3D       = 3,
+	} nr_mode;           /* nr_mode: 0:Disabled 1:SNR Only 2:TNR Only 3:3DNR */
+	bool dsample_en;     /* Downsample Enable */
+	bool interp_en;      /* Interpolation Enable */
+	enum mdfin_y_sample_rate_enum : bool {
+		MDFIN_YSAMPLE_16PX = 0,
+		MDFIN_YSAMPLE_8PX = 1,
+	} y_sampl_rate;      /* 0:16 Pixels for y direction pickup; 1:8 pixels */
+	enum mdfin_r2y_mode_enum : u8 {
+		MDFIN_R2Y_MODE0 = 0,
+		MDFIN_R2Y_MODE1 = 1,
+		MDFIN_R2Y_MODE2 = 2,
+		MDFIN_R2Y_MODE3 = 3,
+	} r2y_mode;          /* RGB2YUV Mode, range(0~3) */
+	enum mdfin_bpp_enum : u8 {
+		MDFIN_BPP_HALF = 0,
+		MDFIN_BPP_1    = 1,
+		MDFIN_BPP_2    = 2,
+		MDFIN_BPP_3    = 3,
+	} canv_idx0_bppx;    /* bytes per pixel in x direction for index0, 0:half 1:1 2:2 3:3 */
+	enum mdfin_bpp_enum
+	   canv_idx1_bppx;   /* bytes per pixel in x direction for index1-2, 0:half 1:1 2:2 3:3 */
+	enum mdfin_bpp_enum
+	   canv_idx0_bppy;   /* bytes per pixel in y direction for index0, 0:half 1:1 2:2 3:3 */
+	enum mdfin_bpp_enum
+	   canv_idx1_bppy;   /* bytes per pixel in y direction for index1-2, 0:half 1:1 2:2 3:3 */	
+	u8 linear_bpp;       /* bytes per pixel of linear inpout format (iformat >= 8) */
+	u32 linear_stride;   /* bytes per line of linear inpout format (iformat >= 8) */
+
+    const struct amlvenc_h264_snr_params *y_snr;
+    const struct amlvenc_h264_snr_params *c_snr;
+    const struct amlvenc_h264_tnr_params *y_tnr;
+    const struct amlvenc_h264_tnr_params *c_tnr;
 };
 
 extern const struct amlvenc_h264_me_params amlvenc_h264_me_defaults;
@@ -323,6 +405,7 @@ void amlvenc_h264_configure_svc_pic(bool is_slc_ref);
  * @p: Pointer to the MDFIN configuration parameters
  */
 void amlvenc_h264_configure_mdfin(struct amlvenc_h264_mdfin_params *p);
+int amlvenc_h264_init_mdfin(struct amlvenc_h264_mdfin_params *p);
 
 /**
  * amlvenc_h264_configure_encoder - Initialize H.264 encoder
@@ -342,7 +425,7 @@ void amlvenc_h264_configure_encoder(const struct amlvenc_h264_configure_encoder_
  */
 void amlvenc_h264_configure_me(const struct amlvenc_h264_me_params *p);
 
-#ifdef CONFIG_AMLOGIC_MEDIA_MODULE
+#ifdef AML_FRAME_SINK
 void amlvenc_hcodec_canvas_config(u32 index, ulong addr, u32 width, u32 height, u32 wrap, u32 blkmode);
 #endif
 
@@ -367,17 +450,24 @@ void amlvenc_dos_hcodec_memory(bool enable);
 void amlvenc_dos_hcodec_gateclk(bool enable);
 void amlvenc_dos_disable_auto_gateclk(void);
 
-#ifdef CONFIG_AMLOGIC_MEDIA_MODULE
+#ifdef AML_FRAME_SINK
 void amlvenc_hhi_hcodec_clock_on(u8 clock_level);
 void amlvenc_hhi_hcodec_clock_off(void);
 void amlvenc_hcodec_power_on(u8 clocklevel);
 void amlvenc_hcodec_power_off(void);
 #endif
 
-#define COMBINE_CANVAS_HELPER(index1, index2, index3, index4, ...) \
-	((index1) | ((index2) << 8) | ((index3) << 16) | ((index4) << 24))
+#define COMBINE_CANVAS_HELPER(index1, index2, index3, ...) \
+	((index1) | ((index2) << 8) | ((index3) << 16))
 
 #define COMBINE_CANVAS(...) \
-	COMBINE_CANVAS_HELPER(__VA_ARGS__, 0, 0, 0, 0)
+	COMBINE_CANVAS_HELPER(__VA_ARGS__, 0, 0, 0)
+
+#define COMBINE_CANVAS_ARRAY(indexes, num_canvas) \
+	COMBINE_CANVAS_HELPER( \
+			(num_canvas > 0 ? indexes[0] : 0), \
+			(num_canvas > 1 ? indexes[1] : 0), \
+			(num_canvas > 2 ? indexes[2] : 0), \
+		)
 
 #endif /* __AML_VENC_H264_H__ */
