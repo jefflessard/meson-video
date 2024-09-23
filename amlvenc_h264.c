@@ -527,8 +527,12 @@ void amlvenc_h264_configure_ie_me(enum amlvenc_henc_mb_type ie_me_mb_type) {
 	WRITE_HREG(IE_ME_MB_TYPE, ie_me_mb_type);
 }
 
+#ifdef AML_FRAME_SINK
 void amlvenc_h264_configure_fixed_slice(u32 fixed_slice_cfg, u32 rows_per_slice, u32 encoder_height)
 {
+	/* [31:0] NUM_ROWS_PER_SLICE_P */
+	/* [15:0] NUM_ROWS_PER_SLICE_I */
+
 #ifdef MULTI_SLICE_MC
     if (fixed_slice_cfg)
         WRITE_HREG(FIXED_SLICE_CFG, fixed_slice_cfg);
@@ -545,6 +549,20 @@ void amlvenc_h264_configure_fixed_slice(u32 fixed_slice_cfg, u32 rows_per_slice,
 	WRITE_HREG(FIXED_SLICE_CFG, 0);
 #endif
 }
+
+#else
+
+void amlvenc_h264_configure_fixed_slice(u32 encoder_height, u16 p_mb_rows, u16 i_mb_rows)
+{
+	u32 mb_per_slice = (encoder_height + 15) >> 4;
+
+	/* [31:0] NUM_ROWS_PER_SLICE_P */
+	/* [15:0] NUM_ROWS_PER_SLICE_I */
+    WRITE_HREG(FIXED_SLICE_CFG,
+		(((mb_per_slice * p_mb_rows) & 0xFFFF) << 16) |
+		(((mb_per_slice * i_mb_rows) & 0xFFFF) <<  0));
+}
+#endif
 
 void amlvenc_h264_configure_svc_pic(bool is_slc_ref) {
 	WRITE_HREG(H264_ENC_SVC_PIC_TYPE, is_slc_ref ? ENC_SLC_REF : ENC_SLC_NON_REF);
@@ -706,64 +724,6 @@ void amlvenc_h264_configure_mdfin(struct amlvenc_h264_mdfin_params *p) {
 			(7 << 0) | (6 << 3) | (5 << 6) |
 			(4 << 9) | (3 << 12) | (2 << 15) |
 			(1 << 18) | (0 << 21));
-}
-
-int amlvenc_h264_init_mdfin(struct amlvenc_h264_mdfin_params *p) {
-	u8 ifmt444, ifmt422, ifmt420;
-	bool format_err = false;
-
-	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_TXL) {
-		if ((p->iformat == 7) && (p->ifmt_extra > 2))
-			format_err = true;
-	} else if (p->iformat == 7)
-		format_err = true;
-
-	if (format_err) {
-		printk(KERN_ERR
-            "mfdin format err, iformat:%d, ifmt_extra:%d\n",
-			p->iformat, p->ifmt_extra);
-		return -1;
-	}
-	if (p->iformat != 7)
-		p->ifmt_extra = 0;
-
-	ifmt444 = ((p->iformat == 1) || (p->iformat == 5) || (p->iformat == 8) ||
-		(p->iformat == 9) || (p->iformat == 12)) ? 1 : 0;
-	if (p->iformat == 7 && p->ifmt_extra == 1)
-		ifmt444 = 1;
-	ifmt422 = ((p->iformat == 0) || (p->iformat == 10)) ? 1 : 0;
-	if (p->iformat == 7 && p->ifmt_extra != 1)
-		ifmt422 = 1;
-	ifmt420 = ((p->iformat == 2) || (p->iformat == 3) || (p->iformat == 4) ||
-		(p->iformat == 11)) ? 1 : 0;
-	p->dsample_en = ((ifmt444 && (p->oformat != 2)) ||
-		(ifmt422 && (p->oformat == 0))) ? 1 : 0;
-	p->interp_en = ((ifmt422 && (p->oformat == 2)) ||
-		(ifmt420 && (p->oformat != 0))) ? 1 : 0;
-	p->y_sampl_rate = (p->oformat != 0) ? 1 : 0;
-	if (p->iformat == 12)
-		p->y_sampl_rate = 0;
-	p->canv_idx0_bppx = (p->iformat == 1) ? 3 : (p->iformat == 0) ? 2 : 1;
-	p->canv_idx1_bppx = (p->iformat == 4) ? 0 : 1;
-	p->canv_idx0_bppy = 1;
-	p->canv_idx1_bppy = (p->iformat == 5) ? 1 : 0;
-
-	if ((p->iformat == 8) || (p->iformat == 9) || (p->iformat == 12))
-		p->linear_bpp = 3;
-	else if (p->iformat == 10)
-		p->linear_bpp = 2;
-	else if (p->iformat == 11)
-		p->linear_bpp = 1;
-	else
-		p->linear_bpp = 0;
-	if (p->iformat == 12)
-		p->linear_stride = p->width * 4;
-	else
-		p->linear_stride = p->width * p->linear_bpp;
-
-	amlvenc_h264_configure_mdfin(p);
-
-	return 0;
 }
 
 void amlvenc_h264_configure_encoder(const struct amlvenc_h264_configure_encoder_params *p) {
@@ -1527,65 +1487,6 @@ void amlvenc_h264_configure_encoder(const struct amlvenc_h264_configure_encoder_
 	WRITE_HREG(HCODEC_IRQ_MBOX_MASK, 1);
 }
 
-#ifdef AML_FRAME_SINK
-void amlvenc_hcodec_canvas_config(u32 index, ulong addr, u32 width, u32 height, u32 wrap, u32 blkmode) {
-	unsigned long datah_temp, datal_temp;
-#if 1
-	ulong start_addr = addr >> 3;
-	u32 cav_width = (((width + 31)>>5)<<2);
-	u32 cav_height = height;
-	u32 x_wrap_en = 0;
-	u32 y_wrap_en = 0;
-	u32 blk_mode = 0;//blkmode;
-	u32 cav_endian = 0;
-
-	datal_temp = (start_addr & 0x1fffffff) |
-				((cav_width & 0x7 ) << 29 );
-
-	datah_temp = ((cav_width  >> 3) & 0x1ff) |
-				((cav_height & 0x1fff) <<9 ) |
-				((x_wrap_en & 1) << 22 ) |
-				((y_wrap_en & 1) << 23) |
-				((blk_mode & 0x3) << 24) |
-				( cav_endian << 26);
-
-#else
-	u32 endian = 0;
-	u32 addr_bits_l = ((((addr + 7) >> 3) & CANVAS_ADDR_LMASK) << CAV_WADDR_LBIT);
-	u32 width_l     = ((((width    + 7) >> 3) & CANVAS_WIDTH_LMASK) << CAV_WIDTH_LBIT);
-	u32 width_h     = ((((width    + 7) >> 3) >> CANVAS_WIDTH_LWID) << CAV_WIDTH_HBIT);
-	u32 height_h    = (height & CANVAS_HEIGHT_MASK) << CAV_HEIGHT_HBIT;
-	u32 blkmod_h    = (blkmode & CANVAS_BLKMODE_MASK) << CAV_BLKMODE_HBIT;
-	u32 switch_bits_ctl = (endian & 0xf) << CAV_ENDIAN_HBIT;
-	u32 wrap_h      = (0 << 23);
-	datal_temp = addr_bits_l | width_l;
-	datah_temp = width_h | height_h | wrap_h | blkmod_h | switch_bits_ctl;
-#endif
-	/*
-	if (core == VDEC_1) {
-		WRITE_VREG(MDEC_CAV_CFG0, 0);	//[0]canv_mode, by default is non-canv-mode
-		WRITE_VREG(MDEC_CAV_LUT_DATAL, datal_temp);
-		WRITE_VREG(MDEC_CAV_LUT_DATAH, datah_temp);
-		WRITE_VREG(MDEC_CAV_LUT_ADDR,  index);
-	} else if (core == VDEC_HCODEC) */ {
-		WRITE_HREG(HCODEC_MDEC_CAV_CFG0, 0);	//[0]canv_mode, by default is non-canv-mode
-		WRITE_HREG(HCODEC_MDEC_CAV_LUT_DATAL, datal_temp);
-		WRITE_HREG(HCODEC_MDEC_CAV_LUT_DATAH, datah_temp);
-		WRITE_HREG(HCODEC_MDEC_CAV_LUT_ADDR,  index);
-	}
-
-	/*
-	cav_lut_info_store(index, addr, width, height, wrap, blkmode, 0);
-
-	if (vdec_get_debug() & 0x40000000) {
-		enc_pr(LOG_INFO, "(%s %2d) addr: %lx, width: %d, height: %d, blkm: %d, endian: %d\n",
-			__func__, index, addr, width, height, blkmode, 0);
-		enc_pr(LOG_INFO, "data(h,l): 0x%8lx, 0x%8lx\n", datah_temp, datal_temp);
-	}
-	*/
-}
-#endif
-
 void amlvenc_hcodec_encode(bool enabled)
 {
 	if (enabled) {
@@ -1724,6 +1625,122 @@ void amlvenc_dos_disable_auto_gateclk(void) {
 }
 
 #ifdef AML_FRAME_SINK
+
+int amlvenc_h264_init_mdfin(struct amlvenc_h264_mdfin_params *p) {
+	u8 ifmt444, ifmt422, ifmt420;
+	bool format_err = false;
+
+	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_TXL) {
+		if ((p->iformat == 7) && (p->ifmt_extra > 2))
+			format_err = true;
+	} else if (p->iformat == 7)
+		format_err = true;
+
+	if (format_err) {
+		printk(KERN_ERR
+            "mfdin format err, iformat:%d, ifmt_extra:%d\n",
+			p->iformat, p->ifmt_extra);
+		return -1;
+	}
+	if (p->iformat != 7)
+		p->ifmt_extra = 0;
+
+	ifmt444 = ((p->iformat == 1) || (p->iformat == 5) || (p->iformat == 8) ||
+		(p->iformat == 9) || (p->iformat == 12)) ? 1 : 0;
+	if (p->iformat == 7 && p->ifmt_extra == 1)
+		ifmt444 = 1;
+	ifmt422 = ((p->iformat == 0) || (p->iformat == 10)) ? 1 : 0;
+	if (p->iformat == 7 && p->ifmt_extra != 1)
+		ifmt422 = 1;
+	ifmt420 = ((p->iformat == 2) || (p->iformat == 3) || (p->iformat == 4) ||
+		(p->iformat == 11)) ? 1 : 0;
+	p->dsample_en = ((ifmt444 && (p->oformat != 2)) ||
+		(ifmt422 && (p->oformat == 0))) ? 1 : 0;
+	p->interp_en = ((ifmt422 && (p->oformat == 2)) ||
+		(ifmt420 && (p->oformat != 0))) ? 1 : 0;
+	p->y_sampl_rate = (p->oformat != 0) ? 1 : 0;
+	if (p->iformat == 12)
+		p->y_sampl_rate = 0;
+	p->canv_idx0_bppx = (p->iformat == 1) ? 3 : (p->iformat == 0) ? 2 : 1;
+	p->canv_idx1_bppx = (p->iformat == 4) ? 0 : 1;
+	p->canv_idx0_bppy = 1;
+	p->canv_idx1_bppy = (p->iformat == 5) ? 1 : 0;
+
+	if ((p->iformat == 8) || (p->iformat == 9) || (p->iformat == 12))
+		p->linear_bpp = 3;
+	else if (p->iformat == 10)
+		p->linear_bpp = 2;
+	else if (p->iformat == 11)
+		p->linear_bpp = 1;
+	else
+		p->linear_bpp = 0;
+	if (p->iformat == 12)
+		p->linear_stride = p->width * 4;
+	else
+		p->linear_stride = p->width * p->linear_bpp;
+
+	amlvenc_h264_configure_mdfin(p);
+
+	return 0;
+}
+
+
+void amlvenc_hcodec_canvas_config(u32 index, ulong addr, u32 width, u32 height, u32 wrap, u32 blkmode) {
+	unsigned long datah_temp, datal_temp;
+#if 1
+	ulong start_addr = addr >> 3;
+	u32 cav_width = (((width + 31)>>5)<<2);
+	u32 cav_height = height;
+	u32 x_wrap_en = 0;
+	u32 y_wrap_en = 0;
+	u32 blk_mode = 0;//blkmode;
+	u32 cav_endian = 0;
+
+	datal_temp = (start_addr & 0x1fffffff) |
+				((cav_width & 0x7 ) << 29 );
+
+	datah_temp = ((cav_width  >> 3) & 0x1ff) |
+				((cav_height & 0x1fff) <<9 ) |
+				((x_wrap_en & 1) << 22 ) |
+				((y_wrap_en & 1) << 23) |
+				((blk_mode & 0x3) << 24) |
+				( cav_endian << 26);
+
+#else
+	u32 endian = 0;
+	u32 addr_bits_l = ((((addr + 7) >> 3) & CANVAS_ADDR_LMASK) << CAV_WADDR_LBIT);
+	u32 width_l     = ((((width    + 7) >> 3) & CANVAS_WIDTH_LMASK) << CAV_WIDTH_LBIT);
+	u32 width_h     = ((((width    + 7) >> 3) >> CANVAS_WIDTH_LWID) << CAV_WIDTH_HBIT);
+	u32 height_h    = (height & CANVAS_HEIGHT_MASK) << CAV_HEIGHT_HBIT;
+	u32 blkmod_h    = (blkmode & CANVAS_BLKMODE_MASK) << CAV_BLKMODE_HBIT;
+	u32 switch_bits_ctl = (endian & 0xf) << CAV_ENDIAN_HBIT;
+	u32 wrap_h      = (0 << 23);
+	datal_temp = addr_bits_l | width_l;
+	datah_temp = width_h | height_h | wrap_h | blkmod_h | switch_bits_ctl;
+#endif
+	/*
+	if (core == VDEC_1) {
+		WRITE_VREG(MDEC_CAV_CFG0, 0);	//[0]canv_mode, by default is non-canv-mode
+		WRITE_VREG(MDEC_CAV_LUT_DATAL, datal_temp);
+		WRITE_VREG(MDEC_CAV_LUT_DATAH, datah_temp);
+		WRITE_VREG(MDEC_CAV_LUT_ADDR,  index);
+	} else if (core == VDEC_HCODEC) */ {
+		WRITE_HREG(HCODEC_MDEC_CAV_CFG0, 0);	//[0]canv_mode, by default is non-canv-mode
+		WRITE_HREG(HCODEC_MDEC_CAV_LUT_DATAL, datal_temp);
+		WRITE_HREG(HCODEC_MDEC_CAV_LUT_DATAH, datah_temp);
+		WRITE_HREG(HCODEC_MDEC_CAV_LUT_ADDR,  index);
+	}
+
+	/*
+	cav_lut_info_store(index, addr, width, height, wrap, blkmode, 0);
+
+	if (vdec_get_debug() & 0x40000000) {
+		enc_pr(LOG_INFO, "(%s %2d) addr: %lx, width: %d, height: %d, blkm: %d, endian: %d\n",
+			__func__, index, addr, width, height, blkmode, 0);
+		enc_pr(LOG_INFO, "data(h,l): 0x%8lx, 0x%8lx\n", datah_temp, datal_temp);
+	}
+	*/
+}
 
 /* M8: 2550/10 = 255M GX: 2000/10 = 200M */
 #define HDEC_L0()   WRITE_HHI_REG(HHI_VDEC_CLK_CNTL, \

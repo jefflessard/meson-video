@@ -177,7 +177,7 @@ static void meson_vcodec_buf_queue(struct vb2_buffer *vb)
 	struct meson_vcodec_session *session = vb2_get_drv_priv(vb->vb2_queue);
 	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
 
-//	stream_trace(session, vq->type);
+	//stream_trace(session, vb->type);
 
 	if (!(
 		STREAM_STATUS(session, vb->type) >= STREAM_STATUS_INIT &&

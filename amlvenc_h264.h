@@ -396,7 +396,11 @@ void amlvenc_h264_init_qtable(const struct amlvenc_h264_qtable_params *p);
  */
 void amlvenc_h264_configure_ie_me(enum amlvenc_henc_mb_type ie_me_mb_type);
 
+#ifdef AML_FRAME_SINK
 void amlvenc_h264_configure_fixed_slice(u32 fixed_slice_cfg, u32 rows_per_slice, u32 encoder_height);
+#else
+void amlvenc_h264_configure_fixed_slice(u32 encoder_height, u16 p_mb_rows, u16 i_mb_rows);
+#endif
 
 void amlvenc_h264_configure_svc_pic(bool is_slc_ref);
 
@@ -405,7 +409,6 @@ void amlvenc_h264_configure_svc_pic(bool is_slc_ref);
  * @p: Pointer to the MDFIN configuration parameters
  */
 void amlvenc_h264_configure_mdfin(struct amlvenc_h264_mdfin_params *p);
-int amlvenc_h264_init_mdfin(struct amlvenc_h264_mdfin_params *p);
 
 /**
  * amlvenc_h264_configure_encoder - Initialize H.264 encoder
@@ -424,10 +427,6 @@ void amlvenc_h264_configure_encoder(const struct amlvenc_h264_configure_encoder_
  * This function writes the motion estimation parameters to the hardware registers.
  */
 void amlvenc_h264_configure_me(const struct amlvenc_h264_me_params *p);
-
-#ifdef AML_FRAME_SINK
-void amlvenc_hcodec_canvas_config(u32 index, ulong addr, u32 width, u32 height, u32 wrap, u32 blkmode);
-#endif
 
 void amlvenc_hcodec_encode(bool enabled);
 void amlvenc_hcodec_assist_enable(void);
@@ -451,6 +450,8 @@ void amlvenc_dos_hcodec_gateclk(bool enable);
 void amlvenc_dos_disable_auto_gateclk(void);
 
 #ifdef AML_FRAME_SINK
+int amlvenc_h264_init_mdfin(struct amlvenc_h264_mdfin_params *p);
+void amlvenc_hcodec_canvas_config(u32 index, ulong addr, u32 width, u32 height, u32 wrap, u32 blkmode);
 void amlvenc_hhi_hcodec_clock_on(u8 clock_level);
 void amlvenc_hhi_hcodec_clock_off(void);
 void amlvenc_hcodec_power_on(u8 clocklevel);
@@ -458,7 +459,7 @@ void amlvenc_hcodec_power_off(void);
 #endif
 
 #define COMBINE_CANVAS_HELPER(index1, index2, index3, ...) \
-	((index1) | ((index2) << 8) | ((index3) << 16))
+	((index1 & 0xFF) | ((index2 & 0xFF) << 8) | ((index3 & 0xFF) << 16))
 
 #define COMBINE_CANVAS(...) \
 	COMBINE_CANVAS_HELPER(__VA_ARGS__, 0, 0, 0)
