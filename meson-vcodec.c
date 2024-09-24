@@ -1168,6 +1168,27 @@ s32 meson_vcodec_g_ctrl(struct meson_vcodec_session *session, u32 id) {
 	}
 }
 
+void meson_vcodec_event_eos(struct meson_vcodec_session *session) {
+	static const struct v4l2_event eos_event = {
+		.type = V4L2_EVENT_EOS
+	};
+
+	session_trace(session);
+
+	v4l2_event_queue_fh(&session->fh, &eos_event);
+}
+
+void meson_vcodec_event_resolution(struct meson_vcodec_session *session) {
+	static const struct v4l2_event rs_event = {
+		.type = V4L2_EVENT_SOURCE_CHANGE,
+		.u.src_change.changes = V4L2_EVENT_SRC_CH_RESOLUTION,
+	};
+
+	session_trace(session);
+
+	v4l2_event_queue_fh(&session->fh, &rs_event);
+}
+
 /* platform_driver */
 
 static int meson_vcodec_probe(struct platform_device *pdev)

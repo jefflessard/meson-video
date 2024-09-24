@@ -115,6 +115,8 @@ struct meson_vcodec_session {
 
 s32 meson_vcodec_g_ctrl(struct meson_vcodec_session *session, u32 id);
 int meson_vcodec_s_ctrl(struct meson_vcodec_session *session, u32 id, s32 val);
+void meson_vcodec_event_resolution(struct meson_vcodec_session *session);
+void meson_vcodec_event_eos(struct meson_vcodec_session *session);
 
 int meson_vcodec_reset(struct meson_vcodec_core *core, enum meson_vcodec_reset index);
 

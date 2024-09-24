@@ -79,7 +79,7 @@ struct encoder_h264_ctx {
 	struct v4l2_m2m_ctx *m2m_ctx;
 	struct work_struct encoder_work;
 
-	enum amlvenc_hcodec_encoder_status hcodec_status;
+	enum amlvenc_hcodec_status hcodec_status;
 
 	struct vb2_v4l2_buffer *src_buf;
 	struct vb2_v4l2_buffer *dst_buf;
@@ -390,23 +390,23 @@ static int init_mdfin(struct encoder_h264_ctx *ctx, bool is_idr) {
 	return 0;
 }
 
-static int configure_encoder(struct encoder_h264_ctx *ctx, enum amlvenc_hcodec_encoder_status cmd) {
+static int configure_encoder(struct encoder_h264_ctx *ctx, enum amlvenc_hcodec_cmd cmd) {
 	dma_addr_t buf_paddr;
 	u64 buf_size;
 	bool is_idr;
 	u32 quant, width, height;
 	int ret;
 
-	is_idr = cmd == ENCODER_IDR;
+	is_idr = cmd == CMD_ENCODE_IDR;
 #if 0
 	quant = meson_vcodec_g_ctrl(ctx->session, V4L2_CID(H264_MIN_QP));
 	if (!quant) quant = 26;
 #endif
-	quant = 26;
+	quant = 28;
 	width = ctx->job->src_fmt->width;
 	height = ctx->job->src_fmt->height;
 
-	if (cmd != ENCODER_PICTURE) {
+	if (cmd != CMD_ENCODE_PICTURE) {
 		// amlvenc_h264_init_encoder
 		ctx->init_params.init_qppicture = quant;
 		amlvenc_h264_init_encoder(&ctx->init_params);
@@ -450,14 +450,14 @@ static int configure_encoder(struct encoder_h264_ctx *ctx, enum amlvenc_hcodec_e
 		amlvenc_h264_init_firmware_assist_buffer(ctx->buffers[BUF_ASSIST].paddr);
 	}
 
-	if (cmd == ENCODER_IDR || cmd == ENCODER_NON_IDR) {
+	if (cmd == CMD_ENCODE_IDR || cmd == CMD_ENCODE_NON_IDR) {
 
 		/* amvenc_avc_start_cmd encode request */
 		// amlvenc_h264_configure_svc_pic	
 // TODO H264_ENC_SVC
 #if 0 //#ifdef H264_ENC_SVC
 			/* encode non reference frame or not */
-			if (request->cmd == ENCODER_IDR)
+			if (request->cmd == CMD_ENCODE_IDR)
 				wq->pic.non_ref_cnt = 0; //IDR reset counter
 
 			if (wq->pic.enable_svc && wq->pic.non_ref_cnt) {
@@ -513,19 +513,19 @@ static int configure_encoder(struct encoder_h264_ctx *ctx, enum amlvenc_hcodec_e
 	// TODO enable multi slice in I frames
 	amlvenc_h264_configure_fixed_slice(height, 0, 0);
 
-	// amlvenc_hcodec_set_encoder_status
-	amlvenc_hcodec_set_encoder_status(cmd);
+	// amlvenc_hcodec_cmd
+	amlvenc_hcodec_cmd(cmd);
 
 	return 0;
 }
 
 static void encoder_start(struct encoder_h264_ctx *ctx) {
-	enum amlvenc_hcodec_encoder_status cmd;
+	enum amlvenc_hcodec_cmd cmd;
 	int ret;
 
 	// Set command & dequeue buffers
 	if (ctx->enc_start_count == 0) {
-		cmd = ENCODER_SEQUENCE;
+		cmd = CMD_ENCODE_SEQUENCE;
 		ctx->src_buf  = NULL;
 		ctx->dst_buf = v4l2_m2m_next_dst_buf(ctx->m2m_ctx);
 		if (!ctx->dst_buf) {
@@ -540,7 +540,7 @@ static void encoder_start(struct encoder_h264_ctx *ctx) {
 		ctx->init_params.frame_number = 1;
 		ctx->init_params.pic_order_cnt_lsb = 2;
 	} else if (ctx->enc_start_count == 1) {
-		cmd = ENCODER_PICTURE;
+		cmd = CMD_ENCODE_PICTURE;
 		ctx->src_buf  = NULL;
 	    // ctx->dst_buf = NULL; // reuses sequence buffer
 		if (!ctx->dst_buf) {
@@ -564,7 +564,7 @@ static void encoder_start(struct encoder_h264_ctx *ctx) {
 		v4l2_m2m_dst_buf_remove_by_buf(ctx->m2m_ctx, ctx->dst_buf);
 		if ( ctx->enc_start_count == 2 || // first frame shoukd always be an IDR
 			(ctx->src_buf->flags & V4L2_BUF_FLAG_KEYFRAME) == V4L2_BUF_FLAG_KEYFRAME) {
-			cmd = ENCODER_IDR;
+			cmd = CMD_ENCODE_IDR;
 			ctx->init_params.idr = true;
 			if (ctx->enc_start_count != 2) {
 				ctx->init_params.idr_pic_id = (ctx->init_params.idr_pic_id + 1) % 65536;
@@ -572,7 +572,7 @@ static void encoder_start(struct encoder_h264_ctx *ctx) {
 			ctx->init_params.frame_number = 1;
 			ctx->init_params.pic_order_cnt_lsb = 2;
 		} else {
-			cmd = ENCODER_NON_IDR;
+			cmd = CMD_ENCODE_NON_IDR;
 			ctx->init_params.idr = false;
 			// TODO H264_ENC_SVC
 #if 0 //#ifdef H264_ENC_SVC
@@ -588,7 +588,7 @@ static void encoder_start(struct encoder_h264_ctx *ctx) {
 		}
 	}
 
-	if (cmd != ENCODER_PICTURE) {
+	if (cmd != CMD_ENCODE_PICTURE) {
 		// amvenc_stop
 		amvenc_stop();
 
@@ -609,53 +609,68 @@ static void encoder_start(struct encoder_h264_ctx *ctx) {
 		return;
 	}
 
-	session_trace(ctx->session, "id=%d, cmd=%d, idr=%d, idr_pic_id=%d, frame_number=%d",
-			ctx->enc_start_count, cmd,
-			ctx->init_params.idr,
+	session_trace(ctx->session, "id=%d, cmd=%d, idr=%d, idr_pic_id=%d, frame_number=%d, ts=%llu, flags=%d",
+			ctx->enc_start_count, cmd, ctx->init_params.idr,
 			ctx->init_params.idr_pic_id,
-			ctx->init_params.frame_number);
+			ctx->init_params.frame_number,
+			ctx->src_buf ? ctx->src_buf->vb2_buf.timestamp : 0l,
+			ctx->src_buf ? ctx->src_buf->flags : 0);
 
 	// update stats
 	ctx->enc_start_count++;
 
-	if (cmd != ENCODER_PICTURE) {
+	if (cmd != CMD_ENCODE_PICTURE) {
 		// Start encoding
 		amvenc_start();
 	}
 }
 
-static void encoder_done(struct encoder_h264_ctx *ctx, enum amlvenc_hcodec_encoder_status status) {
+static void encoder_done(struct encoder_h264_ctx *ctx, enum amlvenc_hcodec_status status) {
 	u32 data_len;
-	void *data;
+	bool is_last = false;
 
 	data_len = amlvenc_hcodec_vlc_total_bytes();
-	data = vb2_plane_vaddr(&ctx->dst_buf->vb2_buf, 0);
-
-	session_trace(ctx->session, "id=%d, status=%d, len=%d, data=%*ph",
-			ctx->enc_done_count, ctx->hcodec_status,
-			data_len, data_len < 16 ? data_len : 16, data);
 
 	if (status > ENCODER_PICTURE_DONE) {
 		v4l2_m2m_buf_copy_metadata(ctx->src_buf, ctx->dst_buf, true);
+	}
+
+	session_trace(ctx->session, "id=%d, status=%d, len=%d, ts=%llu",
+			ctx->enc_done_count, ctx->hcodec_status, data_len,
+			ctx->src_buf ? ctx->src_buf->vb2_buf.timestamp : 0l);
+
+#if defined(DEBUG)
+	void *data;
+	data = vb2_plane_vaddr(&ctx->dst_buf->vb2_buf, 0);
+		
+	session_trace(ctx->session, "data=%*ph",
+			data_len < 32 ? data_len : 32, data);
+
+	session_trace(ctx->session,
+			"mb info: 0x%x, dct status: 0x%x, vlc status: 0x%x, me status: 0x%x, risc pc:0x%x, debug:0x%x\n",
+			amlvenc_hcodec_mb_info(),
+			amlvenc_hcodec_qdct_status(),
+			amlvenc_hcodec_vlc_status(),
+			amlvenc_hcodec_me_status(),
+			amlvenc_hcodec_mpc_risc(),
+			amlvenc_hcodec_debug());
+#endif
+
+	if (status > ENCODER_PICTURE_DONE) {
 		v4l2_m2m_buf_done(ctx->src_buf, VB2_BUF_STATE_DONE);
 		ctx->src_buf = NULL;
-
-		session_trace(ctx->session,
-				"mb info: 0x%x, encode status: 0x%x, dct status: 0x%x ",
-				amlvenc_hcodec_mb_info(),
-				ctx->hcodec_status,
-				amlvenc_hcodec_qdct_status());
-		session_trace(ctx->session,
-				"vlc status: 0x%x, me status: 0x%x, risc pc:0x%x, debug:0x%x\n",
-				amlvenc_hcodec_vlc_status(),
-				amlvenc_hcodec_me_status(),
-				amlvenc_hcodec_mpc_risc(),
-				amlvenc_hcodec_debug());
 	}
 
 	if (status > ENCODER_SEQUENCE_DONE) {
 		vb2_set_plane_payload(&ctx->dst_buf->vb2_buf, 0, data_len);
-		v4l2_m2m_buf_done(ctx->dst_buf, VB2_BUF_STATE_DONE);
+
+		is_last = ctx->m2m_ctx->is_draining &&
+			v4l2_m2m_num_src_bufs_ready(ctx->m2m_ctx) == 0;
+		if (is_last) {
+			v4l2_m2m_last_buffer_done(ctx->m2m_ctx, ctx->dst_buf);
+		} else {
+			v4l2_m2m_buf_done(ctx->dst_buf, VB2_BUF_STATE_DONE);
+		}
 		ctx->dst_buf = NULL;
 	}
 
@@ -671,6 +686,8 @@ static void encoder_abort(struct encoder_h264_ctx *ctx) {
 	session_trace(ctx->session);
 	
 	amvenc_stop();
+
+	v4l2_m2m_mark_stopped(ctx->m2m_ctx);
 
 	if(ctx->src_buf) {
 		job_finish = true;
@@ -692,6 +709,11 @@ static void encoder_abort(struct encoder_h264_ctx *ctx) {
 static void encoder_work(struct work_struct *work) {
 	struct encoder_h264_ctx *ctx = container_of(work, struct encoder_h264_ctx, encoder_work);
 
+	if (v4l2_m2m_has_stopped(ctx->m2m_ctx)) {
+		session_info(ctx->session, "m2m_ctx Stopped: ignoring encoder work");
+		return;
+	}
+
 	switch (ctx->hcodec_status) {
 		case ENCODER_SEQUENCE_DONE:
 		case ENCODER_PICTURE_DONE:
@@ -712,29 +734,17 @@ static irqreturn_t hcodec_isr(int irq, void *data)
 	struct encoder_h264_ctx *ctx = job->priv;
 
 	// read encoder status and clear interrupt
-	ctx->hcodec_status = amlvenc_hcodec_encoder_status();
+	ctx->hcodec_status = amlvenc_hcodec_status(true);
 
 	switch (ctx->hcodec_status) {
-		case ENCODER_IDLE:
-		case ENCODER_SEQUENCE:
-		case ENCODER_PICTURE:
-		case ENCODER_IDR:
-		case ENCODER_NON_IDR:
-		case ENCODER_MB_HEADER:
-		case ENCODER_MB_DATA:
-		case ENCODER_MB_HEADER_DONE:
-		case ENCODER_MB_DATA_DONE:
-		case ENCODER_NON_IDR_INTRA:
-		case ENCODER_NON_IDR_INTER:
-		default:
-			return IRQ_NONE;
 		case ENCODER_SEQUENCE_DONE:
 		case ENCODER_PICTURE_DONE:
 		case ENCODER_IDR_DONE:
 		case ENCODER_NON_IDR_DONE:
-		case ENCODER_ERROR:
 			schedule_work(&ctx->encoder_work);
 			return IRQ_HANDLED;
+		default:
+			return IRQ_NONE;
 	}
 }
 
@@ -985,6 +995,10 @@ disable_clk:
 }
 
 static int encoder_h264_start(struct meson_codec_job *job, struct vb2_queue *vq, u32 count) {
+	struct encoder_h264_ctx *ctx = job->priv;
+
+	v4l2_m2m_update_start_streaming_state(ctx->m2m_ctx, vq);
+
 	return 0;
 }
 
@@ -1010,9 +1024,20 @@ static void encoder_h264_resume(struct meson_codec_job *job) {
 }
 
 static void encoder_h264_abort(struct meson_codec_job *job) {
+	struct encoder_h264_ctx *ctx = job->priv;
+
+	encoder_abort(ctx);
 }
 
 static int encoder_h264_stop(struct meson_codec_job *job, struct vb2_queue *vq) {
+	struct encoder_h264_ctx *ctx = job->priv;
+
+	v4l2_m2m_update_stop_streaming_state(ctx->m2m_ctx, vq);
+
+	if (V4L2_TYPE_IS_OUTPUT(vq->type) &&
+			v4l2_m2m_has_stopped(ctx->m2m_ctx))
+		meson_vcodec_event_eos(ctx->session);
+
 	return 0;
 }
 

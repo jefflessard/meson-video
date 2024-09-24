@@ -133,7 +133,8 @@
  ****************************************** *
  */
 #define ENCODER_STATUS            HCODEC_HENC_SCRATCH_0
-	//enum amlvenc_hcodec_encoder_status
+	//enum amlvenc_hcodec_status
+	//enum amlvenc_hcodec_cmd
 
 #define MEM_OFFSET_REG            HCODEC_HENC_SCRATCH_1
 #define DEBUG_REG                 HCODEC_HENC_SCRATCH_2
@@ -1516,19 +1517,14 @@ bool amlvenc_hcodec_dma_completed(void)
 	return !(READ_HREG(HCODEC_IMEM_DMA_CTRL) & 0x8000);
 }
 
-enum amlvenc_hcodec_encoder_status amlvenc_hcodec_encoder_status(void)
+enum amlvenc_hcodec_status amlvenc_hcodec_status(bool clr_irq)
 {
-	WRITE_HREG(HCODEC_IRQ_MBOX_CLR, 1);
+	if (clr_irq) WRITE_HREG(HCODEC_IRQ_MBOX_CLR, 1);
 	return READ_HREG(ENCODER_STATUS);
 }
 
-void amlvenc_hcodec_clear_encoder_status(void)
-{
-	WRITE_HREG(ENCODER_STATUS, ENCODER_IDLE);
-}
-
-void amlvenc_hcodec_set_encoder_status(enum amlvenc_hcodec_encoder_status status){
-	WRITE_HREG(ENCODER_STATUS, status);
+void amlvenc_hcodec_cmd(enum amlvenc_hcodec_cmd cmd){
+	WRITE_HREG(ENCODER_STATUS, cmd);
 }
 
 u32 amlvenc_hcodec_mb_info(void)

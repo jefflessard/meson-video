@@ -50,7 +50,7 @@
 /* --------------------------------------------------- */
 /* ENCODER_STATUS define */
 /* --------------------------------------------------- */
-enum amlvenc_hcodec_encoder_status {
+enum amlvenc_hcodec_status {
     ENCODER_IDLE = 0,
     ENCODER_SEQUENCE = 1,
     ENCODER_PICTURE = 2,
@@ -66,12 +66,23 @@ enum amlvenc_hcodec_encoder_status {
     ENCODER_MB_HEADER_DONE = 11,
     ENCODER_MB_DATA_DONE = 12,
 
+#ifdef AML_FRAME_SINK
     ENCODER_NON_IDR_INTRA = 13,
     ENCODER_NON_IDR_INTER = 14,
 
     ENCODER_ERROR = 0xff,
+#endif
 };
 
+enum amlvenc_hcodec_cmd {
+    CMD_ENCODE_IDLE      =  ENCODER_IDLE,
+    CMD_ENCODE_SEQUENCE  =  ENCODER_SEQUENCE,
+    CMD_ENCODE_PICTURE   =  ENCODER_PICTURE,
+    CMD_ENCODE_IDR       =  ENCODER_IDR, 
+    CMD_ENCODE_NON_IDR   =  ENCODER_NON_IDR,
+    CMD_ENCODE_MB_HEADER =  ENCODER_MB_HEADER,
+    CMD_ENCODE_MB_DATA   =  ENCODER_MB_DATA,
+};
 
 /********************************************
  * defines for H.264 mb_type
@@ -432,9 +443,8 @@ void amlvenc_hcodec_encode(bool enabled);
 void amlvenc_hcodec_assist_enable(void);
 void amlvenc_hcodec_dma_load_firmware(dma_addr_t dma_handle, size_t size);
 bool amlvenc_hcodec_dma_completed(void);
-enum amlvenc_hcodec_encoder_status amlvenc_hcodec_encoder_status(void);
-void amlvenc_hcodec_clear_encoder_status(void);
-void amlvenc_hcodec_set_encoder_status(enum amlvenc_hcodec_encoder_status status);
+enum amlvenc_hcodec_status amlvenc_hcodec_status(bool clr_irq);
+void amlvenc_hcodec_cmd(enum amlvenc_hcodec_cmd cmd);
 u32 amlvenc_hcodec_mb_info(void);
 u32 amlvenc_hcodec_qdct_status(void);
 u32 amlvenc_hcodec_vlc_total_bytes(void);
