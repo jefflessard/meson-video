@@ -48,18 +48,17 @@ const struct encoder_h264_spec encoder_h264_specs[] = {
 };
 
 enum encoder_state : u8 {
-	INIT = 0,
-	STARTED_SRC = BIT(0),      // 1
-	STARTED_DST = BIT(1),      // 2
-	STARTED = BIT(1) | BIT(0), // 3
-	READY = 4,
-	ENCODING_START = 5,
-	ENCODING_DONE = 6,
-	ENCODING_ERROR = 7,
-//	PAUSED,
-	ABORTING = 8,
-	DRAINING = 9,
-	STOPPED = 0xFF,
+	STATE_ENCODER_NONE,
+	STATE_ENCODER_READY,
+	STATE_ENCODER_STARTED,
+	STATE_ENCODER_DONE,
+	STATE_ENCODER_ERROR,
+};
+
+enum continue_state : u8 {
+	STATE_CONTINUE,
+	STATE_ABORTING,
+	STATE_ABORTED,
 };
 
 enum encoder_h264_buffers : u8 {
@@ -95,6 +94,7 @@ struct encoder_h264_ctx {
 	struct work_struct encoder_work;
 
 	atomic_t encoder_state;
+	atomic_t continue_state;
 	enum amlvenc_hcodec_encoder_status hcodec_status;
 
 	struct vb2_v4l2_buffer *src_buf;
@@ -569,15 +569,17 @@ static void encoder_start(struct encoder_h264_ctx *ctx) {
 	ctx->dst_buf = v4l2_m2m_next_dst_buf(ctx->m2m_ctx);
 	if (!ctx->src_buf || !ctx->dst_buf) {
 		session_trace(ctx->session, "no buffers available");
-		// We should preserve the new state in case it has
-		// changed since we checked the status. 
-		// If draining or aborting, the next
-		// scheduled work will process it
-		atomic_cmpxchg(&ctx->encoder_state, ENCODING_START, STARTED);
+		atomic_set(&ctx->encoder_state, STATE_ENCODER_NONE);
+		ctx->src_buf = NULL;
+		ctx->dst_buf = NULL;
 		return;
 	}
 
-	session_trace(ctx->session, "starting encoder");
+	session_trace(ctx->session);
+
+	// Dequeue buffers
+	v4l2_m2m_src_buf_remove_by_buf(ctx->m2m_ctx, ctx->src_buf);
+	v4l2_m2m_dst_buf_remove_by_buf(ctx->m2m_ctx, ctx->dst_buf);
 
 	// amvenc_stop
 	amvenc_stop();
@@ -588,14 +590,10 @@ static void encoder_start(struct encoder_h264_ctx *ctx) {
 	// Configure encoding parameters
 	ret = configure_encoder(ctx);
 	if (ret) {
-		atomic_cmpxchg(&ctx->encoder_state, ENCODING_START, ENCODER_ERROR);
+		atomic_set(&ctx->encoder_state, STATE_ENCODER_ERROR);
 		schedule_work(&ctx->encoder_work);
 		return;
 	}
-
-	// Dequeue buffers
-	v4l2_m2m_src_buf_remove_by_buf(ctx->m2m_ctx, ctx->src_buf);
-	v4l2_m2m_dst_buf_remove_by_buf(ctx->m2m_ctx, ctx->dst_buf);
 
 	// update stats
 	ctx->src_frame_count++;
@@ -605,7 +603,7 @@ static void encoder_start(struct encoder_h264_ctx *ctx) {
 }
 
 static void encoder_done(struct encoder_h264_ctx *ctx) {
-	session_trace(ctx->session, "processing encoded bitstream");
+	session_trace(ctx->session);
 	// return encoded bitstream buffer
 	v4l2_m2m_buf_copy_metadata(ctx->src_buf, ctx->dst_buf, true);
 	vb2_set_plane_payload(&ctx->dst_buf->vb2_buf, 0, amlvenc_hcodec_vlc_total_bytes());
@@ -615,15 +613,13 @@ static void encoder_done(struct encoder_h264_ctx *ctx) {
 	ctx->src_buf = NULL;
 	ctx->dst_buf = NULL;
 
-	v4l2_m2m_job_finish(ctx->m2m_ctx->m2m_dev, ctx->m2m_ctx);
-
 	// update stats
 	ctx->dst_frame_count++;
 
 	session_trace(ctx->session,
 			"mb info: 0x%x, encode status: 0x%x, dct status: 0x%x ",
 			amlvenc_hcodec_mb_info(),
-			amlvenc_hcodec_encoder_status(),
+			ctx->hcodec_status,
 			amlvenc_hcodec_qdct_status());
 	session_trace(ctx->session,
 			"vlc status: 0x%x, me status: 0x%x, risc pc:0x%x, debug:0x%x\n",
@@ -632,60 +628,70 @@ static void encoder_done(struct encoder_h264_ctx *ctx) {
 			amlvenc_hcodec_mpc_risc(),
 			amlvenc_hcodec_debug());
 
-	if (atomic_cmpxchg(&ctx->encoder_state, ENCODING_DONE, STARTED) != ENCODING_DONE) {
-		schedule_work(&ctx->encoder_work);
-	}
+	atomic_set(&ctx->encoder_state, STATE_ENCODER_NONE);
+	v4l2_m2m_job_finish(ctx->m2m_ctx->m2m_dev, ctx->m2m_ctx);
 }
 
 static void encoder_abort(struct encoder_h264_ctx *ctx) {
+	bool job_finish = false;
+
 	session_trace(ctx->session);
 	
 	amvenc_stop();
 
 	if(ctx->src_buf) {
+		job_finish = true;
 		v4l2_m2m_buf_done(ctx->src_buf, VB2_BUF_STATE_ERROR);
 		ctx->src_buf = NULL;
 	}
 
 	if(ctx->dst_buf) {
+		job_finish = true;
 		v4l2_m2m_buf_done(ctx->dst_buf, VB2_BUF_STATE_ERROR);
 		ctx->dst_buf = NULL;
 	}
 
-	v4l2_m2m_job_finish(ctx->m2m_ctx->m2m_dev, ctx->m2m_ctx);
-
-	atomic_set(&ctx->encoder_state, STOPPED);
+	atomic_set(&ctx->continue_state, STATE_ABORTED);
+	if (job_finish) {
+		v4l2_m2m_job_finish(ctx->m2m_ctx->m2m_dev, ctx->m2m_ctx);
+	}
 }
 
 static void encoder_work(struct work_struct *work) {
 	struct encoder_h264_ctx *ctx = container_of(work, struct encoder_h264_ctx, encoder_work);
 	enum encoder_state previous;
 
-	previous = atomic_cmpxchg(&ctx->encoder_state, READY, ENCODING_START);
+	if (atomic_read(&ctx->continue_state) == STATE_ABORTED) {
+		return;
+	}
+
+	previous = atomic_cmpxchg(&ctx->encoder_state, STATE_ENCODER_READY, STATE_ENCODER_STARTED);
 	session_trace(ctx->session, "previous state %d", previous);
 	switch(previous) {
-		case INIT:
-		case STARTED_SRC:
-		case STARTED_DST:
-		case STARTED:
-		case ENCODING_START:
-		case STOPPED:
-			// Ignore work
+		case STATE_ENCODER_NONE:
+			// ignore
+			break;
+		case STATE_ENCODER_READY:
+			if (atomic_read(&ctx->continue_state) == STATE_CONTINUE) {
+				encoder_start(ctx);
+				// dont check abort status for now
+				// will check on en encoder return
+				return;
+			}
+			break;
+		case STATE_ENCODER_STARTED:
+			// dont check abort status for now
+			// will check on en encoder return
 			return;
-		case ABORTING:
-		case DRAINING:
-			encoder_abort(ctx);
-			return;
-		case ENCODING_ERROR:
-			encoder_abort(ctx);
-			return;
-		case ENCODING_DONE:
+		case STATE_ENCODER_DONE:
 			encoder_done(ctx);
-			return;
-		case READY:
-			encoder_start(ctx);
-			return;
+			break;
+		case STATE_ENCODER_ERROR:
+			encoder_abort(ctx);
+			break;
 	}
+
+	atomic_cmpxchg(&ctx->continue_state, STATE_ABORTING, STATE_ABORTED);
 }
 
 static irqreturn_t hcodec_isr(int irq, void *data)
@@ -694,40 +700,9 @@ static irqreturn_t hcodec_isr(int irq, void *data)
 	struct encoder_h264_ctx *ctx = job->priv;
 
 	// read encoder status and clear interrupt
-	enum amlvenc_hcodec_encoder_status hcodec_status = amlvenc_hcodec_encoder_status();
+	ctx->hcodec_status = amlvenc_hcodec_encoder_status();
 
-	switch (hcodec_status) {
-		case ENCODER_IDLE:
-		case ENCODER_SEQUENCE:
-		case ENCODER_PICTURE:
-		case ENCODER_IDR:
-		case ENCODER_NON_IDR:
-		case ENCODER_MB_HEADER:
-		case ENCODER_MB_DATA:
-		case ENCODER_MB_HEADER_DONE:
-		case ENCODER_MB_DATA_DONE:
-		case ENCODER_NON_IDR_INTRA:
-		case ENCODER_NON_IDR_INTER:
-		default:
-			// ignore irq
-			// TODO return IRQ_NONE;
-		case ENCODER_SEQUENCE_DONE:
-		case ENCODER_PICTURE_DONE:
-		case ENCODER_IDR_DONE:
-		case ENCODER_NON_IDR_DONE:
-		case ENCODER_ERROR:
-			// save status for threaded isr
-			ctx->hcodec_status = hcodec_status;
-			return IRQ_WAKE_THREAD;
-	}
-}
-
-static irqreturn_t hcodec_threaded_isr(int irq, void *data)
-{
-	const struct meson_codec_job *job = data;
-	struct encoder_h264_ctx *ctx = job->priv;
-
-	session_trace(job->session, "hcodec_status %d", ctx->hcodec_status);
+	//session_trace(job->session, "hcodec_status %d", ctx->hcodec_status);
 
 	switch (ctx->hcodec_status) {
 		case ENCODER_IDLE:
@@ -742,26 +717,19 @@ static irqreturn_t hcodec_threaded_isr(int irq, void *data)
 		case ENCODER_NON_IDR_INTRA:
 		case ENCODER_NON_IDR_INTER:
 		default:
-			// won't happen
-			break;
+			return IRQ_NONE;
 		case ENCODER_SEQUENCE_DONE:
 		case ENCODER_PICTURE_DONE:
 		case ENCODER_IDR_DONE:
 		case ENCODER_NON_IDR_DONE:
-			// preserve state if not ENCODING
-			atomic_cmpxchg(&ctx->encoder_state, ENCODING_START, ENCODING_DONE);
-			// maybe start or abort encoding
+			atomic_set(&ctx->encoder_state, STATE_ENCODER_DONE);
 			schedule_work(&ctx->encoder_work);
-			break;
+			return IRQ_HANDLED;
 		case ENCODER_ERROR:
-			// preserve state if not ENCODING
-			atomic_cmpxchg(&ctx->encoder_state, ENCODING_START, ENCODING_ERROR);
-			// maybe start or abort encoding
+			atomic_set(&ctx->encoder_state, STATE_ENCODER_ERROR);
 			schedule_work(&ctx->encoder_work);
-			break;
+			return IRQ_HANDLED;
 	}
-
-	return IRQ_HANDLED;
 }
 
 static void buffers_free(struct device *dev, struct encoder_h264_buffer *buffers, int num_buffers) {
@@ -816,7 +784,8 @@ static int __encoder_h264_configure(struct meson_codec_job *job) {
 	ctx->job = job;
 	ctx->session = session;
 	ctx->m2m_ctx = job->session->m2m_ctx;
-	atomic_set(&ctx->encoder_state, INIT);
+	atomic_set(&ctx->encoder_state, STATE_ENCODER_NONE);
+	atomic_set(&ctx->continue_state, STATE_CONTINUE);
 	INIT_WORK(&ctx->encoder_work, encoder_work);
 	ctx->init_params.init_qppicture = 26;
 	ctx->init_params.log2_max_frame_num = 4;
@@ -916,7 +885,7 @@ static int __encoder_h264_configure(struct meson_codec_job *job) {
 		);
 	if (ret) goto canvas_config_failed;
 
-	ret = request_threaded_irq(session->core->irqs[IRQ_HCODEC], hcodec_isr, hcodec_threaded_isr, IRQF_SHARED, "hcodec", job);
+	ret = request_irq(session->core->irqs[IRQ_HCODEC], hcodec_isr, IRQF_SHARED, "hcodec", job);
 	if (ret) {
 		session_err(session, "Failed to request HCODEC irq");
 		goto free_canvas;
@@ -1014,12 +983,6 @@ disable_clk:
 static int encoder_h264_start(struct meson_codec_job *job, struct vb2_queue *vq, u32 count) {
 	struct encoder_h264_ctx *ctx = job->priv;
 
-	if (IS_SRC_STREAM(vq->type)) {
-		atomic_or(STARTED_SRC, &ctx->encoder_state);
-	} else {
-		atomic_or(STARTED_DST, &ctx->encoder_state);
-	}
-
 	return 0;
 }
 
@@ -1042,8 +1005,8 @@ static int encoder_h264_queue(struct meson_codec_job *job, struct vb2_v4l2_buffe
 static void encoder_h264_resume(struct meson_codec_job *job) {
 	struct encoder_h264_ctx *ctx = job->priv;
 
-	// maybe start encoding
-	atomic_cmpxchg(&ctx->encoder_state, STARTED, READY);
+	// start encoding
+	atomic_cmpxchg(&ctx->encoder_state, STATE_ENCODER_NONE, STATE_ENCODER_READY);
 	schedule_work(&ctx->encoder_work);
 }
 
@@ -1051,16 +1014,18 @@ static void encoder_h264_abort(struct meson_codec_job *job) {
 	struct encoder_h264_ctx *ctx = job->priv;
 
 	// abort encoding
-	atomic_set(&ctx->encoder_state, ABORTING);
-	schedule_work(&ctx->encoder_work);
+	if (atomic_cmpxchg(&ctx->continue_state, STATE_CONTINUE, STATE_ABORTING) != STATE_ABORTED) {
+		schedule_work(&ctx->encoder_work);
+	}
 }
 
 static int encoder_h264_stop(struct meson_codec_job *job, struct vb2_queue *vq) {
 	struct encoder_h264_ctx *ctx = job->priv;
 
 	// abort encoding
-	atomic_set(&ctx->encoder_state, DRAINING);
-	schedule_work(&ctx->encoder_work);
+	if (atomic_cmpxchg(&ctx->continue_state, STATE_CONTINUE, STATE_ABORTING) != STATE_ABORTED) {
+		schedule_work(&ctx->encoder_work);
+	}
 
 	return 0;
 }
