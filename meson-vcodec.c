@@ -606,6 +606,7 @@ static int meson_vcodec_session_release(struct file *file)
 	v4l2_ctrl_handler_free(&session->ctrl_handler);
 	v4l2_fh_del(&session->fh);
 	v4l2_fh_exit(&session->fh);
+	mutex_destroy(&session->lock);
 	kfree(session);
 
 	core->active_session = NULL;
@@ -773,13 +774,17 @@ static const struct meson_codec_formats* find_codec(struct meson_vcodec_core *co
 }
 
 static void set_buffer_sizes(struct v4l2_format *f, const struct meson_format *fmt) {
-	u32 width, height;
+	u32 y_width, y_height;
+	u32 uv_width, uv_height;
+	u32 plane_w, plane_h;
 	u32 sizeimage, stride;
-	u8 bits_per_px;
 	int j;
 
-	width = f->fmt.pix_mp.width;
-	height = f->fmt.pix_mp.height;
+	y_width = ALIGN((f->fmt.pix_mp.width * fmt->bits_per_px) >> 3, fmt->align_width);
+	y_height = (f->fmt.pix_mp.height * fmt->bits_per_px) >> 3;
+
+	uv_width = (y_width * fmt->uvplane_bppx) >> 3;
+	uv_height = (y_height * fmt->uvplane_bppy) >> 3;
 
 	f->fmt.pix_mp.num_planes = fmt->num_planes;
 	for (j = 0; j < fmt->num_planes; j++) {
@@ -789,10 +794,10 @@ static void set_buffer_sizes(struct v4l2_format *f, const struct meson_format *f
 			sizeof(f->fmt.pix_mp.plane_fmt[j].reserved)
 		);
 
-		bits_per_px = fmt->bits_per_px[j];
-		stride = (width * bits_per_px) >> 3; // bits to bytes /8
-		stride = ALIGN(stride, fmt->align_bits);
-		sizeimage = ALIGN(stride * height, fmt->align_bits);
+		plane_w = j == 0 ? y_width : uv_width;
+		plane_h = j == 0 ? y_height : uv_height;
+		stride = plane_w;
+		sizeimage = ALIGN(stride * plane_h, fmt->align_height);
 
 		f->fmt.pix_mp.plane_fmt[j].bytesperline = stride;
 		f->fmt.pix_mp.plane_fmt[j].sizeimage = sizeimage;

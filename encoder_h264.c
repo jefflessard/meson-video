@@ -29,7 +29,7 @@
 struct encoder_h264_spec {
 	u32 pixelformat;
 	u8 num_canvas;
-	u8 canvas_bits_per_pixel;
+	u8 bits_per_pixel;
 	u8 width_align;
 	u8 height_align;
 	enum mdfin_iformat_enum iformat;
@@ -78,6 +78,7 @@ struct encoder_h264_ctx {
 	struct meson_vcodec_session *session;
 	struct v4l2_m2m_ctx *m2m_ctx;
 	struct work_struct encoder_work;
+	struct mutex lock;
 
 	enum amlvenc_hcodec_status hcodec_status;
 
@@ -305,18 +306,35 @@ static void init_linear_quant(struct encoder_h264_ctx *ctx, u32 quant) {
 	}	
 }
 
+int validate_canvas_align(u32 canvas_paddr, u32 canvas_w, u32 canvas_h, u32 width_align, u32 height_align) {
+	if ( canvas_w % width_align != 0 ||
+		(canvas_w * canvas_h) % height_align != 0) {
+		pr_warn("Canvas width or height is not aligned. Canvas width = %u, Canvas height = %u\n", canvas_w, canvas_h);
+		return -EINVAL;
+	}
+
+	if (canvas_paddr % width_align != 0) {
+		pr_warn("Canvas physical address is not aligned. Canvas paddr = 0x%x\n", canvas_paddr);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 static int init_mdfin(struct encoder_h264_ctx *ctx, bool is_idr) {
 	struct amlvenc_h264_mdfin_params *p = &ctx->mdfin_params;
 	struct vb2_buffer *vb2 = &ctx->src_buf->vb2_buf;
 	const struct encoder_h264_spec *s = ctx->encoder_spec;
-	enum mdfin_bpp_enum canvas_bppx, canvas_bppy;
+	u32 y_width, y_height;
+	u32 uv_width, uv_height;
+	u8 uv_bppx, uv_bppy;
 	u32 canvas_w, canvas_h;
 	dma_addr_t canvas_paddr;
 	int i, ret;
 
-	// input params	
-	p->width = ALIGN(ctx->job->src_fmt->width, s->width_align);
-	p->height = ALIGN(ctx->job->src_fmt->height, s->height_align);
+	// input params
+	p->width = ctx->job->src_fmt->width;
+	p->height = ctx->job->src_fmt->height;
 	p->iformat = s->iformat;
 	p->ifmt_extra = s->ifmt_extra;
 	p->r2y_mode = s->r2y_mode;
@@ -329,7 +347,7 @@ static int init_mdfin(struct encoder_h264_ctx *ctx, bool is_idr) {
 	p->oformat = MDFIN_SUBSAMPLING_420;
 	p->interp_en = p->oformat > s->subsampling;
 	p->dsample_en = p->oformat < s->subsampling;
-	p->y_sampl_rate = MDFIN_YSAMPLE_8PX;
+	p->y_sampl_rate = s->subsampling == MDFIN_SUBSAMPLING_420 ? MDFIN_YSAMPLE_8PX : MDFIN_YSAMPLE_16PX;
 
 	// nr params
 	// p->nr_mode = MDFIN_NR_DISABLED;
@@ -344,41 +362,48 @@ static int init_mdfin(struct encoder_h264_ctx *ctx, bool is_idr) {
 		return -EINVAL; 
 	}
 
+	// Y plane
+	y_width = ALIGN((p->width * s->bits_per_pixel) >> 3, s->width_align);
+	y_height = (p->height * s->bits_per_pixel) >> 3;
+
+	// UV planes
+	uv_bppx = s->canvasN_bppx == MDFIN_BPP_HALF ? 4 : s->canvasN_bppx * 8;
+	uv_bppy = s->canvasN_bppy == MDFIN_BPP_HALF ? 4 : s->canvasN_bppy * 8;
+	uv_width = (y_width * uv_bppx) >> 3;
+	uv_height = (y_height * uv_bppy) >> 3;
+
 	for (i = 0; i < s->num_canvas; i++) {
 		if (vb2->num_planes == s->num_canvas) {
 			canvas_paddr = vb2_dma_contig_plane_dma_addr(vb2, i);
 		} else {
 			// TODO single plane to multi canvas paddr offset mapping
 		}
-	
-		canvas_bppx = i == 0 ? s->canvas0_bppx : s->canvasN_bppx;
-		canvas_bppy = i == 0 ? s->canvas0_bppy : s->canvasN_bppy;
 
-		canvas_w = (p->width * s->canvas_bits_per_pixel) >> 3; // bytes = pixels / 8
-		canvas_h = (p->height * s->canvas_bits_per_pixel) >> 3; // bytes = pixels / 8
+		canvas_w = i == 0 ? y_width : uv_width;
+		canvas_h = i == 0 ? y_height : uv_height;
 
-		if (canvas_bppx == MDFIN_BPP_HALF) {
-			canvas_w = canvas_w >> 1; // bpp==0: /2
-		} else {
-			canvas_w = canvas_w * canvas_bppx;
-		}
+		u32 canvas_size = canvas_w * canvas_h;
+		session_trace(ctx->session, "plane %d: bytes=%lu, size=%lu, canvas=%d, canvas_size=%d",
+				i,
+				vb2_get_plane_payload(&ctx->src_buf->vb2_buf, i),
+				vb2_plane_size(&ctx->src_buf->vb2_buf, i),
+				ctx->canvases[CANVAS_TYPE_INPUT][i],
+				canvas_size);
 
-		if (canvas_bppy == MDFIN_BPP_HALF) {
-			canvas_h = canvas_h >> 1; // bpp==0: /2
-		} else {
-			canvas_h = canvas_h * canvas_bppy;
-		}
+		ret = validate_canvas_align(
+				canvas_paddr,
+				canvas_w, canvas_h,
+				s->width_align, s->height_align);
 
 		ret = canvas_config(
 				ctx->session->core,
 				ctx->canvases[CANVAS_TYPE_INPUT][i],
 				canvas_paddr,
-				ALIGN(canvas_w, s->width_align),
-				ALIGN(canvas_h, s->height_align)
+				canvas_w, canvas_h
 			);
 		if (ret) {
 			// TODO report config canvas failed
-			return -EINVAL;
+			return ret;
 		}
 	}
 
@@ -394,17 +419,16 @@ static int configure_encoder(struct encoder_h264_ctx *ctx, enum amlvenc_hcodec_c
 	dma_addr_t buf_paddr;
 	u64 buf_size;
 	bool is_idr;
-	u32 quant, width, height;
+	u32 quant;
 	int ret;
 
 	is_idr = cmd == CMD_ENCODE_IDR;
 #if 0
 	quant = meson_vcodec_g_ctrl(ctx->session, V4L2_CID(H264_MIN_QP));
 	if (!quant) quant = 26;
-#endif
+#else
 	quant = 28;
-	width = ctx->job->src_fmt->width;
-	height = ctx->job->src_fmt->height;
+#endif
 
 	if (cmd != CMD_ENCODE_PICTURE) {
 		// amlvenc_h264_init_encoder
@@ -425,8 +449,8 @@ static int configure_encoder(struct encoder_h264_ctx *ctx, enum amlvenc_hcodec_c
 		ctx->conf_params.idr = is_idr;
 		ctx->conf_params.quant = quant;
 		ctx->conf_params.qp_mode = 1;
-		ctx->conf_params.encoder_width = width;
-		ctx->conf_params.encoder_height = height;
+		ctx->conf_params.encoder_width = ctx->job->src_fmt->width;
+		ctx->conf_params.encoder_height = ctx->job->src_fmt->height;
 		ctx->conf_params.i4_weight = I4MB_WEIGHT_OFFSET;
 		ctx->conf_params.i16_weight = I16MB_WEIGHT_OFFSET;
 		ctx->conf_params.me_weight = ME_WEIGHT_OFFSET;
@@ -442,8 +466,9 @@ static int configure_encoder(struct encoder_h264_ctx *ctx, enum amlvenc_hcodec_c
 		ctx->conf_params.dump_ddr_start_addr = ctx->buffers[BUF_DUMP_INFO].paddr;
 #if 0
 		init_linear_quant(ctx, quant);
-#endif
+#else
 		init_fixed_quant(ctx, quant);
+#endif
 		amlvenc_h264_configure_encoder(&ctx->conf_params);
 
 		// amlvenc_h264_init_firmware_assist_buffer
@@ -511,7 +536,7 @@ static int configure_encoder(struct encoder_h264_ctx *ctx, enum amlvenc_hcodec_c
 
 	// amlvenc_h264_configure_fixed_slice
 	// TODO enable multi slice in I frames
-	amlvenc_h264_configure_fixed_slice(height, 0, 0);
+	amlvenc_h264_configure_fixed_slice(ctx->job->src_fmt->height, 0, 0);
 
 	// amlvenc_hcodec_cmd
 	amlvenc_hcodec_cmd(cmd);
@@ -562,8 +587,12 @@ static void encoder_start(struct encoder_h264_ctx *ctx) {
 		}
 		v4l2_m2m_src_buf_remove_by_buf(ctx->m2m_ctx, ctx->src_buf);
 		v4l2_m2m_dst_buf_remove_by_buf(ctx->m2m_ctx, ctx->dst_buf);
-		if ( ctx->enc_start_count == 2 || // first frame shoukd always be an IDR
+#if 0
+		if ( ctx->enc_start_count == 2 || // first frame should always be an IDR
 			(ctx->src_buf->flags & V4L2_BUF_FLAG_KEYFRAME) == V4L2_BUF_FLAG_KEYFRAME) {
+#else
+		if (true) {
+#endif
 			cmd = CMD_ENCODE_IDR;
 			ctx->init_params.idr = true;
 			if (ctx->enc_start_count != 2) {
@@ -709,10 +738,7 @@ static void encoder_abort(struct encoder_h264_ctx *ctx) {
 static void encoder_work(struct work_struct *work) {
 	struct encoder_h264_ctx *ctx = container_of(work, struct encoder_h264_ctx, encoder_work);
 
-	if (v4l2_m2m_has_stopped(ctx->m2m_ctx)) {
-		session_info(ctx->session, "m2m_ctx Stopped: ignoring encoder work");
-		return;
-	}
+	mutex_lock(&ctx->lock);
 
 	switch (ctx->hcodec_status) {
 		case ENCODER_SEQUENCE_DONE:
@@ -726,6 +752,8 @@ static void encoder_work(struct work_struct *work) {
 			encoder_abort(ctx);
 			break;
 	}
+
+	mutex_unlock(&ctx->lock);
 }
 
 static irqreturn_t hcodec_isr(int irq, void *data)
@@ -799,7 +827,8 @@ static int __encoder_h264_configure(struct meson_codec_job *job) {
 		return -ENOMEM;
 	ctx->job = job;
 	ctx->session = session;
-	ctx->m2m_ctx = job->session->m2m_ctx;
+	ctx->m2m_ctx = session->m2m_ctx;
+	mutex_init(&ctx->lock);
 	INIT_WORK(&ctx->encoder_work, encoder_work);
 	ctx->init_params.init_qppicture = 26;
 	ctx->init_params.log2_max_frame_num = 4;
@@ -1020,13 +1049,13 @@ static int encoder_h264_queue(struct meson_codec_job *job, struct vb2_v4l2_buffe
 static void encoder_h264_resume(struct meson_codec_job *job) {
 	struct encoder_h264_ctx *ctx = job->priv;
 
+	mutex_lock(&ctx->lock);
 	encoder_start(ctx);
+	mutex_unlock(&ctx->lock);
 }
 
 static void encoder_h264_abort(struct meson_codec_job *job) {
-	struct encoder_h264_ctx *ctx = job->priv;
 
-	encoder_abort(ctx);
 }
 
 static int encoder_h264_stop(struct meson_codec_job *job, struct vb2_queue *vq) {
@@ -1049,6 +1078,7 @@ static void __encoder_h264_unconfigure(struct meson_codec_job *job) {
 	buffers_free(job->session->core->dev, ctx->buffers, MAX_BUFFERS);
 	canvas_free(job->session->core, &ctx->canvases[0][0], MAX_CANVAS_TYPE * MAX_NUM_CANVAS);
 
+	mutex_destroy(&ctx->lock);
 	kfree(ctx);
 	job->priv = NULL;
 }

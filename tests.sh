@@ -11,7 +11,7 @@ h264_decode() {
 
 h264_encode() {
 #	ffmpeg $FFMPEG_OPTS -i sample_h264.mp4 -c:v h264_v4l2m2m -f mpegts /dev/null -y
-	ffmpeg $FFMPEG_OPTS -i sample_h264.mp4 -frames:v 96 -map 0:v:0 -c:v h264_v4l2m2m output.ts -y
+	ffmpeg $FFMPEG_OPTS -i sample_h264.mp4 -frames:v 96 -map 0:v:0 -pix_fmt yuv420p -c:v h264_v4l2m2m output.ts -y
 #	ffmpeg $FFMPEG_OPTS -c:v rawvideo -pix_fmt nv12 -i sample.nv12 -c:v h264_v4l2m2m -f ts  /dev/null -y
 }
 

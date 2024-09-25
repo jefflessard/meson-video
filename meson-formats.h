@@ -21,8 +21,11 @@ struct meson_format {
 	const u32 pixelformat;
 	const char *description;
 	const u8 num_planes;
-	const u8 bits_per_px[MAX_NUM_PLANES];
-	const u8 align_bits;
+	const u8 bits_per_px;
+	const u8 uvplane_bppx;
+	const u8 uvplane_bppy;
+	const u8 align_width;
+	const u8 align_height;
 	const u32 flags;
 };
 
