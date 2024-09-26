@@ -20,6 +20,7 @@
 
 #define MHz (1000000)
 
+#define V4L2_HM_JOINED V4L2_MPEG_VIDEO_HEADER_MODE_JOINED_WITH_1ST_FRAME
 #define V4L2_CID(x) V4L2_CID_MPEG_VIDEO_##x
 #define V4L2_FMT(x) V4L2_PIX_FMT_##x
 
@@ -92,6 +93,7 @@ struct encoder_h264_ctx {
 
 	struct vb2_v4l2_buffer *src_buf;
 	struct vb2_v4l2_buffer *dst_buf;
+	u32 dst_buf_offset;
 
 	u32 enc_start_count;
 	u32 enc_done_count;
@@ -427,10 +429,9 @@ static int init_mdfin(struct encoder_h264_ctx *ctx, bool is_idr) {
 }
 
 static int configure_encoder(struct encoder_h264_ctx *ctx, enum amlvenc_hcodec_cmd cmd) {
-	dma_addr_t buf_paddr;
-	u64 buf_size;
+	dma_addr_t dst_buf_paddr;
 	bool is_idr;
-	u32 quant;
+	u32 quant, dst_buf_size;
 	int ret;
 
 	is_idr = cmd == CMD_ENCODE_IDR;
@@ -452,9 +453,13 @@ static int configure_encoder(struct encoder_h264_ctx *ctx, enum amlvenc_hcodec_c
 				ctx->buffers[BUF_QDCT].paddr + ctx->buffers[BUF_QDCT].size - 1);
 
 		// amlvenc_h264_init_output_stream_buffer
-		buf_paddr = vb2_dma_contig_plane_dma_addr(&ctx->dst_buf->vb2_buf, 0);
-		buf_size = vb2_plane_size(&ctx->dst_buf->vb2_buf, 0);
-		amlvenc_h264_init_output_stream_buffer(buf_paddr, buf_paddr + buf_size - 1);
+		dst_buf_paddr = vb2_dma_contig_plane_dma_addr(&ctx->dst_buf->vb2_buf, 0);
+		dst_buf_size = vb2_plane_size(&ctx->dst_buf->vb2_buf, 0);
+		dst_buf_paddr += ctx->dst_buf_offset;
+		dst_buf_size -= ctx->dst_buf_offset;
+		amlvenc_h264_init_output_stream_buffer(
+				dst_buf_paddr,
+				dst_buf_paddr + dst_buf_size - 1);
 
 		// amlvenc_h264_configure_encoder
 		ctx->conf_params.idr = is_idr;
@@ -558,9 +563,17 @@ static void encoder_done(struct encoder_h264_ctx *ctx, enum amlvenc_hcodec_statu
 	bool is_last = false;
 
 	data_len = amlvenc_hcodec_vlc_total_bytes();
+	data_len += ctx->dst_buf_offset; 
 
 	if (status > ENCODER_PICTURE_DONE) {
 		v4l2_m2m_buf_copy_metadata(ctx->src_buf, ctx->dst_buf, true);
+		if (status == ENCODER_IDR_DONE) {
+			ctx->dst_buf->flags |= V4L2_BUF_FLAG_KEYFRAME;
+			ctx->dst_buf->flags &= ~V4L2_BUF_FLAG_PFRAME;
+		} else if (status = ENCODER_NON_IDR_DONE) {
+			ctx->dst_buf->flags &= ~V4L2_BUF_FLAG_KEYFRAME;
+			ctx->dst_buf->flags |= V4L2_BUF_FLAG_PFRAME;
+		}
 	}
 
 	session_trace(ctx->session, "id=%d, status=%d, len=%d, ts=%llu",
@@ -570,9 +583,9 @@ static void encoder_done(struct encoder_h264_ctx *ctx, enum amlvenc_hcodec_statu
 #if defined(DEBUG)
 	void *data;
 	data = vb2_plane_vaddr(&ctx->dst_buf->vb2_buf, 0);
-		
+
 	session_trace(ctx->session, "data=%*ph",
-			data_len < 32 ? data_len : 32, data);
+			data_len < 64 ? data_len : 64, data);
 
 	session_trace(ctx->session,
 			"hcodec status: %d, mb info: 0x%x, dct status: 0x%x, vlc status: 0x%x, me status: 0x%x, risc pc:0x%x, debug:0x%x",
@@ -601,6 +614,7 @@ static void encoder_done(struct encoder_h264_ctx *ctx, enum amlvenc_hcodec_statu
 			v4l2_m2m_buf_done(ctx->dst_buf, VB2_BUF_STATE_DONE);
 		}
 		ctx->dst_buf = NULL;
+		ctx->dst_buf_offset = 0;
 	}
 
 	// update stats
@@ -647,62 +661,46 @@ static void encoder_abort(struct encoder_h264_ctx *ctx) {
 
 static void encoder_start(struct encoder_h264_ctx *ctx) {
 	enum amlvenc_hcodec_cmd cmd;
-	int ret;
+	bool is_idr;
+	int ret, gop_size;
 
-	// Set command & dequeue buffers
-	if (ctx->enc_start_count == 0) {
-		cmd = CMD_ENCODE_SEQUENCE;
-		ctx->src_buf  = NULL;
-		ctx->dst_buf = v4l2_m2m_next_dst_buf(ctx->m2m_ctx);
-		if (!ctx->dst_buf) {
-			session_trace(ctx->session, "no buffers available");
-			v4l2_m2m_job_finish(ctx->m2m_ctx->m2m_dev, ctx->m2m_ctx);
-			ctx->dst_buf = NULL;
-			return;
-		}
-		v4l2_m2m_dst_buf_remove_by_buf(ctx->m2m_ctx, ctx->dst_buf);
-		ctx->init_params.idr = false;
-		ctx->init_params.idr_pic_id = 1;
-		ctx->init_params.frame_number = 1;
-		ctx->init_params.pic_order_cnt_lsb = 2;
-	} else if (ctx->enc_start_count == 1) {
-		cmd = CMD_ENCODE_PICTURE;
-		ctx->src_buf  = NULL;
-	    // ctx->dst_buf = NULL; // reuses sequence buffer
-		if (!ctx->dst_buf) {
-			session_trace(ctx->session, "no buffers available");
-			v4l2_m2m_job_finish(ctx->m2m_ctx->m2m_dev, ctx->m2m_ctx);
-			ctx->dst_buf = NULL;
-			return;
-		}
-	} else {
-		// Ensure there are buffers to work on
-		ctx->src_buf = v4l2_m2m_next_src_buf(ctx->m2m_ctx);
-		ctx->dst_buf = v4l2_m2m_next_dst_buf(ctx->m2m_ctx);
-		if (!ctx->src_buf || !ctx->dst_buf) {
-			session_trace(ctx->session, "no buffers available");
-			v4l2_m2m_job_finish(ctx->m2m_ctx->m2m_dev, ctx->m2m_ctx);
-			ctx->src_buf = NULL;
-			ctx->dst_buf = NULL;
-			return;
-		}
-		v4l2_m2m_src_buf_remove_by_buf(ctx->m2m_ctx, ctx->src_buf);
-		v4l2_m2m_dst_buf_remove_by_buf(ctx->m2m_ctx, ctx->dst_buf);
-#if 1
-		if ( ctx->enc_start_count == 2 || // first frame should always be an IDR
-			(ctx->src_buf->flags & V4L2_BUF_FLAG_KEYFRAME) == V4L2_BUF_FLAG_KEYFRAME) {
-#else
-		if (true) {
-#endif
-			cmd = CMD_ENCODE_IDR;
-			ctx->init_params.idr = true;
-			if (ctx->enc_start_count != 2) {
-				ctx->init_params.idr_pic_id = (ctx->init_params.idr_pic_id + 1) % 65536;
-			}
+	// Ensure there are buffers to work on
+	ctx->src_buf = v4l2_m2m_next_src_buf(ctx->m2m_ctx);
+	ctx->dst_buf = v4l2_m2m_next_dst_buf(ctx->m2m_ctx);
+	if (!ctx->src_buf || !ctx->dst_buf) {
+		session_trace(ctx->session, "no buffers available");
+		v4l2_m2m_job_finish(ctx->m2m_ctx->m2m_dev, ctx->m2m_ctx);
+		ctx->src_buf = NULL;
+		ctx->dst_buf = NULL;
+		return;
+	}
+	v4l2_m2m_src_buf_remove_by_buf(ctx->m2m_ctx, ctx->src_buf);
+	v4l2_m2m_dst_buf_remove_by_buf(ctx->m2m_ctx, ctx->dst_buf);
+	ctx->dst_buf_offset = 0;
+
+	gop_size = meson_vcodec_g_ctrl(ctx->session, V4L2_CID(GOP_SIZE));
+	is_idr =
+		(ctx->enc_start_count == 0 || // first frame
+		(ctx->init_params.frame_number % gop_size == 0) ||
+		(ctx->src_buf->flags & V4L2_BUF_FLAG_KEYFRAME) == V4L2_BUF_FLAG_KEYFRAME);
+
+	cmd = is_idr ? CMD_ENCODE_SEQUENCE : CMD_ENCODE_NON_IDR;
+
+encoder_start_loop:
+
+	switch (cmd) {
+		case CMD_ENCODE_SEQUENCE:
+			ctx->init_params.idr = false;
+			ctx->init_params.idr_pic_id = (ctx->init_params.idr_pic_id + 1) % 65536;
 			ctx->init_params.frame_number = 1;
 			ctx->init_params.pic_order_cnt_lsb = 2;
-		} else {
-			cmd = CMD_ENCODE_NON_IDR;
+			break;
+		case CMD_ENCODE_PICTURE:
+			break;
+		case CMD_ENCODE_IDR:
+			ctx->init_params.idr = true;
+			break;
+		case CMD_ENCODE_NON_IDR:
 			ctx->init_params.idr = false;
 			// TODO H264_ENC_SVC
 #if 0 //#ifdef H264_ENC_SVC
@@ -715,7 +713,7 @@ static void encoder_start(struct encoder_h264_ctx *ctx) {
 #endif
 			ctx->init_params.frame_number = (ctx->init_params.frame_number + 1) % 65536;
 			ctx->init_params.pic_order_cnt_lsb += 2;
-		}
+			break;
 	}
 
 	if (cmd != CMD_ENCODE_PICTURE) {
@@ -739,12 +737,12 @@ static void encoder_start(struct encoder_h264_ctx *ctx) {
 		return;
 	}
 
-	session_trace(ctx->session, "id=%d, cmd=%d, idr=%d, idr_pic_id=%d, frame_number=%d, ts=%llu, flags=%d",
-			ctx->enc_start_count, cmd, ctx->init_params.idr,
+	session_trace(ctx->session, "id=%d, cmd=%d, gop=%d, idr=%d, idr_pic_id=%d, frame_number=%d, ts=%llu",
+			ctx->enc_start_count, cmd, gop_size,
+			ctx->init_params.idr,
 			ctx->init_params.idr_pic_id,
 			ctx->init_params.frame_number,
-			ctx->src_buf ? ctx->src_buf->vb2_buf.timestamp : 0l,
-			ctx->src_buf ? ctx->src_buf->flags : 0);
+			ctx->src_buf ? ctx->src_buf->vb2_buf.timestamp : 0l);
 
 	// amlvenc_hcodec_cmd
 	reinit_completion(&ctx->encoder_completion);
@@ -764,7 +762,15 @@ static void encoder_start(struct encoder_h264_ctx *ctx) {
 	if (timeout) {
 		switch (ctx->hcodec_status) {
 			case ENCODER_SEQUENCE_DONE:
+				ctx->dst_buf_offset += amlvenc_hcodec_vlc_total_bytes();
+				cmd = CMD_ENCODE_PICTURE;
+				goto encoder_start_loop;
+				break;
 			case ENCODER_PICTURE_DONE:
+				ctx->dst_buf_offset += amlvenc_hcodec_vlc_total_bytes();
+				cmd = CMD_ENCODE_IDR;
+				goto encoder_start_loop;
+				break;
 			case ENCODER_IDR_DONE:
 			case ENCODER_NON_IDR_DONE:
 				encoder_done(ctx, ctx->hcodec_status);
@@ -854,10 +860,12 @@ static int __encoder_h264_configure(struct meson_codec_job *job) {
 	ctx->session = session;
 	ctx->m2m_ctx = session->m2m_ctx;
 	init_completion(&ctx->encoder_completion);
+	job->priv = ctx;
+
 	ctx->init_params.init_qppicture = 26;
 	ctx->init_params.log2_max_frame_num = 4;
 	ctx->init_params.log2_max_pic_order_cnt_lsb = 4;
-	ctx->init_params.idr_pic_id = 1;
+	ctx->init_params.idr_pic_id = 0;
 	ctx->init_params.frame_number = 1;
 	ctx->init_params.pic_order_cnt_lsb = 2;
 	ctx->qtable_params.quant_tbl_i4 = (u32 *) &ctx->qtable.i4_qp;
@@ -867,7 +875,6 @@ static int __encoder_h264_configure(struct meson_codec_job *job) {
 	ctx->conf_params.me = &ctx->me_params;
 	ctx->me_params = amlvenc_h264_me_defaults;
 	amlvenc_h264_init_me(&ctx->me_params);
-	job->priv = ctx;
 
 	u32 width = job->src_fmt->width;
 	u32 height = job->src_fmt->height;
@@ -1152,11 +1159,11 @@ static const struct v4l2_std_ctrl h264_encoder_ctrls[] = {
 //	{ V4L2_CID(BITRATE), 100000, 10000000, 100000, 4000000 },
 	{ V4L2_CID(FORCE_KEY_FRAME), 0, 1, 1, 0 },
 //	{ V4L2_CID(FRAME_RC_ENABLE), 0, 1, 1, 1 },
-//	{ V4L2_CID(GOP_SIZE), 1, 300, 1, 30 },
-//	{ V4L2_CID(H264_MAX_QP), 0, 51, 1, 51 },
+	{ V4L2_CID(GOP_SIZE), 1, 300, 1, 30 },
+	{ V4L2_CID(H264_MAX_QP), 0, 51, 1, 51 },
 	{ V4L2_CID(H264_MIN_QP), 0, 51, 1, 10 },
 //	{ V4L2_CID(H264_PROFILE), 0, 4, 1, 0 },
-//	{ V4L2_CID(HEADER_MODE), 0, 1, 1, 0 }
+	{ V4L2_CID(HEADER_MODE), V4L2_HM_JOINED, V4L2_HM_JOINED, 1, V4L2_HM_JOINED }
 };
 
 static const struct meson_codec_ops h264_encoder_ops = {
