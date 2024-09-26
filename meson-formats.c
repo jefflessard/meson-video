@@ -19,9 +19,9 @@ const struct meson_format yuv420 = {
 	.pixelformat = V4L2_PIX_FMT_YUV420M,
 	.bits_per_px = 8,
 	.num_planes = 3,
-	.uvplane_bppx = 4,
-	.uvplane_bppy = 4,
-	.align_width = 32,
+	.uvplane_bppx = 8, /* 4 but maybe alignment issue with h264 encoder */
+	.uvplane_bppy = 8, /* 4 but maybe alignment issue with h264 encoder */
+	.align_width = 64,
 	.align_height = 16,
 };
 

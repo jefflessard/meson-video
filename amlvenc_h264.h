@@ -25,6 +25,8 @@
 #define AML_FRAME_SINK
 #define H264_ENC_CBR
 #define MULTI_SLICE_MC
+#else
+#define H264_ENC_CBR
 #endif
 
 #define IE_PIPELINE_BLOCK_SHIFT 0
@@ -307,7 +309,7 @@ struct amlvenc_h264_mdfin_params {
     enum mdfin_subsampling_enum : u8 {
 		MDFIN_SUBSAMPLING_420 = 0,
 		MDFIN_SUBSAMPLING_422 = 1,
-		MDFIN_SUBSAMPLING_424 = 2,
+		MDFIN_SUBSAMPLING_444 = 2,
 	} oformat;			 /* output format = 0 */
     enum mddfin_nr_mode_enum : u8 {
 		MDFIN_NR_DISABLED = 0,
@@ -315,12 +317,6 @@ struct amlvenc_h264_mdfin_params {
 		MDFIN_NR_TNR      = 2,
 		MDFIN_NR_3D       = 3,
 	} nr_mode;           /* nr_mode: 0:Disabled 1:SNR Only 2:TNR Only 3:3DNR */
-	bool dsample_en;     /* Downsample Enable */
-	bool interp_en;      /* Interpolation Enable */
-	enum mdfin_y_sample_rate_enum : bool {
-		MDFIN_YSAMPLE_16PX = 0,
-		MDFIN_YSAMPLE_8PX = 1,
-	} y_sampl_rate;      /* 0:16 Pixels for y direction pickup; 1:8 pixels */
 	enum mdfin_r2y_mode_enum : u8 {
 		MDFIN_R2Y_MODE0 = 0,
 		MDFIN_R2Y_MODE1 = 1,
@@ -420,6 +416,7 @@ void amlvenc_h264_configure_svc_pic(bool is_slc_ref);
  * @p: Pointer to the MDFIN configuration parameters
  */
 void amlvenc_h264_configure_mdfin(struct amlvenc_h264_mdfin_params *p);
+enum mdfin_subsampling_enum amlvenc_h264_iformat_subsampling(enum mdfin_iformat_enum iformat, enum mdfin_ifmt_extra_enum ifmt_extra);
 
 /**
  * amlvenc_h264_configure_encoder - Initialize H.264 encoder

@@ -654,15 +654,56 @@ static void amlvenc_h264_configure_mdfin_nr(s32 reg_offset, struct amlvenc_h264_
 	}
 }
 
+enum mdfin_subsampling_enum amlvenc_h264_iformat_subsampling(enum mdfin_iformat_enum iformat, enum mdfin_ifmt_extra_enum ifmt_extra) {
+	switch (iformat) {
+		case MDFIN_IFMT_NV21P:
+		case MDFIN_IFMT_NV12P:
+		case MDFIN_IFMT_YUV420P:
+		case MDFIN_IFMT_UNKOWN_11L:
+			return MDFIN_SUBSAMPLING_420;
+		case MDFIN_IFMT_YUV422S:
+		case MDFIN_IFMT_YUV422P: /* unconfirmed */
+		case MDFIN_IFMT_YUV422L:
+			return MDFIN_SUBSAMPLING_422;
+		case MDFIN_IFMT_YUV444S:
+		case MDFIN_IFMT_YUV444P:
+		case MDFIN_IFMT_UNKNOWN_8L:
+		case MDFIN_IFMT_UNKOWNN_9L:
+		case MDFIN_IFMT_RGBA8888L:
+			return MDFIN_SUBSAMPLING_444;
+		case MDFIN_IFMT_HIGH_BIT_DEPTH:
+			switch (ifmt_extra) {
+				case MDFIN_IFMT_EXTRA_YUV422S_12BIT:
+				case MDFIN_IFMT_EXTRA_YUV422S_10BIT:
+					return MDFIN_SUBSAMPLING_420;
+				case MDFIN_IFMT_EXTRA_YUV444S_10BIT:
+					return MDFIN_SUBSAMPLING_444;
+			}
+	}
+
+	return MDFIN_SUBSAMPLING_420;
+}
+
 void amlvenc_h264_configure_mdfin(struct amlvenc_h264_mdfin_params *p) {
-	s32 reg_offset;
+	enum mdfin_subsampling_enum iyuv;
 	bool r2y_en;
 	bool nr_enable;
 	bool linear_enable;
+	bool dsample_en;     /* Downsample Enable */
+	bool interp_en;      /* Interpolation Enable */
+	bool y_sampl_rate;   /* 0:16 Pixels for y direction pickup; 1:8 pixels */
+	s32 reg_offset;
 
 	r2y_en = (p->r2y_mode) ? 1 : 0;
 	nr_enable = (p->nr_mode) ? 1 : 0;
 	linear_enable = (p->iformat >= 8);
+	y_sampl_rate =
+		(p->oformat != MDFIN_SUBSAMPLING_420) ||
+		(p->iformat == MDFIN_IFMT_RGBA8888L);
+
+	iyuv = amlvenc_h264_iformat_subsampling(p->iformat, p->ifmt_extra);
+	dsample_en = iyuv > p->oformat;
+	interp_en = iyuv < p->oformat;
 
 	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_GXBB) {
 		reg_offset = -8;
@@ -671,8 +712,8 @@ void amlvenc_h264_configure_mdfin(struct amlvenc_h264_mdfin_params *p) {
 
 		WRITE_HREG((HCODEC_MFDIN_REG1_CTRL + reg_offset),
 			(p->iformat << 0) | (p->oformat << 4) |
-			(p->dsample_en << 6) | (p->y_sampl_rate << 8) |
-			(p->interp_en << 9) | (r2y_en << 12) |
+			(dsample_en << 6) | (y_sampl_rate << 8) |
+			(interp_en << 9)  | (r2y_en << 12) |
 			(p->r2y_mode << 13) | (p->ifmt_extra << 16) |
 			(nr_enable << 19));
 		if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_SC2) {
@@ -686,8 +727,8 @@ void amlvenc_h264_configure_mdfin(struct amlvenc_h264_mdfin_params *p) {
 		reg_offset = 0;
 		WRITE_HREG((HCODEC_MFDIN_REG1_CTRL + reg_offset),
 			(p->iformat << 0) | (p->oformat << 4) |
-			(p->dsample_en << 6) | (p->y_sampl_rate << 8) |
-			(p->interp_en << 9) | (r2y_en << 12) |
+			(dsample_en << 6) | (y_sampl_rate << 8) |
+			(interp_en << 9)  | (r2y_en << 12) |
 			(p->r2y_mode << 13));
 
 		WRITE_HREG((HCODEC_MFDIN_REG8_DMBL + reg_offset),
@@ -1623,7 +1664,6 @@ void amlvenc_dos_disable_auto_gateclk(void) {
 #ifdef AML_FRAME_SINK
 
 int amlvenc_h264_init_mdfin(struct amlvenc_h264_mdfin_params *p) {
-	u8 ifmt444, ifmt422, ifmt420;
 	bool format_err = false;
 
 	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_TXL) {
@@ -1641,22 +1681,6 @@ int amlvenc_h264_init_mdfin(struct amlvenc_h264_mdfin_params *p) {
 	if (p->iformat != 7)
 		p->ifmt_extra = 0;
 
-	ifmt444 = ((p->iformat == 1) || (p->iformat == 5) || (p->iformat == 8) ||
-		(p->iformat == 9) || (p->iformat == 12)) ? 1 : 0;
-	if (p->iformat == 7 && p->ifmt_extra == 1)
-		ifmt444 = 1;
-	ifmt422 = ((p->iformat == 0) || (p->iformat == 10)) ? 1 : 0;
-	if (p->iformat == 7 && p->ifmt_extra != 1)
-		ifmt422 = 1;
-	ifmt420 = ((p->iformat == 2) || (p->iformat == 3) || (p->iformat == 4) ||
-		(p->iformat == 11)) ? 1 : 0;
-	p->dsample_en = ((ifmt444 && (p->oformat != 2)) ||
-		(ifmt422 && (p->oformat == 0))) ? 1 : 0;
-	p->interp_en = ((ifmt422 && (p->oformat == 2)) ||
-		(ifmt420 && (p->oformat != 0))) ? 1 : 0;
-	p->y_sampl_rate = (p->oformat != 0) ? 1 : 0;
-	if (p->iformat == 12)
-		p->y_sampl_rate = 0;
 	p->canv_idx0_bppx = (p->iformat == 1) ? 3 : (p->iformat == 0) ? 2 : 1;
 	p->canv_idx1_bppx = (p->iformat == 4) ? 0 : 1;
 	p->canv_idx0_bppy = 1;
@@ -1679,7 +1703,6 @@ int amlvenc_h264_init_mdfin(struct amlvenc_h264_mdfin_params *p) {
 
 	return 0;
 }
-
 
 void amlvenc_hcodec_canvas_config(u32 index, ulong addr, u32 width, u32 height, u32 wrap, u32 blkmode) {
 	unsigned long datah_temp, datal_temp;
