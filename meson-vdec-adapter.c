@@ -404,7 +404,7 @@ static irqreturn_t vdec_threaded_isr(int irq, void *data)
 	return adapter->vdec_codec_ops->threaded_isr(&adapter->vdec_sess);
 }
 
-static int meson_vdec_adapter_init(struct meson_codec_job *job) {
+static int meson_vdec_adapter_prepare(struct meson_codec_job *job) {
 	struct meson_vcodec_session *session = job->session;
 	struct meson_vdec_adapter *adapter;
 	struct amvdec_format *fmt_out;
@@ -415,7 +415,7 @@ static int meson_vdec_adapter_init(struct meson_codec_job *job) {
 	if (!adapter)
 		return -ENOMEM;
 
-	adapter->vdec_codec_ops = vdec_decoders[job->codec->type];
+	adapter->vdec_codec_ops = vdec_decoders[job->codec->spec->type];
 	job->priv = adapter;
 	// bypass sess fmt_out const
 	fmt_out = &adapter->vdec_fmt_out;
@@ -469,8 +469,8 @@ static int meson_vdec_adapter_init(struct meson_codec_job *job) {
 
 	fmt_out->codec_ops = adapter->vdec_codec_ops;
 	fmt_out->pixfmt = job->src_fmt->pixelformat;
-	fmt_out->firmware_path = (char *)session->core->platform_specs->firmwares[job->codec->type];
-	if (job->codec->type >= VP9_DECODER) {
+	fmt_out->firmware_path = (char *)session->core->platform_specs->firmwares[job->codec->spec->type];
+	if (job->codec->spec->type >= VP9_DECODER) {
 		fmt_out->vdec_ops = &vdec_hevc_ops;
 	} else {
 		fmt_out->vdec_ops = &vdec_1_ops;
@@ -520,7 +520,7 @@ static int meson_vdec_adapter_queue(struct meson_codec_job *job, struct vb2_v4l2
 	return 0;
 }
 
-static void meson_vdec_adapter_resume(struct meson_codec_job *job) {
+static void meson_vdec_adapter_run(struct meson_codec_job *job) {
 	struct meson_vdec_adapter *adapter = job->priv;
 	struct amvdec_session *sess = &adapter->vdec_sess;
 
@@ -560,7 +560,7 @@ static int meson_vdec_adapter_stop(struct meson_codec_job *job, struct vb2_queue
 	return 0;
 }
 
-static int meson_vdec_adapter_release(struct meson_codec_job *job) {
+static void meson_vdec_adapter_unprepare(struct meson_codec_job *job) {
 	struct meson_vdec_adapter *adapter = job->priv;
 
 	vdec_close(&adapter->vdec_sess);
@@ -569,8 +569,6 @@ static int meson_vdec_adapter_release(struct meson_codec_job *job) {
 	free_irq(job->session->core->irqs[IRQ_VDEC], (void *)job);
 	job->priv = NULL;
 	kfree(adapter);
-
-	return 0;
 }
 
 static const struct v4l2_std_ctrl mpeg12_decoder_ctrls[] = {
@@ -586,13 +584,13 @@ static const struct v4l2_std_ctrl hevc_decoder_ctrls[] = {
 };
 
 const struct meson_codec_ops codec_ops_vdec_adapter = {
-	.init = &meson_vdec_adapter_init,
+	.prepare = &meson_vdec_adapter_prepare,
 	.start = &meson_vdec_adapter_start,
 	.queue = &meson_vdec_adapter_queue,
-	.resume = &meson_vdec_adapter_resume,
+	.run = &meson_vdec_adapter_run,
 	.abort = &meson_vdec_adapter_abort,
 	.stop = &meson_vdec_adapter_stop,
-	.release = &meson_vdec_adapter_release,
+	.unprepare = &meson_vdec_adapter_unprepare,
 };
 
 const struct meson_codec_spec mpeg1_decoder = {

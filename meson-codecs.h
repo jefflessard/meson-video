@@ -22,6 +22,7 @@ enum meson_codecs: u8 {
 	MAX_CODECS
 };
 
+struct meson_vcodec_core;
 struct meson_vcodec_session;
 
 struct v4l2_std_ctrl {
@@ -33,28 +34,37 @@ struct v4l2_std_ctrl {
 };
 
 struct meson_codec_spec {
-	enum meson_codecs type;
+	const enum meson_codecs type;
 	const struct meson_codec_ops *ops;
 	const struct v4l2_std_ctrl *ctrls;
 	const int num_ctrls;
 };
 
+struct meson_codec_dev {
+	const struct meson_codec_spec *spec;
+	struct meson_vcodec_core *core;
+	struct v4l2_ctrl_handler ctrl_handler;
+	void *priv;
+};
+
 struct meson_codec_job {
 	struct meson_vcodec_session *session;
-	const struct meson_codec_spec *codec;
+	struct meson_codec_dev *codec;
 	const struct v4l2_pix_format_mplane *src_fmt;
 	const struct v4l2_pix_format_mplane *dst_fmt;
 	void *priv;
 };
 
 struct meson_codec_ops {
-	int (*init)(struct meson_codec_job *job);
+	int (*init)(struct meson_codec_dev *codec);
+	int (*prepare)(struct meson_codec_job *job);
 	int (*start)(struct meson_codec_job *job, struct vb2_queue *vq, u32 count);
 	int (*queue)(struct meson_codec_job *job, struct vb2_v4l2_buffer *vb);
-	void (*resume)(struct meson_codec_job *job);
+	void (*run)(struct meson_codec_job *job);
 	void (*abort)(struct meson_codec_job *job);
 	int (*stop)(struct meson_codec_job *job, struct vb2_queue *vq);
-	int (*release)(struct meson_codec_job *job);
+	void (*unprepare)(struct meson_codec_job *job);
+	void (*release)(struct meson_codec_dev *codec);
 };
 
 struct meson_codec_formats {
@@ -67,7 +77,6 @@ struct meson_codec_formats {
 	const u16 max_height;
 };
 
-
 extern const struct meson_codec_spec mpeg1_decoder;
 extern const struct meson_codec_spec mpeg2_decoder;
 extern const struct meson_codec_spec h264_decoder;
@@ -75,18 +84,5 @@ extern const struct meson_codec_spec vp9_decoder;
 extern const struct meson_codec_spec hevc_decoder;
 extern const struct meson_codec_spec h264_encoder;
 extern const struct meson_codec_spec hevc_encoder;
-
-
-/* helper macros */
-
-#define ENCODER_OPS(__session, __ops, ...) (\
-	__session->enc_job.codec->ops->__ops ? \
-	__session->enc_job.codec->ops->__ops(&__session->enc_job, ##__VA_ARGS__) \
-	: 0)
-
-#define DECODER_OPS(__session, __ops, ...) ( \
-	__session->dec_job.codec->ops->__ops ? \
-	__session->dec_job.codec->ops->__ops(&__session->dec_job, ##__VA_ARGS__) \
-	: 0)
 
 #endif

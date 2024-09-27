@@ -24,6 +24,34 @@
 
 #define DRIVER_NAME "meson-vcodec"
 
+
+/* helper macros */
+
+#define CODEC_OPS(__codec, __ops, ...) ( \
+	__codec->spec->ops->__ops ? \
+	__codec->spec->ops->__ops(__codec, ##__VA_ARGS__) \
+	: 0)
+
+#define ENCODER_CODEC_OPS(__session, __ops, ...) \
+	CODEC_OPS(__session->enc_job.codec, __ops, ##__VA_ARGS__)
+
+#define DECODER_CODEC_OPS(__session, __ops, ...) \
+	CODEC_OPS(__session->dec_job.codec, __ops, ##__VA_ARGS__)
+
+#define CODEC_JOB_OPS(__job, __ops, ...) ( \
+	__job.codec->spec->ops->__ops ? \
+	__job.codec->spec->ops->__ops(&__job, ##__VA_ARGS__) \
+	: 0)
+
+#define ENCODER_JOB_OPS(__session, __ops, ...) \
+	CODEC_JOB_OPS(__session->enc_job, __ops, ##__VA_ARGS__)
+
+#define DECODER_JOB_OPS(__session, __ops, ...) \
+	CODEC_JOB_OPS(__session->dec_job, __ops, ##__VA_ARGS__)
+
+
+/* constants */
+
 static const char* reg_names[MAX_BUS] = {
 	[BUS_DOS] = "dos",
 	[BUS_PARSER] = "esparser",
@@ -56,34 +84,16 @@ static const char* irq_names[MAX_IRQS] = {
 	[IRQ_HEVCENC] = "hevcenc",
 };
 
-static void meson_vcodec_configure_ctrls(struct meson_codec_job *job) {
-	struct v4l2_ctrl_handler *handler = &job->session->ctrl_handler;
-	const struct v4l2_std_ctrl *controls = job->codec->ctrls;
-	size_t num_ctrls = job->codec->num_ctrls;
-	struct v4l2_ctrl *ctrl;
-	size_t i;
+const struct meson_codec_spec *codec_specs[MAX_CODECS] = {
+	[MPEG1_DECODER] = &mpeg1_decoder,
+	[MPEG2_DECODER] = &mpeg2_decoder,
+	[H264_DECODER]  = &h264_decoder,
+	[VP9_DECODER]   = &vp9_decoder,
+	[HEVC_DECODER]  = &hevc_decoder,
+	[H264_ENCODER]  = &h264_encoder,
+	[HEVC_ENCODER]  = &hevc_encoder,
+};
 
-	for (i = 0; i < num_ctrls; i++) {
-		ctrl = v4l2_ctrl_new_std(handler, NULL, controls[i].id, controls[i].min, controls[i].max, controls[i].step, controls[i].def);
-
-		if (ctrl == NULL) {
-			session_warn(job->session, "Failed to create control for CID %u\n", controls[i].id);
-			continue;
-		}
-	}
-}
-
-static void meson_vcodec_release_ctrls(struct meson_vcodec_session *session) {
-	int ret;
-
-	v4l2_ctrl_handler_free(&session->ctrl_handler);
-
-	ret = v4l2_ctrl_handler_init(&session->ctrl_handler, 0);
-	if (ret) {
-		session_err(session, "Failed to initialize control handler");
-	}
-	session->fh.ctrl_handler = &session->ctrl_handler;
-}
 
 /* vb2_ops */
 
@@ -191,17 +201,17 @@ static void meson_vcodec_buf_queue(struct vb2_buffer *vb)
 
 	switch (session->type) {
 		case SESSION_TYPE_ENCODE:
-			ENCODER_OPS(session, queue, vbuf);
+			ENCODER_JOB_OPS(session, queue, vbuf);
 			break;
 		case SESSION_TYPE_DECODE:
-			DECODER_OPS(session, queue, vbuf);
+			DECODER_JOB_OPS(session, queue, vbuf);
 			break;
 		case SESSION_TYPE_TRANSCODE:
 			// TODO how to handle intermediate format buffers?
 			if(IS_SRC_STREAM(vb->type)) {
-				DECODER_OPS(session, queue, vbuf);
+				DECODER_JOB_OPS(session, queue, vbuf);
 			} else {
-				ENCODER_OPS(session, queue, vbuf);
+				ENCODER_JOB_OPS(session, queue, vbuf);
 			}
 			break;
 		case SESSION_TYPE_NONE:
@@ -233,46 +243,42 @@ static int meson_vcodec_prepare_streaming(struct vb2_queue *vq) {
 		session->dst_status < STREAM_STATUS_INIT
 	) {
 		session_dbg(session, "Initializing codec");
-		switch (session->type) {
-			case SESSION_TYPE_ENCODE:
-				meson_vcodec_configure_ctrls(&session->enc_job);
-				ret = ENCODER_OPS(session, init);
-				if (ret) {
-					session_err(session, "Failed to init encoder: %d", ret);
-					return ret;
-				}
-				break;
 
-			case SESSION_TYPE_DECODE:
-				meson_vcodec_configure_ctrls(&session->dec_job);
-				ret = DECODER_OPS(session, init);
-				if (ret) {
-					session_err(session, "Failed to init decoder: %d", ret);
-					return ret;
-				}
-				break;
-
-			case SESSION_TYPE_TRANSCODE:
-				meson_vcodec_configure_ctrls(&session->dec_job);
-				ret = DECODER_OPS(session, init);
-				if (ret) {
-					session_err(session, "Failed to init decoder: %d", ret);
-					return ret;
-				}
-				meson_vcodec_configure_ctrls(&session->enc_job);
-				ret = ENCODER_OPS(session, init);
-				if (ret) {
-					session_err(session, "Failed to init encoder: %d", ret);
-					DECODER_OPS(session, release);
-					return ret;
-				}
-				break;
-
-			case SESSION_TYPE_NONE:
-			default:
-				session_err(session, "Failed to init: invalid session type");
-				return -EINVAL;
+		if (session->enc_job.codec) {
+			ret = ENCODER_CODEC_OPS(session, init);
+			if (ret) {
+				session_err(session, "Failed to init encoder: %d", ret);
+				return ret;
+			}
+			ret = ENCODER_JOB_OPS(session, prepare);
+			if (ret) {
+				session_err(session, "Failed to prepare encoder: %d", ret);
+				ENCODER_CODEC_OPS(session, release);
+				return ret;
+			}
 		}
+
+		if (session->dec_job.codec) {
+			ret = DECODER_CODEC_OPS(session, init);
+			if (ret) {
+				session_err(session, "Failed to init decoder: %d", ret);
+				if (session->enc_job.codec) {
+					ENCODER_JOB_OPS(session, unprepare);
+					ENCODER_CODEC_OPS(session, release);
+				}
+				return ret;
+			}
+			ret = DECODER_JOB_OPS(session, prepare);
+			if (ret) {
+				session_err(session, "Failed to prepare decoder: %d", ret);
+				DECODER_CODEC_OPS(session, release);
+				if (session->enc_job.codec) {
+					ENCODER_JOB_OPS(session, unprepare);
+					ENCODER_CODEC_OPS(session, release);
+				}
+				return ret;
+			}
+		}	
 	}
 
 	SET_STREAM_STATUS(session, vq->type, STREAM_STATUS_INIT);
@@ -296,7 +302,7 @@ static int meson_vcodec_start_streaming(struct vb2_queue *vq, unsigned int count
 	
 	switch (session->type) {
 		case SESSION_TYPE_ENCODE:
-			ret = ENCODER_OPS(session, start, vq, count);
+			ret = ENCODER_JOB_OPS(session, start, vq, count);
 			if (ret) {
 				stream_err(session, vq->type, "Failed to start encoder: %d", ret);
 				goto release_buffers;
@@ -304,7 +310,7 @@ static int meson_vcodec_start_streaming(struct vb2_queue *vq, unsigned int count
 			break;
 
 		case SESSION_TYPE_DECODE:
-			ret = DECODER_OPS(session, start, vq, count);
+			ret = DECODER_JOB_OPS(session, start, vq, count);
 			if (ret) {
 				stream_err(session, vq->type, "Failed to start decoder: %d", ret);
 				goto release_buffers;
@@ -314,13 +320,13 @@ static int meson_vcodec_start_streaming(struct vb2_queue *vq, unsigned int count
 		case SESSION_TYPE_TRANSCODE:
 			// TODO how to handle intermediate format streaming ?
 			if(IS_SRC_STREAM(vq->type)) {
-				ret = DECODER_OPS(session, start, vq, count);
+				ret = DECODER_JOB_OPS(session, start, vq, count);
 				if (ret) {
 					stream_err(session, vq->type, "Failed to start decoder: %d", ret);
 					goto release_buffers;
 				}
 			} else {
-				ret = ENCODER_OPS(session, start, vq, count);
+				ret = ENCODER_JOB_OPS(session, start, vq, count);
 				if (ret) {
 					stream_err(session, vq->type, "Failed to start encoder: %d", ret);
 					goto release_buffers;
@@ -365,19 +371,19 @@ static void meson_vcodec_stop_streaming(struct vb2_queue *vq)
 
 	switch (session->type) {
 		case SESSION_TYPE_ENCODE:
-			ENCODER_OPS(session, stop, vq);
+			ENCODER_JOB_OPS(session, stop, vq);
 			break;
 
 		case SESSION_TYPE_DECODE:
-			DECODER_OPS(session, stop, vq);
+			DECODER_JOB_OPS(session, stop, vq);
 			break;
 
 		case SESSION_TYPE_TRANSCODE:
 			// TODO how to handle intermediate format streaming ?
 			if(IS_SRC_STREAM(vq->type)) {
-				DECODER_OPS(session, stop, vq);
+				DECODER_JOB_OPS(session, stop, vq);
 			} else {
-				ENCODER_OPS(session, stop, vq);
+				ENCODER_JOB_OPS(session, stop, vq);
 			}
 			break;
 
@@ -418,25 +424,16 @@ static void meson_vcodec_unprepare_streaming(struct vb2_queue *vq)
 		session->dst_status == STREAM_STATUS_RELEASE
 	) {
 		session_dbg(session, "Releasing codec");
-		switch (session->type) {
-			case SESSION_TYPE_ENCODE:
-				ENCODER_OPS(session, release);
-				break;
 
-			case SESSION_TYPE_DECODE:
-				DECODER_OPS(session, release);
-				break;
-
-			case SESSION_TYPE_TRANSCODE:
-				DECODER_OPS(session, release);
-				ENCODER_OPS(session, release);
-				break;
-
-			case SESSION_TYPE_NONE:
-			default:
-				break;
+		if (session->enc_job.codec) {
+			ENCODER_JOB_OPS(session, unprepare);
+			ENCODER_CODEC_OPS(session, release);
 		}
-		meson_vcodec_release_ctrls(session);
+
+		if (session->dec_job.codec) {
+			DECODER_JOB_OPS(session, unprepare);
+			DECODER_CODEC_OPS(session, release);
+		}
 	}
 }
 
@@ -465,16 +462,16 @@ static void meson_vcodec_m2m_device_run(void *priv)
 
 	switch (session->type) {
 		case SESSION_TYPE_ENCODE:
-			ENCODER_OPS(session, resume);
+			ENCODER_JOB_OPS(session, run);
 			break;
 
 		case SESSION_TYPE_DECODE:
-			DECODER_OPS(session, resume);
+			DECODER_JOB_OPS(session, run);
 			break;
 
 		case SESSION_TYPE_TRANSCODE:
-			DECODER_OPS(session, resume);
-			ENCODER_OPS(session, resume);
+			DECODER_JOB_OPS(session, run);
+			ENCODER_JOB_OPS(session, run);
 			break;
 
 		case SESSION_TYPE_NONE:
@@ -494,16 +491,16 @@ static void meson_vcodec_m2m_job_abort(void *priv)
 
 	switch (session->type) {
 		case SESSION_TYPE_ENCODE:
-			ENCODER_OPS(session, abort);
+			ENCODER_JOB_OPS(session, abort);
 			break;
 
 		case SESSION_TYPE_DECODE:
-			DECODER_OPS(session, abort);
+			DECODER_JOB_OPS(session, abort);
 			break;
 
 		case SESSION_TYPE_TRANSCODE:
-			DECODER_OPS(session, abort);
-			ENCODER_OPS(session, abort);
+			DECODER_JOB_OPS(session, abort);
+			ENCODER_JOB_OPS(session, abort);
 			break;
 
 		case SESSION_TYPE_NONE:
@@ -989,6 +986,10 @@ static int meson_vcodec_s_fmt_vid(struct file *file, void *priv, struct v4l2_for
 	session->type = SESSION_TYPE_NONE;
 	session->src_status = STREAM_STATUS_NONE;
 	session->dst_status = STREAM_STATUS_NONE;
+	if (session->enc_job.codec || session->dec_job.codec) {	
+		v4l2_ctrl_handler_free(&session->ctrl_handler);
+		v4l2_ctrl_handler_init(&session->ctrl_handler, 0);
+	}
 	session->enc_job.codec = NULL;
 	session->dec_job.codec = NULL;
 	session->enc_job.src_fmt = NULL;
@@ -1037,8 +1038,14 @@ static int meson_vcodec_s_fmt_vid(struct file *file, void *priv, struct v4l2_for
 		// Set session type and codec jobs
 		session->enc_job.session = session;
 		session->dec_job.session = session;
-		session->enc_job.codec = codec->encoder;
-		session->dec_job.codec = codec->decoder;
+		if (codec->encoder) {
+			session->enc_job.codec = &core->codecs[codec->encoder->type];
+			v4l2_ctrl_add_handler(&session->ctrl_handler, &session->enc_job.codec->ctrl_handler, NULL, false);
+		}
+		if (codec->decoder) {
+			session->dec_job.codec = &core->codecs[codec->decoder->type];
+			v4l2_ctrl_add_handler(&session->ctrl_handler, &session->dec_job.codec->ctrl_handler, NULL, false);
+		}
 
 		if (codec->decoder && codec->encoder) {
 			session->type = SESSION_TYPE_TRANSCODE;
@@ -1159,7 +1166,31 @@ static const struct v4l2_ioctl_ops meson_vcodec_ioctl_ops = {
 	.vidioc_decoder_cmd = meson_vcodec_decoder_cmd,
 };
 
-/* ressource helpers */
+
+/* helper functions */
+
+static void meson_vcodec_init_ctrls(struct meson_codec_dev *codec) {
+	struct v4l2_ctrl_handler *handler = &codec->ctrl_handler;
+	const struct v4l2_std_ctrl *controls = codec->spec->ctrls;
+	size_t num_ctrls = codec->spec->num_ctrls;
+	struct v4l2_ctrl *ctrl;
+	size_t i;
+
+	v4l2_ctrl_handler_init(handler, num_ctrls);
+
+	for (i = 0; i < num_ctrls; i++) {
+		ctrl = v4l2_ctrl_new_std(handler, NULL, controls[i].id, controls[i].min, controls[i].max, controls[i].step, controls[i].def);
+
+		if (ctrl == NULL) {
+			dev_warn(codec->core->dev, "Failed to create control for CID %u\n", controls[i].id);
+			continue;
+		}
+	}
+}
+
+static void meson_vcodec_release_ctrls(struct meson_codec_dev *codec) {
+	v4l2_ctrl_handler_free(&codec->ctrl_handler);
+}
 
 s32 meson_vcodec_g_ctrl(struct meson_vcodec_session *session, u32 id) {
 	struct v4l2_ctrl *ctrl;
@@ -1193,6 +1224,7 @@ void meson_vcodec_event_resolution(struct meson_vcodec_session *session) {
 
 	v4l2_event_queue_fh(&session->fh, &rs_event);
 }
+
 
 /* platform_driver */
 
@@ -1348,6 +1380,12 @@ static int meson_vcodec_probe(struct platform_device *pdev)
 		goto err_m2m_release;
 	}
 
+	for (i = 0; i < MAX_CODECS; i++) {
+		core->codecs[i].spec = codec_specs[i]; 
+		core->codecs[i].core = core;
+		meson_vcodec_init_ctrls(&core->codecs[i]);
+	}
+
 	video_set_drvdata(vfd, core);
 	dev_dbg(&pdev->dev, "Device registered as %s\n", video_device_node_name(vfd));
 
@@ -1365,8 +1403,12 @@ err_v4l2_unregister:
 static int meson_vcodec_remove(struct platform_device *pdev)
 {
 	struct meson_vcodec_core *core = platform_get_drvdata(pdev);
+	int i;
 
 	MESON_VCODEC_CORE = NULL;
+	for (i = 0; i < MAX_CODECS; i++) {
+		meson_vcodec_release_ctrls(&core->codecs[i]);
+	}
 	video_unregister_device(&core->vfd);
 	v4l2_m2m_release(core->m2m_dev);
 	v4l2_device_unregister(&core->v4l2_dev);

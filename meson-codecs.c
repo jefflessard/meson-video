@@ -5,7 +5,6 @@
 #include "meson-codecs.h"
 #include "meson-vcodec.h"
 
-
 static const struct meson_codec_ops hevc_encoder_ops = {
 };
 
@@ -18,4 +17,3 @@ const struct meson_codec_spec hevc_encoder = {
 	.ctrls = hevc_encoder_ctrls,
 	.num_ctrls = ARRAY_SIZE(hevc_encoder_ctrls),
 };
-

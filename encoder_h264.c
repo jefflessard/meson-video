@@ -395,6 +395,7 @@ static int init_mdfin(struct encoder_h264_ctx *ctx, bool is_idr) {
 		canvas_w = i == 0 ? y_width : uv_width;
 		canvas_h = i == 0 ? y_height : uv_height;
 
+#ifdef DEBUG
 		u32 canvas_size = canvas_w * canvas_h;
 		session_trace(ctx->session, "plane %d: bytes=%lu, size=%lu, canvas=%d, canvas_size=%d",
 				i,
@@ -402,6 +403,7 @@ static int init_mdfin(struct encoder_h264_ctx *ctx, bool is_idr) {
 				vb2_plane_size(&ctx->src_buf->vb2_buf, i),
 				ctx->canvases[CANVAS_TYPE_INPUT][i],
 				canvas_size);
+#endif
 
 		ret = validate_canvas_align(
 				canvas_paddr,
@@ -570,7 +572,7 @@ static void encoder_done(struct encoder_h264_ctx *ctx, enum amlvenc_hcodec_statu
 		if (status == ENCODER_IDR_DONE) {
 			ctx->dst_buf->flags |= V4L2_BUF_FLAG_KEYFRAME;
 			ctx->dst_buf->flags &= ~V4L2_BUF_FLAG_PFRAME;
-		} else if (status = ENCODER_NON_IDR_DONE) {
+		} else if (status == ENCODER_NON_IDR_DONE) {
 			ctx->dst_buf->flags &= ~V4L2_BUF_FLAG_KEYFRAME;
 			ctx->dst_buf->flags |= V4L2_BUF_FLAG_PFRAME;
 		}
@@ -580,12 +582,12 @@ static void encoder_done(struct encoder_h264_ctx *ctx, enum amlvenc_hcodec_statu
 			ctx->enc_done_count, ctx->hcodec_status, data_len,
 			ctx->src_buf ? ctx->src_buf->vb2_buf.timestamp : 0l);
 
-#if defined(DEBUG)
+#ifdef DEBUG
 	void *data;
 	data = vb2_plane_vaddr(&ctx->dst_buf->vb2_buf, 0);
 
 	session_trace(ctx->session, "data=%*ph",
-			data_len < 64 ? data_len : 64, data);
+			data_len < 16 ? data_len : 16, data);
 
 	session_trace(ctx->session,
 			"hcodec status: %d, mb info: 0x%x, dct status: 0x%x, vlc status: 0x%x, me status: 0x%x, risc pc:0x%x, debug:0x%x",
@@ -713,6 +715,9 @@ encoder_start_loop:
 #endif
 			ctx->init_params.frame_number = (ctx->init_params.frame_number + 1) % 65536;
 			ctx->init_params.pic_order_cnt_lsb += 2;
+			break;
+		default:
+			// won't happen
 			break;
 	}
 
@@ -848,7 +853,7 @@ free_buffers:
 	return ret;
 }
 
-static int __encoder_h264_configure(struct meson_codec_job *job) {
+static int encoder_h264_prepare(struct meson_codec_job *job) {
 	struct meson_vcodec_session *session = job->session;
 	struct encoder_h264_ctx	*ctx;
 	int ret;
@@ -993,7 +998,8 @@ free_ctx:
 	return ret;
 }
 
-static int __encoder_h264_init(struct meson_vcodec_core *core) {
+static int encoder_h264_init(struct meson_codec_dev *codec) {
+	struct meson_vcodec_core *core = codec->core;
 	int ret;
 
 	/* hcodec_clk */
@@ -1089,7 +1095,7 @@ static int encoder_h264_queue(struct meson_codec_job *job, struct vb2_v4l2_buffe
 	return 0;
 }
 
-static void encoder_h264_resume(struct meson_codec_job *job) {
+static void encoder_h264_run(struct meson_codec_job *job) {
 	struct encoder_h264_ctx *ctx = job->priv;
 
 	encoder_start(ctx);
@@ -1111,7 +1117,7 @@ static int encoder_h264_stop(struct meson_codec_job *job, struct vb2_queue *vq) 
 	return 0;
 }
 
-static void __encoder_h264_unconfigure(struct meson_codec_job *job) {
+static void encoder_h264_unprepare(struct meson_codec_job *job) {
 	struct encoder_h264_ctx *ctx = job->priv;
 
 	free_irq(job->session->core->irqs[IRQ_HCODEC], (void *)job);
@@ -1123,35 +1129,12 @@ static void __encoder_h264_unconfigure(struct meson_codec_job *job) {
 	job->priv = NULL;
 }
 
-static void __encoder_h264_release(struct meson_vcodec_core *core) {
+static void encoder_h264_release(struct meson_codec_dev *codec) {
 
 	amlvenc_dos_hcodec_memory(false);
 	amlvenc_dos_hcodec_gateclk(false);
-	meson_vcodec_pwrc_off(core, PWRC_HCODEC);
-	meson_vcodec_clk_unprepare(core, CLK_HCODEC);
-}
-
-static int encoder_h264_init(struct meson_codec_job *job) {
-	int ret;
-
-	ret = __encoder_h264_init(job->session->core);
-	if (ret) {
-		return ret;
-	}
-
-	ret = __encoder_h264_configure(job);
-	if (ret) {
-		__encoder_h264_release(job->session->core);
-		return ret;
-	}
-	
-	return 0;
-}
-
-static int encoder_h264_release(struct meson_codec_job *job) {
-	__encoder_h264_unconfigure(job);
-	__encoder_h264_release(job->session->core);
-	return 0;
+	meson_vcodec_pwrc_off(codec->core, PWRC_HCODEC);
+	meson_vcodec_clk_unprepare(codec->core, CLK_HCODEC);
 }
 
 static const struct v4l2_std_ctrl h264_encoder_ctrls[] = {
@@ -1168,11 +1151,13 @@ static const struct v4l2_std_ctrl h264_encoder_ctrls[] = {
 
 static const struct meson_codec_ops h264_encoder_ops = {
 	.init = &encoder_h264_init,
+	.prepare = &encoder_h264_prepare,
 	.start = &encoder_h264_start,
 	.queue = &encoder_h264_queue,
-	.resume = &encoder_h264_resume,
+	.run = &encoder_h264_run,
 	.abort = &encoder_h264_abort,
 	.stop = &encoder_h264_stop,
+	.unprepare = &encoder_h264_unprepare,
 	.release = &encoder_h264_release,
 };
 

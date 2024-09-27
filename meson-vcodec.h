@@ -82,6 +82,8 @@ struct meson_vcodec_core {
 
 	struct meson_canvas *canvas;
 
+	struct meson_codec_dev codecs[MAX_CODECS];
+
 	struct v4l2_device v4l2_dev;
 	struct video_device vfd;
 	struct v4l2_m2m_dev *m2m_dev;
