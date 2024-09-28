@@ -1213,18 +1213,17 @@ static void encoder_h264_release(struct meson_codec_dev *codec) {
 	meson_vcodec_clk_unprepare(codec->core, CLK_HCODEC);
 }
 
-static const struct v4l2_std_ctrl h264_encoder_ctrls[] = {
-//	{ V4L2_CID(B_FRAMES), 0, 16, 1, 2 },
-//	{ V4L2_CID(BITRATE), 100000, 10000000, 100000, 4000000 },
-	{ V4L2_CID(FORCE_KEY_FRAME), 0, 1, 1, 0 },
-//	{ V4L2_CID(FRAME_RC_ENABLE), 0, 1, 1, 1 },
-	{ V4L2_CID(GOP_SIZE), 1, 300, 1, 30 },
-//	{ V4L2_CID(H264_MAX_QP), 0, 51, 1, 51 },
-//	{ V4L2_CID(H264_MIN_QP), 0, 51, 1, 10 },
-//	{ V4L2_CID(H264_PROFILE), 0, 4, 1, 0 },
-	{ V4L2_CID(HEADER_MODE), 0, 1, 1, 0 },
-	{ V4L2_CID(REPEAT_SEQ_HEADER), 0, 1, 1, 0 },
-
+static const struct v4l2_ctrl_config h264_encoder_ctrls[] = {
+//	V4L2_CTRL(B_FRAMES, 0, 16, 1, 2 ),
+	V4L2_CTRL(GOP_SIZE, 1, 300, 1, 30 ),
+	V4L2_CTRL(BITRATE, 100000, 10000000, 100000, 4000000 ),
+	V4L2_CTRL(FRAME_RC_ENABLE, 0, 1, 1, 1 ),
+	V4L2_CTRL(HEADER_MODE, 0, 1, 0, 0 ),
+	V4L2_CTRL(REPEAT_SEQ_HEADER, 0, 1, 1, 0 ),
+	V4L2_CTRL(FORCE_KEY_FRAME, 0, 1, 1, 0 ),
+	V4L2_CTRL(H264_MIN_QP, 0, 51, 1, 10 ),
+	V4L2_CTRL(H264_MAX_QP, 0, 51, 1, 51 ),
+//	V4L2_CTRL(H264_PROFILE, 0, 4, 1, 0 ),
 };
 
 static const struct meson_codec_ops h264_encoder_ops = {

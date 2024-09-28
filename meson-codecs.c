@@ -8,7 +8,7 @@
 static const struct meson_codec_ops hevc_encoder_ops = {
 };
 
-static const struct v4l2_std_ctrl hevc_encoder_ctrls[] = {
+static const struct v4l2_ctrl_config hevc_encoder_ctrls[] = {
 };
 
 const struct meson_codec_spec hevc_encoder = {

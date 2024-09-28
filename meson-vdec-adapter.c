@@ -571,16 +571,16 @@ static void meson_vdec_adapter_unprepare(struct meson_codec_job *job) {
 	kfree(adapter);
 }
 
-static const struct v4l2_std_ctrl mpeg12_decoder_ctrls[] = {
+static const struct v4l2_ctrl_config mpeg12_decoder_ctrls[] = {
 };
 
-static const struct v4l2_std_ctrl h264_decoder_ctrls[] = {
+static const struct v4l2_ctrl_config h264_decoder_ctrls[] = {
 };
 
-static const struct v4l2_std_ctrl vp9_decoder_ctrls[] = {
+static const struct v4l2_ctrl_config vp9_decoder_ctrls[] = {
 };
 
-static const struct v4l2_std_ctrl hevc_decoder_ctrls[] = {
+static const struct v4l2_ctrl_config hevc_decoder_ctrls[] = {
 };
 
 const struct meson_codec_ops codec_ops_vdec_adapter = {

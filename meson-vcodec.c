@@ -99,23 +99,29 @@ const struct meson_codec_spec *codec_specs[MAX_CODECS] = {
 
 static void meson_vcodec_add_codec_ctrls(struct meson_vcodec_session *session, struct meson_codec_dev *codec) {
 	struct v4l2_ctrl_handler *handler = &codec->ctrl_handler;
-	const struct v4l2_std_ctrl *controls = codec->spec->ctrls;
+	const struct v4l2_ctrl_config *ctrls = codec->spec->ctrls;
 	size_t num_ctrls = codec->spec->num_ctrls;
 	struct v4l2_ctrl *ctrl;
-	size_t i;
+	int i, ret;
 
-	v4l2_ctrl_handler_init(handler, num_ctrls);
+	ret = v4l2_ctrl_handler_init(handler, num_ctrls);
+	if (ret) {
+		session_warn(session, "Failed to init ctrl_handler of codec %d", codec->spec->type);
+		return;
+	}
 
 	for (i = 0; i < num_ctrls; i++) {
-		ctrl = v4l2_ctrl_new_std(handler, NULL, controls[i].id, controls[i].min, controls[i].max, controls[i].step, controls[i].def);
-
+		ctrl = v4l2_ctrl_new_custom(handler, &ctrls[i], NULL);
 		if (ctrl == NULL) {
-			dev_warn(codec->core->dev, "Failed to create control for CID %u\n", controls[i].id);
+			session_warn(session, "Failed to create ctrl %u of codec %d", ctrls[i].id, codec->spec->type);
 			continue;
 		}
 	}
 
-	v4l2_ctrl_add_handler(&session->ctrl_handler, handler, NULL, false);
+	ret = v4l2_ctrl_add_handler(&session->ctrl_handler, handler, NULL, false);
+	if (ret) {
+		session_warn(session, "Failed to add ctrls of codec %d", codec->spec->type);
+	}
 }
 
 static void meson_vcodec_remove_codec_ctrls(struct meson_vcodec_session *session) {

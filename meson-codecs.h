@@ -11,7 +11,10 @@
 #define MIN_RESOLUTION_WIDTH 320
 #define MIN_RESOLUTION_HEIGHT 240
 
-#define V4L2_CID(x) V4L2_CID_MPEG_VIDEO_##x
+#define V4L2_CID(x) (V4L2_CID_MPEG_VIDEO_##x)
+
+#define V4L2_CTRL(__id, __min, __max, __step, __def) \
+	{ .id = V4L2_CID(__id), .min = (__min), .max = (__max), .step = (__step), .def = (__def), }
 
 enum meson_codecs: u8 {
 	MPEG1_DECODER,
@@ -27,18 +30,10 @@ enum meson_codecs: u8 {
 struct meson_vcodec_core;
 struct meson_vcodec_session;
 
-struct v4l2_std_ctrl {
-	u32 id;
-	s32 min;
-	s32 max;
-	s32 step;
-	s32 def;
-};
-
 struct meson_codec_spec {
 	const enum meson_codecs type;
 	const struct meson_codec_ops *ops;
-	const struct v4l2_std_ctrl *ctrls;
+	const struct v4l2_ctrl_config *ctrls;
 	const int num_ctrls;
 };
 
