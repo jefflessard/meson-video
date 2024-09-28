@@ -95,6 +95,72 @@ const struct meson_codec_spec *codec_specs[MAX_CODECS] = {
 };
 
 
+/* helper functions */
+
+static void meson_vcodec_add_codec_ctrls(struct meson_vcodec_session *session, struct meson_codec_dev *codec) {
+	struct v4l2_ctrl_handler *handler = &codec->ctrl_handler;
+	const struct v4l2_std_ctrl *controls = codec->spec->ctrls;
+	size_t num_ctrls = codec->spec->num_ctrls;
+	struct v4l2_ctrl *ctrl;
+	size_t i;
+
+	v4l2_ctrl_handler_init(handler, num_ctrls);
+
+	for (i = 0; i < num_ctrls; i++) {
+		ctrl = v4l2_ctrl_new_std(handler, NULL, controls[i].id, controls[i].min, controls[i].max, controls[i].step, controls[i].def);
+
+		if (ctrl == NULL) {
+			dev_warn(codec->core->dev, "Failed to create control for CID %u\n", controls[i].id);
+			continue;
+		}
+	}
+
+	v4l2_ctrl_add_handler(&session->ctrl_handler, handler, NULL, false);
+}
+
+static void meson_vcodec_remove_codec_ctrls(struct meson_vcodec_session *session) {
+	if (session->enc_job.codec) {
+		v4l2_ctrl_handler_free(&session->enc_job.codec->ctrl_handler);
+	}
+	if (session->dec_job.codec) {
+		v4l2_ctrl_handler_free(&session->dec_job.codec->ctrl_handler);
+	}
+}
+
+s32 meson_vcodec_g_ctrl(struct meson_vcodec_session *session, u32 id) {
+	struct v4l2_ctrl *ctrl;
+
+	ctrl = v4l2_ctrl_find(&session->ctrl_handler, id);
+	if (ctrl) {
+		return v4l2_ctrl_g_ctrl(ctrl);
+	} else {
+		session_warn(session, "ctrl %d not found", id);
+		return 0;
+	}
+}
+
+void meson_vcodec_event_eos(struct meson_vcodec_session *session) {
+	static const struct v4l2_event eos_event = {
+		.type = V4L2_EVENT_EOS
+	};
+
+	session_trace(session);
+
+	v4l2_event_queue_fh(&session->fh, &eos_event);
+}
+
+void meson_vcodec_event_resolution(struct meson_vcodec_session *session) {
+	static const struct v4l2_event rs_event = {
+		.type = V4L2_EVENT_SOURCE_CHANGE,
+		.u.src_change.changes = V4L2_EVENT_SRC_CH_RESOLUTION,
+	};
+
+	session_trace(session);
+
+	v4l2_event_queue_fh(&session->fh, &rs_event);
+}
+
+
 /* vb2_ops */
 
 static int meson_vcodec_queue_setup(
@@ -831,11 +897,11 @@ static int common_try_fmt_vid(struct meson_vcodec_core *core, u32 fmt_type, stru
 	}
 
 	switch(fmt_set->fmt.pix_mp.pixelformat) {
-		case V4L2_PIX_FMT_YUV420:
-			fmt_set->fmt.pix_mp.pixelformat = V4L2_PIX_FMT_YUV420M;
+		case V4L2_FMT(YUV420):
+			fmt_set->fmt.pix_mp.pixelformat = V4L2_FMT(YUV420M);
 			break;
-		case V4L2_PIX_FMT_NV12:
-			fmt_set->fmt.pix_mp.pixelformat = V4L2_PIX_FMT_NV12M;
+		case V4L2_FMT(NV12):
+			fmt_set->fmt.pix_mp.pixelformat = V4L2_FMT(NV12M);
 			break;
 	}
 
@@ -986,10 +1052,7 @@ static int meson_vcodec_s_fmt_vid(struct file *file, void *priv, struct v4l2_for
 	session->type = SESSION_TYPE_NONE;
 	session->src_status = STREAM_STATUS_NONE;
 	session->dst_status = STREAM_STATUS_NONE;
-	if (session->enc_job.codec || session->dec_job.codec) {	
-		v4l2_ctrl_handler_free(&session->ctrl_handler);
-		v4l2_ctrl_handler_init(&session->ctrl_handler, 0);
-	}
+	meson_vcodec_remove_codec_ctrls(session);
 	session->enc_job.codec = NULL;
 	session->dec_job.codec = NULL;
 	session->enc_job.src_fmt = NULL;
@@ -1040,11 +1103,11 @@ static int meson_vcodec_s_fmt_vid(struct file *file, void *priv, struct v4l2_for
 		session->dec_job.session = session;
 		if (codec->encoder) {
 			session->enc_job.codec = &core->codecs[codec->encoder->type];
-			v4l2_ctrl_add_handler(&session->ctrl_handler, &session->enc_job.codec->ctrl_handler, NULL, false);
+			meson_vcodec_add_codec_ctrls(session, session->enc_job.codec);
 		}
 		if (codec->decoder) {
 			session->dec_job.codec = &core->codecs[codec->decoder->type];
-			v4l2_ctrl_add_handler(&session->ctrl_handler, &session->dec_job.codec->ctrl_handler, NULL, false);
+			meson_vcodec_add_codec_ctrls(session, session->enc_job.codec);
 		}
 
 		if (codec->decoder && codec->encoder) {
@@ -1165,65 +1228,6 @@ static const struct v4l2_ioctl_ops meson_vcodec_ioctl_ops = {
 	.vidioc_try_decoder_cmd = v4l2_m2m_ioctl_try_decoder_cmd,
 	.vidioc_decoder_cmd = meson_vcodec_decoder_cmd,
 };
-
-
-/* helper functions */
-
-static void meson_vcodec_init_ctrls(struct meson_codec_dev *codec) {
-	struct v4l2_ctrl_handler *handler = &codec->ctrl_handler;
-	const struct v4l2_std_ctrl *controls = codec->spec->ctrls;
-	size_t num_ctrls = codec->spec->num_ctrls;
-	struct v4l2_ctrl *ctrl;
-	size_t i;
-
-	v4l2_ctrl_handler_init(handler, num_ctrls);
-
-	for (i = 0; i < num_ctrls; i++) {
-		ctrl = v4l2_ctrl_new_std(handler, NULL, controls[i].id, controls[i].min, controls[i].max, controls[i].step, controls[i].def);
-
-		if (ctrl == NULL) {
-			dev_warn(codec->core->dev, "Failed to create control for CID %u\n", controls[i].id);
-			continue;
-		}
-	}
-}
-
-static void meson_vcodec_release_ctrls(struct meson_codec_dev *codec) {
-	v4l2_ctrl_handler_free(&codec->ctrl_handler);
-}
-
-s32 meson_vcodec_g_ctrl(struct meson_vcodec_session *session, u32 id) {
-	struct v4l2_ctrl *ctrl;
-
-	ctrl = v4l2_ctrl_find(&session->ctrl_handler, id);
-	if (ctrl) {
-		return v4l2_ctrl_g_ctrl(ctrl);
-	} else {
-		session_warn(session, "ctrl %d not found", id);
-		return 0;
-	}
-}
-
-void meson_vcodec_event_eos(struct meson_vcodec_session *session) {
-	static const struct v4l2_event eos_event = {
-		.type = V4L2_EVENT_EOS
-	};
-
-	session_trace(session);
-
-	v4l2_event_queue_fh(&session->fh, &eos_event);
-}
-
-void meson_vcodec_event_resolution(struct meson_vcodec_session *session) {
-	static const struct v4l2_event rs_event = {
-		.type = V4L2_EVENT_SOURCE_CHANGE,
-		.u.src_change.changes = V4L2_EVENT_SRC_CH_RESOLUTION,
-	};
-
-	session_trace(session);
-
-	v4l2_event_queue_fh(&session->fh, &rs_event);
-}
 
 
 /* platform_driver */
@@ -1383,7 +1387,6 @@ static int meson_vcodec_probe(struct platform_device *pdev)
 	for (i = 0; i < MAX_CODECS; i++) {
 		core->codecs[i].spec = codec_specs[i]; 
 		core->codecs[i].core = core;
-		meson_vcodec_init_ctrls(&core->codecs[i]);
 	}
 
 	video_set_drvdata(vfd, core);
@@ -1403,12 +1406,8 @@ err_v4l2_unregister:
 static int meson_vcodec_remove(struct platform_device *pdev)
 {
 	struct meson_vcodec_core *core = platform_get_drvdata(pdev);
-	int i;
 
 	MESON_VCODEC_CORE = NULL;
-	for (i = 0; i < MAX_CODECS; i++) {
-		meson_vcodec_release_ctrls(&core->codecs[i]);
-	}
 	video_unregister_device(&core->vfd);
 	v4l2_m2m_release(core->m2m_dev);
 	v4l2_device_unregister(&core->v4l2_dev);

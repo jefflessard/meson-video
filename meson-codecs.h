@@ -11,6 +11,8 @@
 #define MIN_RESOLUTION_WIDTH 320
 #define MIN_RESOLUTION_HEIGHT 240
 
+#define V4L2_CID(x) V4L2_CID_MPEG_VIDEO_##x
+
 enum meson_codecs: u8 {
 	MPEG1_DECODER,
 	MPEG2_DECODER,

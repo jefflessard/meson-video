@@ -431,11 +431,11 @@ void amlvenc_h264_init_encoder(const struct amlvenc_h264_init_encoder_params *p)
 	WRITE_HREG(HCODEC_ASSIST_AMR1_INT3, 0x14);
 
 	WRITE_HREG(IDR_PIC_ID, p->idr_pic_id);
-	WRITE_HREG(FRAME_NUMBER, p->idr ? 0 : p->frame_number);
-	WRITE_HREG(PIC_ORDER_CNT_LSB, p->idr ? 0 : p->pic_order_cnt_lsb);
+	WRITE_HREG(FRAME_NUMBER, p->idr ? 0 : p->frame_number & 0xFFFF); /* 16 first bits of 32 bits frame_number */
+	WRITE_HREG(PIC_ORDER_CNT_LSB, p->idr ? 0 : p->frame_number >> 16); /* 16 last bits of 32 bits frame_number */
 
-	WRITE_HREG(LOG2_MAX_PIC_ORDER_CNT_LSB, p->log2_max_pic_order_cnt_lsb);
-	WRITE_HREG(LOG2_MAX_FRAME_NUM, p->log2_max_frame_num);
+	WRITE_HREG(LOG2_MAX_PIC_ORDER_CNT_LSB, 16 >> 2); /* PIC_ORDER_CNT_LSB  uses the last 16 bits */
+	WRITE_HREG(LOG2_MAX_FRAME_NUM, 16 >> 2); /* FRAME_NUMBER uses the first 16 bits */
 	WRITE_HREG(ANC0_BUFFER_ID, 0);
 	WRITE_HREG(QPPICTURE, p->init_qppicture);
 }

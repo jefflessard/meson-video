@@ -23,8 +23,12 @@ h264_transcode() {
 	ffmpeg $FFMPEG_OPTS -c:v h264_v4l2m2m -i sample_h264.mp4 -c:v h264_v4l2m2m -f mpegts /dev/null -y
 }
 
-probe() {
-	ffprobe -v warning -select_streams v:0 -show_frames -show_entries frame=display_picture_number,coded_picture_number,pts,pict_type,key_frame -read_intervals "%+2" -print_format csv=p=0 output.ts
+frames() {
+	ffprobe -hide_banner -v warning -select_streams v:0 -show_frames -show_entries frame=display_picture_number,coded_picture_number,pts,pict_type,key_frame -read_intervals "%+2" -print_format csv=p=0 output.ts
+}
+
+headers() {
+	ffmpeg -hide_banner -loglevel info -i output.ts -c copy -bsf:v trace_headers -f null - 2>&1
 }
 
 exec_time() {

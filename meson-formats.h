@@ -6,6 +6,8 @@
 
 #define MAX_NUM_PLANES VIDEO_MAX_PLANES
 
+#define V4L2_FMT(x) V4L2_PIX_FMT_##x
+
 enum meson_formats: u8 {
 	FORMAT_NV12,
 	FORMAT_YUV420,

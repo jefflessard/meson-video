@@ -52,38 +52,53 @@
 /* --------------------------------------------------- */
 /* ENCODER_STATUS define */
 /* --------------------------------------------------- */
-enum amlvenc_hcodec_status {
-    ENCODER_IDLE = 0,
-    ENCODER_SEQUENCE = 1,
-    ENCODER_PICTURE = 2,
-    ENCODER_IDR = 3,
-    ENCODER_NON_IDR = 4,
-    ENCODER_MB_HEADER = 5,
-    ENCODER_MB_DATA = 6,
-
-    ENCODER_SEQUENCE_DONE = 7,
-    ENCODER_PICTURE_DONE = 8,
-    ENCODER_IDR_DONE = 9,
-    ENCODER_NON_IDR_DONE = 10,
-    ENCODER_MB_HEADER_DONE = 11,
-    ENCODER_MB_DATA_DONE = 12,
-
 #ifdef AML_FRAME_SINK
-    ENCODER_NON_IDR_INTRA = 13,
-    ENCODER_NON_IDR_INTER = 14,
+enum amlvenc_hcodec_status {
+	ENCODER_IDLE = 0,
+	ENCODER_SEQUENCE = 1,
+	ENCODER_PICTURE = 2,
+	ENCODER_IDR = 3,
+	ENCODER_NON_IDR = 4,
+	ENCODER_MB_HEADER = 5,
+	ENCODER_MB_DATA = 6,
 
-    ENCODER_ERROR = 0xff,
-#endif
+	ENCODER_SEQUENCE_DONE = 7,
+	ENCODER_PICTURE_DONE = 8,
+	ENCODER_IDR_DONE = 9,
+	ENCODER_NON_IDR_DONE = 10,
+	ENCODER_MB_HEADER_DONE = 11,
+	ENCODER_MB_DATA_DONE = 12,
+
+	ENCODER_NON_IDR_INTRA = 13,
+	ENCODER_NON_IDR_INTER = 14,
+
+	ENCODER_ERROR = 0xff,
 };
+#else
+enum amlvenc_hcodec_status {
+	ENCODER_IDLE = 0,
+	ENCODER_SEQUENCE = 1,
+	ENCODER_PICTURE = 2,
+	ENCODER_IDR = 3,
+	ENCODER_NON_IDR = 4,
+
+	ENCODER_SEQUENCE_DONE = 7,
+	ENCODER_PICTURE_DONE = 8,
+	ENCODER_FRAME_DONE = 9,
+	/* there is no distinction between IDR and NON_IDR done */
+};
+#endif
 
 enum amlvenc_hcodec_cmd {
-    CMD_ENCODE_IDLE      =  ENCODER_IDLE,
-    CMD_ENCODE_SEQUENCE  =  ENCODER_SEQUENCE,
-    CMD_ENCODE_PICTURE   =  ENCODER_PICTURE,
-    CMD_ENCODE_IDR       =  ENCODER_IDR, 
-    CMD_ENCODE_NON_IDR   =  ENCODER_NON_IDR,
-    CMD_ENCODE_MB_HEADER =  ENCODER_MB_HEADER,
-    CMD_ENCODE_MB_DATA   =  ENCODER_MB_DATA,
+	CMD_ENCODE_IDLE      =  0,
+	CMD_ENCODE_SEQUENCE  =  1,
+	CMD_ENCODE_PICTURE   =  2,
+	CMD_ENCODE_IDR       =  3, 
+	CMD_ENCODE_NON_IDR   =  4,
+#ifdef AML_FRAME_SINK
+	CMD_ENCODE_MB_HEADER =  5,
+	CMD_ENCODE_MB_DATA   =  6,
+#endif
 };
 
 /********************************************
@@ -139,9 +154,6 @@ struct amlvenc_h264_init_encoder_params {
     u32 idr_pic_id;
     u32 init_qppicture;
     u32 frame_number;
-    u32 log2_max_frame_num;
-    u32 pic_order_cnt_lsb;
-    u32 log2_max_pic_order_cnt_lsb;
 };
 
 /**
