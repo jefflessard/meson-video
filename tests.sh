@@ -9,9 +9,17 @@ h264_decode() {
 #	ffmpeg $FFMPEG_OPTS -c:v h264_v4l2m2m -i sample_h264.mp4 -map 0:v:0 -f null -
 }
 
+# Supported ffmpeg options for v4l2_m2m_enc
+#   -pix_fmt : src_fmt
+#   -qmin    : min_qp
+#   -qmax    : max_qp
+#   -g       : gop_size
+#   -b:v     : bitrate
+#   -force_key_frames ??
+
 h264_encode() {
 #	ffmpeg $FFMPEG_OPTS -i sample_h264.mp4 -c:v h264_v4l2m2m -f mpegts /dev/null -y
-	ffmpeg $FFMPEG_OPTS -i sample_h264.mp4 -frames:v 96 -map 0:v:0 -pix_fmt nv12 -g 12 -c:v h264_v4l2m2m output.ts -y
+ffmpeg $FFMPEG_OPTS -i sample_h264.mp4 -frames:v 96 -map 0:v:0 -pix_fmt nv12 -c:v h264_v4l2m2m output.ts -y
 #	ffmpeg $FFMPEG_OPTS -c:v rawvideo -pix_fmt nv12 -i sample.nv12 -c:v h264_v4l2m2m -f ts  /dev/null -y
 }
 
