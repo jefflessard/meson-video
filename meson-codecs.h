@@ -32,6 +32,7 @@ struct meson_vcodec_session;
 
 struct meson_codec_spec {
 	const enum meson_codecs type;
+	const char *name;
 	const struct meson_codec_ops *ops;
 	const struct v4l2_ctrl_config *ctrls;
 	const int num_ctrls;

@@ -502,7 +502,7 @@ static int meson_vdec_adapter_prepare(struct meson_codec_job *job) {
 static int meson_vdec_adapter_start(struct meson_codec_job *job, struct vb2_queue *vq, u32 count) {
 	struct meson_vdec_adapter *adapter = job->priv;
 
-	stream_dbg(job->session, vq->type, "%s: num_buffers=%d", __func__, vq->num_buffers);
+	job_dbg(job, "%s: num_buffers=%d", __func__, vq->num_buffers);
 
 	if (!IS_SRC_STREAM(vq->type)) {
 		adapter->vdec_sess.num_dst_bufs = vq->num_buffers;
@@ -595,6 +595,7 @@ const struct meson_codec_ops codec_ops_vdec_adapter = {
 
 const struct meson_codec_spec mpeg1_decoder = {
 	.type = MPEG1_DECODER,
+	.name = "mpeg1_decoder",
 	.ops = &codec_ops_vdec_adapter,
 	.ctrls = mpeg12_decoder_ctrls,
 	.num_ctrls = ARRAY_SIZE(mpeg12_decoder_ctrls),
@@ -602,6 +603,7 @@ const struct meson_codec_spec mpeg1_decoder = {
 
 const struct meson_codec_spec mpeg2_decoder = {
 	.type = MPEG2_DECODER,
+	.name = "mpeg2_decoder",
 	.ops = &codec_ops_vdec_adapter,
 	.ctrls = mpeg12_decoder_ctrls,
 	.num_ctrls = ARRAY_SIZE(mpeg12_decoder_ctrls),
@@ -609,6 +611,7 @@ const struct meson_codec_spec mpeg2_decoder = {
 
 const struct meson_codec_spec h264_decoder = {
 	.type = H264_DECODER,
+	.name = "h264_decoder",
 	.ops = &codec_ops_vdec_adapter,
 	.ctrls = h264_decoder_ctrls,
 	.num_ctrls = ARRAY_SIZE(h264_decoder_ctrls),
@@ -616,6 +619,7 @@ const struct meson_codec_spec h264_decoder = {
 
 const struct meson_codec_spec vp9_decoder = {
 	.type = VP9_DECODER,
+	.name = "vp9_decoder",
 	.ops = &codec_ops_vdec_adapter,
 	.ctrls = vp9_decoder_ctrls,
 	.num_ctrls = ARRAY_SIZE(vp9_decoder_ctrls),
@@ -623,6 +627,7 @@ const struct meson_codec_spec vp9_decoder = {
 
 const struct meson_codec_spec hevc_decoder = {
 	.type = HEVC_DECODER,
+	.name = "hevc_decoder",
 	.ops = &codec_ops_vdec_adapter,
 	.ctrls = hevc_decoder_ctrls,
 	.num_ctrls = ARRAY_SIZE(hevc_decoder_ctrls),

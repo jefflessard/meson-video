@@ -22,8 +22,6 @@
 #include "meson-vcodec.h"
 #include "amlogic.h"
 
-#define DRIVER_NAME "meson-vcodec"
-
 
 /* helper macros */
 
@@ -106,21 +104,21 @@ static void meson_vcodec_add_codec_ctrls(struct meson_vcodec_session *session, s
 
 	ret = v4l2_ctrl_handler_init(handler, num_ctrls);
 	if (ret) {
-		session_warn(session, "Failed to init ctrl_handler of codec %d", codec->spec->type);
+		session_warn(session, "Failed to init ctrl_handler of %s", codec->spec->name);
 		return;
 	}
 
 	for (i = 0; i < num_ctrls; i++) {
 		ctrl = v4l2_ctrl_new_custom(handler, &ctrls[i], NULL);
 		if (ctrl == NULL) {
-			session_warn(session, "Failed to create ctrl %u of codec %d", ctrls[i].id, codec->spec->type);
+			session_warn(session, "Failed to create ctrl %u of %s", ctrls[i].id, codec->spec->name);
 			continue;
 		}
 	}
 
 	ret = v4l2_ctrl_add_handler(&session->ctrl_handler, handler, NULL, false);
 	if (ret) {
-		session_warn(session, "Failed to add ctrls of codec %d", codec->spec->type);
+		session_warn(session, "Failed to add ctrls of %s", codec->spec->name);
 	}
 }
 
@@ -1145,6 +1143,14 @@ static int meson_vcodec_s_fmt_vid(struct file *file, void *priv, struct v4l2_for
 		} else {
 			session_err(session, "Codec formats has no encoder or decoder set");
 			return -EINVAL;
+		}
+
+		if (session->dec_job.codec) {
+			job_info(&session->dec_job, "decode job %.4s to %.4s", (char *) &session->dec_job.src_fmt->pixelformat, (char *) &session->dec_job.dst_fmt->pixelformat);
+		}
+
+		if (session->enc_job.codec) {
+			job_info(&session->enc_job, "encode job %.4s to %.4s", (char *) &session->enc_job.src_fmt->pixelformat, (char *) &session->enc_job.dst_fmt->pixelformat);
 		}
 
 		// Set stream status

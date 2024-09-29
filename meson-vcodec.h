@@ -7,6 +7,8 @@
 #include "meson-codecs.h"
 #include "meson-platforms.h"
 
+#define DRIVER_NAME "meson-vcodec"
+
 // TODO remove this once vdec adapter is gone
 enum meson_vcodec_regs: u8 {
 	DOS_BASE,
@@ -139,9 +141,8 @@ int meson_vcodec_pwrc_on(struct meson_vcodec_core *core, enum meson_vcodec_pwrc 
 #define MACRO_FN_N(FN, N, ...) MACRO_FN_N_(FN, N, __VA_ARGS__)
 
 #define session_printk(__level, __session, __fmt, ...) \
-	dev_printk(__level, __session->core->dev, \
-			"Session %d type %d: " __fmt, \
-			__session->session_id, __session->type, ##__VA_ARGS__)
+	printk(__level DRIVER_NAME ": Session %d: " __fmt, \
+			(__session)->session_id, ##__VA_ARGS__)
 
 #define session_err(__session, __fmt, ...) \
 	session_printk(KERN_ERR, __session, __fmt, ##__VA_ARGS__)
@@ -153,9 +154,8 @@ int meson_vcodec_pwrc_on(struct meson_vcodec_core *core, enum meson_vcodec_pwrc 
 	session_printk(KERN_INFO, __session, __fmt, ##__VA_ARGS__)
 
 #define session_dbg(__session, __fmt, ...) \
-	dev_dbg( __session->core->dev, \
-			"Session %d type %d: " __fmt, \
-			__session->session_id, __session->type, ##__VA_ARGS__)
+	pr_debug(DRIVER_NAME ": Session %d: " __fmt, \
+			(__session)->session_id, ##__VA_ARGS__)
 
 #define session_trace_0(__session) \
 	session_dbg(__session, "%s", __func__)
@@ -198,14 +198,40 @@ int meson_vcodec_pwrc_on(struct meson_vcodec_core *core, enum meson_vcodec_pwrc 
 
 #define SET_STREAM_STATUS(__session, __type, __status) { \
 	if (IS_SRC_STREAM(__type)) \
-		__session->src_status = __status; \
+		(__session)->src_status = __status; \
 	else \
-		__session->dst_status = __status; \
+		(__session)->dst_status = __status; \
 }
 
 #define STREAM_STATUS(__session, __type) \
 	(IS_SRC_STREAM(__type) ? \
-	 __session->src_status : \
-	 __session->dst_status)
+	 (__session)->src_status : \
+	 (__session)->dst_status)
+
+#define job_printk(__level, __job, __fmt, ...) \
+	session_printk(__level, (__job)->session, \
+			"%s: " __fmt, (__job)->codec->spec->name, ##__VA_ARGS__)
+
+#define job_err(__job, __fmt, ...) \
+	job_printk(KERN_ERR, __job, __fmt, ##__VA_ARGS__)
+
+#define job_warn(__job, __fmt, ...) \
+	job_printk(KERN_WARNING, __job, __fmt, ##__VA_ARGS__)
+
+#define job_info(__job, __fmt, ...) \
+	job_printk(KERN_INFO, __job, __fmt, ##__VA_ARGS__)
+
+#define job_dbg(__job, __fmt, ...) \
+	session_dbg((__job)->session, \
+		"%s: " __fmt, (__job)->codec->spec->name, ##__VA_ARGS__)
+
+#define job_trace_0(__job) \
+	job_dbg(__job, "%s", __func__)
+
+#define job_trace_1(__job, __fmt, ...) \
+	job_dbg(__job, "%s: " __fmt, __func__, ##__VA_ARGS__)
+
+#define job_trace(__job, ...) \
+	MACRO_FN_N(job_trace, HAS_ARGS(__VA_ARGS__), __job, ##__VA_ARGS__)
 
 #endif
