@@ -137,10 +137,21 @@ enum amlvenc_henc_mb_type {
 #define QP_ROWS 8
 #define QP_COLS 4
 
+typedef union {
+	uint8_t cells[QP_ROWS][QP_COLS];
+	uint32_t rows[QP_ROWS];
+} qp_union_t;
+
+/**
+ * qp_table_t - Quantization table prameters of H.264 encoder
+ * @i4_qp: Quantization table for I4 mode
+ * @i16_qp: Quantization table for I16 mode
+ * @me_qp: Quantization table for motion estimation
+ */
 typedef struct {
-	u8 i4_qp[QP_ROWS][QP_COLS];  /* intra 4x4 */
-	u8 i16_qp[QP_ROWS][QP_COLS]; /* intra 16x16 */
-	u8 me_qp[QP_ROWS][QP_COLS];  /* inter 16x16 */
+	qp_union_t  i4_qp;  /* intra 4x4 */
+	qp_union_t i16_qp;  /* intra 16x16 */
+	qp_union_t  me_qp;  /* inter 16x16 */
 } qp_table_t;
 
 #ifdef H264_ENC_CBR
@@ -180,18 +191,6 @@ struct cbr_info_buffer {
 };
 static_assert(sizeof(struct cbr_info_buffer) % 16 == 0, "cbr_info_buffer size must be a multiple of 16 bytes");
 #endif
-
-/**
- * struct amlvenc_h264_qtable_params - Quantization table prameters of H.264 encoder
- * @quant_tbl_i4: Quantization table for I4 mode
- * @quant_tbl_i16: Quantization table for I16 mode
- * @quant_tbl_me: Quantization table for motion estimation
- */
-struct amlvenc_h264_qtable_params {
-    u32 *quant_tbl_i4;
-    u32 *quant_tbl_i16;
-    u32 *quant_tbl_me;
-};
 
 // Struct for amlvenc_h264_init_encoder parameters
 struct amlvenc_h264_init_encoder_params {
@@ -306,7 +305,7 @@ struct amlvenc_h264_configure_encoder_params {
     u32 cbr_block_w;
     u32 cbr_block_h;
     u32 dump_ddr_start_addr;
-    struct amlvenc_h264_qtable_params *qtable;
+    qp_table_t *qtable;
     struct amlvenc_h264_me_params *me;
 };
 
@@ -452,7 +451,7 @@ void amlvenc_h264_init_output_stream_buffer(u32 bitstreamStart, u32 bitstreamEnd
  * amlvenc_h264_init_qtable - Initialize quantization tables for H.264 encoding
  * @p: Pointer to the quantization table parameters
  */
-void amlvenc_h264_init_qtable(const struct amlvenc_h264_qtable_params *p);
+void amlvenc_h264_init_qtable(const qp_table_t *p);
 
 /**
  * amlvenc_h264_configure_ie_me - Configure IE and ME parameters for H.264 encoding

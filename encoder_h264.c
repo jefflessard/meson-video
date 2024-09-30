@@ -120,7 +120,6 @@ struct encoder_h264_ctx {
 
 	const struct encoder_h264_spec *encoder_spec;
 	struct amlvenc_h264_init_encoder_params init_params;
-	struct amlvenc_h264_qtable_params qtable_params;
 	struct amlvenc_h264_me_params me_params;
 	struct amlvenc_h264_configure_encoder_params conf_params;
 	struct amlvenc_h264_mdfin_params mdfin_params;
@@ -333,32 +332,38 @@ int validate_canvas_align(u32 canvas_paddr, u32 canvas_w, u32 canvas_h, u32 widt
 	return 0;
 }
 
-static const uint32_t qp_tbl_idr[] = {
-	0x00000000, 0x01010101,
-	0x02020202, 0x03030303,
-	0x04040404, 0x05050505,
-	0x06060606, 0x07070707
+static const qp_union_t qp_tbl_idr = {
+	.rows = {
+		0x00000000, 0x01010101,
+		0x02020202, 0x03030303,
+		0x04040404, 0x05050505,
+		0x06060606, 0x07070707,
+	},
 };
-static uint32_t qp_tbl_non_idr[] = {
-	0x00000000, 0x01010101,
-	0x03030202, 0x05050404,
-	0x06060606, 0x07070707,
-	0x08080808, 0x09090909
+static const qp_union_t qp_tbl_non_idr = {
+	.rows = {
+		0x00000000, 0x01010101,
+		0x03030202, 0x05050404,
+		0x06060606, 0x07070707,
+		0x08080808, 0x09090909
+	},
 };
-static const uint32_t qp_tbl_cbr_i4i16[] = {
-	0x00000000, 0x01010101,
-	0x03030202, 0x04040303,
-	0x05050404, 0x06060505,
-	0x07070606, 0x07070707
+static const qp_union_t qp_tbl_cbr_i4i16 = {
+	.rows = {
+		0x00000000, 0x01010101,
+		0x03030202, 0x04040303,
+		0x05050404, 0x06060505,
+		0x07070606, 0x07070707
+	},
 };
 
-static void clamp_qptbl(uint8_t tbl[QP_ROWS][QP_COLS], bool is_idr) {
+static void clamp_qptbl(qp_union_t *tbl, bool is_idr) {
 	uint8_t qp_min = is_idr ? 15 : 20;
 	uint8_t qp_max = is_idr ? 30 : 35;
 
 	for (int i = 0; i < QP_ROWS; i++) {
 		for (int j = 0; j < QP_COLS; j++) {
-			tbl[i][j] = clamp(tbl[i][j], qp_min, qp_max);
+			tbl->cells[i][j] = clamp(tbl->cells[i][j], qp_min, qp_max);
 		}
 	}
 }
@@ -375,27 +380,29 @@ static void init_linear_quant(struct encoder_h264_ctx *ctx, u8 quant) {
 	if (quant < 4)
 		quant = 4;
 	for (int i = 0; i < QP_ROWS; i++) {
-		memset(qtable->i4_qp[i], quant + (i - 4), QP_COLS);
-		memset(qtable->i16_qp[i], quant + (i - 4), QP_COLS);
-		memset(qtable->me_qp[i], quant + (i - 4), QP_COLS);
+		memset(&qtable->i4_qp.rows[i], quant + (i - 4), QP_COLS);
+		memset(&qtable->i16_qp.rows[i], quant + (i - 4), QP_COLS);
+		memset(&qtable->me_qp.rows[i], quant + (i - 4), QP_COLS);
 	}
 
-	//clamp_qptbl(qtable, qp_tbl == qp_tbl_idr);
+	//clamp_qptbl(&qtable->i4_qp, ...);
+	//clamp_qptbl(&qtable->i16_qp, ...);
+	//clamp_qptbl(&qtable->me_qp, ...);
 }
 
-static void init_curve_quant(struct encoder_h264_ctx *ctx, u8 quant, const u32 *qp_tbl) {
+static void init_curve_quant(struct encoder_h264_ctx *ctx, u8 quant, const qp_union_t *qp_tbl) {
 	qp_table_t *qtable = &ctx->qtable;
 	u32 qp_base = quant | quant << 8 | quant << 16 | quant << 24;
 
 	for (int i = 0; i < QP_ROWS; i++) {
-		*((u32*)qtable->i4_qp[i]) = qp_base + qp_tbl[i];
-		*((u32*)qtable->i16_qp[i]) = qp_base + qp_tbl[i];
-		*((u32*)qtable->me_qp[i]) = qp_base + qp_tbl[i];
+		qtable->i4_qp.rows[i] = qp_base + qp_tbl->rows[i];
+		qtable->i16_qp.rows[i] = qp_base + qp_tbl->rows[i];
+		qtable->me_qp.rows[i] = qp_base + qp_tbl->rows[i];
 	}
 	
-	clamp_qptbl(qtable->i4_qp, qp_tbl == qp_tbl_idr);
-	clamp_qptbl(qtable->i16_qp, qp_tbl == qp_tbl_idr);
-	clamp_qptbl(qtable->me_qp, qp_tbl == qp_tbl_idr);
+	clamp_qptbl(&qtable->i4_qp, qp_tbl == &qp_tbl_idr);
+	clamp_qptbl(&qtable->i16_qp, qp_tbl == &qp_tbl_idr);
+	clamp_qptbl(&qtable->me_qp, qp_tbl == &qp_tbl_idr);
 }
 
 static void fill_weight_offsets(struct cbr_tbl_block *blk, u16 factor, bool bitrate_urgent_mode) {
@@ -472,8 +479,8 @@ static int encoder_init_cbr(struct encoder_h264_ctx *ctx) {
 	// Input parameters
 	bool is_idr = t->cmd == CMD_ENCODE_IDR;
 	u8 quant = (u8) p->quant;
-	const u32 *qp_tbl_me = is_idr ? qp_tbl_idr : qp_tbl_non_idr;
-	const u32 *qp_tbl_i4i16 = qp_tbl_cbr_i4i16;
+	const qp_union_t *qp_tbl_me = is_idr ? &qp_tbl_idr : &qp_tbl_non_idr;
+	const qp_union_t *qp_tbl_i4i16 = &qp_tbl_cbr_i4i16;
 
 	const bool rate_control = t->rate_control;
 	const u32 target_bitrate = t->bitrate; // TODO bitrate param / nb of frames
@@ -561,7 +568,7 @@ static int encoder_init_cbr(struct encoder_h264_ctx *ctx) {
 
 	{
 		struct cbr_tbl_block *block_info;
-		u32 tbl_me[QP_ROWS], tbl_i4i16[QP_ROWS];
+		qp_union_t tbl_me, tbl_i4i16;
 		u32 qp_step;
 		u16 i, j;
 
@@ -572,12 +579,12 @@ static int encoder_init_cbr(struct encoder_h264_ctx *ctx) {
 			qp_step = 0x01010101;
 			// Fill the table with base values
 			for (i = 0; i < QP_ROWS; i++) {
-				tbl_me[i] = qp_base + qp_tbl_me[i];
-				tbl_i4i16[i] = qp_base + qp_tbl_i4i16[i];
+				tbl_me.rows[i] = qp_base + qp_tbl_me->rows[i];
+				tbl_i4i16.rows[i] = qp_base + qp_tbl_i4i16->rows[i];
 			}
 		} else {
-			memset(tbl_me, quant, sizeof(tbl_me));
-			memset(tbl_i4i16, quant, sizeof(tbl_i4i16));
+			memset(&tbl_me, quant, sizeof(tbl_me));
+			memset(&tbl_i4i16, quant, sizeof(tbl_i4i16));
 			qp_step = 0;
 		}
 
@@ -586,12 +593,12 @@ static int encoder_init_cbr(struct encoder_h264_ctx *ctx) {
 			block_info = &cbr_info->blocks[i];
 
 			// Apply smoothing at each cycle
-			clamp_qptbl((u8(*)[QP_COLS])tbl_me, is_idr);
-			clamp_qptbl((u8(*)[QP_COLS])tbl_i4i16, is_idr);
+			clamp_qptbl(&tbl_me, is_idr);
+			clamp_qptbl(&tbl_i4i16, is_idr);
 
-			memcpy(block_info->qp_table.i4_qp, tbl_i4i16, sizeof(tbl_i4i16));
-			memcpy(block_info->qp_table.i16_qp, tbl_i4i16, sizeof(tbl_i4i16));
-			memcpy(block_info->qp_table.me_qp, tbl_me, sizeof(tbl_me));
+			memcpy(&block_info->qp_table.i4_qp, &tbl_i4i16, sizeof(tbl_i4i16));
+			memcpy(&block_info->qp_table.i16_qp, &tbl_i4i16, sizeof(tbl_i4i16));
+			memcpy(&block_info->qp_table.me_qp, &tbl_me, sizeof(tbl_me));
 
 			fill_weight_offsets(block_info, (i < 13 ? 0 : i - 13), bitrate_urgent_mode);
 
@@ -604,8 +611,8 @@ static int encoder_init_cbr(struct encoder_h264_ctx *ctx) {
 
 			// Update table entries for next iteration
 			for (j = 0; j < QP_ROWS; j++) {
-				tbl_me[j] += qp_step;
-				tbl_i4i16[j] += qp_step;
+				tbl_me.rows[j] += qp_step;
+				tbl_i4i16.rows[j] += qp_step;
 			}
 		}
 
@@ -791,7 +798,7 @@ static int encoder_configure(struct encoder_h264_ctx *ctx) {
 #elif QUANT_MODE == 1
 		init_linear_quant(ctx, quant);
 #else
-		init_curve_quant(ctx, quant, is_idr ? qp_tbl_idr : qp_tbl_non_idr);
+		init_curve_quant(ctx, quant, is_idr ? &qp_tbl_idr : &qp_tbl_non_idr);
 #endif
 		amlvenc_h264_configure_encoder(&ctx->conf_params);
 
@@ -1251,10 +1258,7 @@ static int encoder_h264_prepare(struct meson_codec_job *job) {
 	ctx->init_params.init_qppicture = 26;
 	ctx->init_params.idr_pic_id = 1;
 	ctx->init_params.frame_number = 0;
-	ctx->qtable_params.quant_tbl_i4 = (u32 *) &ctx->qtable.i4_qp;
-	ctx->qtable_params.quant_tbl_i16 = (u32 *) &ctx->qtable.i16_qp;
-	ctx->qtable_params.quant_tbl_me = (u32 *) &ctx->qtable.me_qp;
-	ctx->conf_params.qtable = &ctx->qtable_params;
+	ctx->conf_params.qtable = &ctx->qtable;
 	ctx->conf_params.me = &ctx->me_params;
 	ctx->me_params = amlvenc_h264_me_defaults;
 	amlvenc_h264_init_me(&ctx->me_params);

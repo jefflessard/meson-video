@@ -478,7 +478,7 @@ void amlvenc_h264_init_output_stream_buffer(u32 bitstreamStart, u32 bitstreamEnd
                 (1 << 1) | (0 << 0)));
 }
 
-static void amlvenc_h264_write_quant_table(uint32_t table_addr, const uint32_t *quant_tbl)
+static void amlvenc_h264_write_quant_table(uint32_t table_addr, const qp_union_t *quant_tbl)
 {
     int i;
 
@@ -487,15 +487,15 @@ static void amlvenc_h264_write_quant_table(uint32_t table_addr, const uint32_t *
                (1 << 22)); /* quant_table_addr_update */
 
     for (i = 0; i < QTABLE_SIZE; i++) {
-        WRITE_HREG(HCODEC_QUANT_TABLE_DATA, quant_tbl[i]);
+        WRITE_HREG(HCODEC_QUANT_TABLE_DATA, quant_tbl->rows[i]);
     }
 }
 
-void amlvenc_h264_init_qtable(const struct amlvenc_h264_qtable_params *p)
+void amlvenc_h264_init_qtable(const qp_table_t *p)
 {
-    amlvenc_h264_write_quant_table(0, p->quant_tbl_i4);
-    amlvenc_h264_write_quant_table(8, p->quant_tbl_i16);
-    amlvenc_h264_write_quant_table(16, p->quant_tbl_me);
+    amlvenc_h264_write_quant_table(0, &p->i4_qp);
+    amlvenc_h264_write_quant_table(8, &p->i16_qp);
+    amlvenc_h264_write_quant_table(16, &p->me_qp);
 }
 
 void amlvenc_h264_configure_me(const struct amlvenc_h264_me_params *p)
@@ -898,17 +898,17 @@ void amlvenc_h264_configure_encoder(const struct amlvenc_h264_configure_encoder_
 
 	if (p->idr) {
 		i_pic_qp =
-			p->qtable->quant_tbl_i4[0] & 0xff;
+			p->qtable->i4_qp.cells[0][0];
 		i_pic_qp +=
-			p->qtable->quant_tbl_i16[0] & 0xff;
+			p->qtable->i16_qp.cells[0][0];
 		i_pic_qp /= 2;
 		p_pic_qp = i_pic_qp;
 	} else {
 		i_pic_qp =
-			p->qtable->quant_tbl_i4[0] & 0xff;
+			p->qtable->i4_qp.cells[0][0];
 		i_pic_qp +=
-			p->qtable->quant_tbl_i16[0] & 0xff;
-		p_pic_qp = p->qtable->quant_tbl_me[0] & 0xff;
+			p->qtable->i16_qp.cells[0][0];
+		p_pic_qp = p->qtable->me_qp.cells[0][0];
 		slice_qp = (i_pic_qp + p_pic_qp) / 3;
 		i_pic_qp = slice_qp;
 		p_pic_qp = i_pic_qp;
