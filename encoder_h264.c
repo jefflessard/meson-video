@@ -352,7 +352,7 @@ static const uint32_t qp_tbl_cbr_i4i16[] = {
 	0x07070606, 0x07070707
 };
 
-static void smooth_tbl(uint8_t tbl[QP_ROWS][QP_COLS], bool is_idr) {
+static void clamp_qptbl(uint8_t tbl[QP_ROWS][QP_COLS], bool is_idr) {
 	uint8_t qp_min = is_idr ? 15 : 20;
 	uint8_t qp_max = is_idr ? 30 : 35;
 
@@ -362,27 +362,6 @@ static void smooth_tbl(uint8_t tbl[QP_ROWS][QP_COLS], bool is_idr) {
 		}
 	}
 }
-
-#if 0
-static void smooth_tbl(u32 tbl[], bool is_idr) {
-	u8 *max_value;
-	u8 qp_min = is_idr ? 15 : 20;
-	u8 qp_max = is_idr ? 30 : 35;
-
-	u8 qpbase = 43;
-	if (qpbase > 0 && qpbase > qp_min) {
-		qp_max = qpbase;
-	}
-
-	for (int i = 0; i < QP_ROWS; i++) {
-		max_value = (u8*)(&tbl[i]) + 3;
-		for (int j = 0; j < QP_COLS; j++) {
-			*max_value = (*max_value > qp_max) ? qp_max : (*max_value < qp_min) ? qp_min : *max_value;
-			max_value--;
-		}
-	}
-}
-#endif
 
 static void init_fixed_quant(struct encoder_h264_ctx *ctx, u8 quant) {
 	qp_table_t *qtable = &ctx->qtable;
@@ -401,7 +380,7 @@ static void init_linear_quant(struct encoder_h264_ctx *ctx, u8 quant) {
 		memset(qtable->me_qp[i], quant + (i - 4), QP_COLS);
 	}
 
-	//smooth_tbl(qtable, qp_tbl == qp_tbl_idr);
+	//clamp_qptbl(qtable, qp_tbl == qp_tbl_idr);
 }
 
 static void init_curve_quant(struct encoder_h264_ctx *ctx, u8 quant, const u32 *qp_tbl) {
@@ -414,12 +393,12 @@ static void init_curve_quant(struct encoder_h264_ctx *ctx, u8 quant, const u32 *
 		*((u32*)qtable->me_qp[i]) = qp_base + qp_tbl[i];
 	}
 	
-	smooth_tbl(qtable->i4_qp, qp_tbl == qp_tbl_idr);
-	smooth_tbl(qtable->i16_qp, qp_tbl == qp_tbl_idr);
-	smooth_tbl(qtable->me_qp, qp_tbl == qp_tbl_idr);
+	clamp_qptbl(qtable->i4_qp, qp_tbl == qp_tbl_idr);
+	clamp_qptbl(qtable->i16_qp, qp_tbl == qp_tbl_idr);
+	clamp_qptbl(qtable->me_qp, qp_tbl == qp_tbl_idr);
 }
 
-static void fill_weight_offsets(u16 *short_addr, int factor, bool bitrate_urgent_mode) {
+static void fill_weight_offsets(struct cbr_tbl_block *blk, u16 factor, bool bitrate_urgent_mode) {
 #if 0
 	if (bitrate_urgent_mode) {
 		*short_addr++ = I4MB_WEIGHT_OFFSET_CUSTOM + 4000;
@@ -432,33 +411,38 @@ static void fill_weight_offsets(u16 *short_addr, int factor, bool bitrate_urgent
 #else
 	{
 #endif
-		*short_addr++ = I4MB_WEIGHT_OFFSET;
-		*short_addr++ = I16MB_WEIGHT_OFFSET;
-		*short_addr++ = ME_WEIGHT_OFFSET;
-		*short_addr++ = V3_IE_F_ZERO_SAD_I4 + (factor * 0x480);
-		*short_addr++ = V3_IE_F_ZERO_SAD_I16 + (factor * 0x200);
-		*short_addr++ = V3_ME_F_ZERO_SAD + (factor * 0x280);
+		blk->i4mb_weight_offset  = I4MB_WEIGHT_OFFSET;
+		blk->i16mb_weight_offset = I16MB_WEIGHT_OFFSET;
+		blk->me_weight_offset    = ME_WEIGHT_OFFSET;
+		blk->ie_f_zero_sad_i4    = V3_IE_F_ZERO_SAD_I4 + (factor * 0x480);
+		blk->ie_f_zero_sad_i16   = V3_IE_F_ZERO_SAD_I16 + (factor * 0x200);
+		blk->me_f_zero_sad       = V3_ME_F_ZERO_SAD + (factor * 0x280);
+		blk->end_marker1 = CBR_TBL_BLOCK_END_MARKER1;
+		blk->end_marker2 = CBR_TBL_BLOCK_END_MARKER2;
 	}
 }
 
-static void convert_table_to_risc(void *table, u32 len)
+static void convert_table_to_risc(struct cbr_info_buffer *cbr_info)
 {
-	if (len < 8 || (len % 8) || !table) {
-		pr_err(DRIVER_NAME ": " "Invalid table or length\n");
+	uint32_t len = sizeof(*cbr_info);
+	if (len < 8 || (len % 8) || !cbr_info) {
+		pr_err(DRIVER_NAME ": Invalid cbr buffer\n");
 		return;
 	}
 
-	uint16_t *tbl = (uint16_t *)table;
-	for (uint32_t i = 0; i < len / 8; i++) {
+	uint16_t *tbl = (uint16_t *)cbr_info;
+	for (uint32_t i = 0; i < len >> 3; i++) {
 		uint32_t idx = i << 2;
-		// Swap the 4 values per iteration
-		uint16_t temp = tbl[idx];
-		tbl[idx] = tbl[idx + 3];
-		tbl[idx + 3] = temp;
 
-		temp = tbl[idx + 1];
-		tbl[idx + 1] = tbl[idx + 2];
-		tbl[idx + 2] = temp;
+		// Swap 1st and 2nd 16-bit values
+		uint16_t temp = tbl[idx];
+		tbl[idx] = tbl[idx + 1];
+		tbl[idx + 1] = temp;
+
+		// Swap 3rd and 4th 16-bit values
+		temp = tbl[idx + 2];
+		tbl[idx + 2] = tbl[idx + 3];
+		tbl[idx + 3] = temp;
 	}
 }
 
@@ -473,14 +457,19 @@ static int encoder_init_cbr(struct encoder_h264_ctx *ctx) {
 
 	// Output parameters
 	struct amlvenc_h264_configure_encoder_params *p = &ctx->conf_params;
-#if 1
-	void *cbr_info = ctx->buffers[BUF_CBR_INFO].vaddr;
-#else
 	struct cbr_info_buffer *cbr_info = ctx->buffers[BUF_CBR_INFO].vaddr;
+
+	// TODO configure verbose
+#if 0
+	job_trace(ctx->job, "CBR buffer sizes: cbr_info=%lu, cbr_tbl_block=%lu, qp_table=%lu, offsets=%lu, block_mb_size=%lu",
+			sizeof(*cbr_info),
+			sizeof(cbr_info->blocks[0]),
+			sizeof(cbr_info->blocks[0].qp_table),
+			sizeof(cbr_info->blocks[0].offsets),
+			sizeof(cbr_info->block_mb_size));
 #endif
 
 	// Input parameters
-
 	bool is_idr = t->cmd == CMD_ENCODE_IDR;
 	u8 quant = (u8) p->quant;
 	const u32 *qp_tbl_me = is_idr ? qp_tbl_idr : qp_tbl_non_idr;
@@ -571,15 +560,12 @@ static int encoder_init_cbr(struct encoder_h264_ctx *ctx) {
 	job_trace(ctx->job, "Filling CBR table");
 
 	{
-		u8 *tbl_addr;
-		u16 *short_addr;
+		struct cbr_tbl_block *block_info;
 		u32 tbl_me[QP_ROWS], tbl_i4i16[QP_ROWS];
 		u32 qp_step;
-		u32 i, j;
+		u16 i, j;
 
 		// Initialize CBR table values
-		tbl_addr = cbr_info;
-
 		if (rate_control) {
 			u8 qp = (quant > START_TABLE_ID) ? (quant - START_TABLE_ID) : 0;
 			u32 qp_base = qp | qp << 8 | qp << 16 | qp << 24;
@@ -597,24 +583,19 @@ static int encoder_init_cbr(struct encoder_h264_ctx *ctx) {
 
 		// Fill the CBR table in memory
 		for (i = 0; i < CBR_BLOCK_COUNT; i++) {
+			block_info = &cbr_info->blocks[i];
 
 			// Apply smoothing at each cycle
-			smooth_tbl((u8(*)[QP_COLS])tbl_me, is_idr);
-			smooth_tbl((u8(*)[QP_COLS])tbl_i4i16, is_idr);
+			clamp_qptbl((u8(*)[QP_COLS])tbl_me, is_idr);
+			clamp_qptbl((u8(*)[QP_COLS])tbl_i4i16, is_idr);
 
-			memcpy(tbl_addr, tbl_i4i16, sizeof(tbl_i4i16));
-			memcpy(tbl_addr + 32, tbl_i4i16, sizeof(tbl_i4i16));
-			memcpy(tbl_addr + 64, tbl_me, sizeof(tbl_me));
+			memcpy(block_info->qp_table.i4_qp, tbl_i4i16, sizeof(tbl_i4i16));
+			memcpy(block_info->qp_table.i16_qp, tbl_i4i16, sizeof(tbl_i4i16));
+			memcpy(block_info->qp_table.me_qp, tbl_me, sizeof(tbl_me));
 
-			short_addr = (u16 *)(tbl_addr + 96);
-			fill_weight_offsets(short_addr, (i < 13 ? 0 : i - 13), bitrate_urgent_mode);
-			*short_addr++ = 0x55aa;
-			*short_addr++ = 0xaa55;
+			fill_weight_offsets(block_info, (i < 13 ? 0 : i - 13), bitrate_urgent_mode);
 
-			// Increment table address
-			tbl_addr += 128;
-
-			// Apply quantization step
+			// Apply quantization step for next iteration
 			if (is_idr) {
 				qp_step = (i == 4 || i == 6 || i == 8 || i >= 10) ? 0x01010101 : 0;
 			} else {
@@ -631,19 +612,28 @@ static int encoder_init_cbr(struct encoder_h264_ctx *ctx) {
 		job_trace(ctx->job, "fill");
 
 		// Fill remaining block MB sizes
-		short_addr = (u16 *)(cbr_info + 0x800);
 		for (i = 0; i < block_width_n * block_height_n; i++) {
-			short_addr[i] = (u16) block_mb_size[i];
+			cbr_info->block_mb_size[i] = (u16) block_mb_size[i];
 		}
 	}
 
 	// Convert table to RISC format if needed
-#if 0
 	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_GXTVBB) {
 		job_trace(ctx->job, "to_risc");
-		convert_table_to_risc(cbr_info, 0xa00);
+		convert_table_to_risc(cbr_info);
 	}
+
+	// TODO configure verbose
+#if 0
+	 print_hex_dump(KERN_DEBUG,
+			 DRIVER_NAME ": " "CBR Buffer: ",
+			 DUMP_PREFIX_OFFSET,
+			 32, 8,
+			 ctx->buffers[BUF_CBR_INFO].vaddr,
+			 0xa00, //ctx->buffers[BUF_CBR_INFO].size,
+			 false);
 #endif
+
 	return 0;
 }
 

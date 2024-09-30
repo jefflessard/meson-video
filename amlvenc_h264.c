@@ -85,10 +85,6 @@
 /* 16 Blocks + V3_SKIP_WEIGHT_2 */
 #define V3_FORCE_SKIP_SAD_2 0x250
 /* almost disable it -- use t_lac_coeff_2 output to F_ZERO is better */
-#define V3_ME_F_ZERO_SAD (ME_WEIGHT_OFFSET + 0x10)
-
-#define V3_IE_F_ZERO_SAD_I16 (I16MB_WEIGHT_OFFSET + 0x10)
-#define V3_IE_F_ZERO_SAD_I4 (I4MB_WEIGHT_OFFSET + 0x20)
 
 #define V3_SKIP_WEIGHT_0 0x10
 /* 4 Blocks  8 separate search sad can be very low */

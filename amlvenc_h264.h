@@ -48,8 +48,8 @@
 #define I4MB_WEIGHT_OFFSET 0x655
 #define I16MB_WEIGHT_OFFSET 0x560
 #define V3_IE_F_ZERO_SAD_I16 (I16MB_WEIGHT_OFFSET + 0x10)
-#define V3_IE_F_ZERO_SAD_I4 (I4MB_WEIGHT_OFFSET + 0x20)
-#define V3_ME_F_ZERO_SAD (ME_WEIGHT_OFFSET + 0x10)
+#define V3_IE_F_ZERO_SAD_I4  (I4MB_WEIGHT_OFFSET + 0x20u)
+#define V3_ME_F_ZERO_SAD     (ME_WEIGHT_OFFSET + 0x10u)
 
 #define QTABLE_SIZE 8
 
@@ -137,7 +137,7 @@ enum amlvenc_henc_mb_type {
 #define QP_ROWS 8
 #define QP_COLS 4
 
-typedef struct __attribute__((packed)) {
+typedef struct {
 	u8 i4_qp[QP_ROWS][QP_COLS];  /* intra 4x4 */
 	u8 i16_qp[QP_ROWS][QP_COLS]; /* intra 16x16 */
 	u8 me_qp[QP_ROWS][QP_COLS];  /* inter 16x16 */
@@ -149,36 +149,36 @@ typedef struct __attribute__((packed)) {
 #define CBR_BLOCK_MB_SIZE (1 << CBR_LOG2_BLOCK_MB_SIZE)
 #define CBR_TBL_BLOCK_PADDING ( \
 		128 - sizeof(qp_table_t) \
-		- sizeof(struct weight_offsets) \
-		- sizeof(u32))
+		- 8 * sizeof(u16)) // offsets
 #define CBR_BUFFER_PADDING ( \
 		0x2000 \
 		- sizeof(struct cbr_tbl_block) * CBR_BLOCK_COUNT \
 	   	- sizeof(u16) * CBR_BLOCK_MB_SIZE)
+#define CBR_TBL_BLOCK_END_MARKER1 0x55aa
+#define CBR_TBL_BLOCK_END_MARKER2 0xaa55
 
-struct __attribute__((packed)) weight_offsets {
+// Structure for each block in the CBR buffer
+struct cbr_tbl_block {
+	qp_table_t qp_table;
 	u16 i4mb_weight_offset;
 	u16 i16mb_weight_offset;
 	u16 me_weight_offset;
 	u16 ie_f_zero_sad_i4;
 	u16 ie_f_zero_sad_i16;
 	u16 me_f_zero_sad;
-};
-
-// Structure for each block in the CBR buffer
-struct __attribute__((packed)) cbr_tbl_block {
-	qp_table_t qp_table;
-	struct weight_offsets offsets;
-	u32 end_marker; // end marker 0x55aaaa55
+	u16 end_marker1; /* 0x55aa */
+	u16 end_marker2; /* 0xaa55 */
 	u8 padding[CBR_TBL_BLOCK_PADDING];  // Padding to 128 bytes
 };
+// Ensure the structure is exactly 128 bytes
+static_assert(sizeof(struct cbr_tbl_block) == 128, "cbr_tbl_block must be exactly 128 bytes");
 
 // Full CBR buffer layout
-struct __attribute__((packed)) cbr_info_buffer {
+struct cbr_info_buffer {
 	struct cbr_tbl_block blocks[CBR_BLOCK_COUNT];  // 16 x 128 bytes
 	u16 block_mb_size[CBR_BLOCK_MB_SIZE]; // 0x800 offset
-	u8 reserved[CBR_BUFFER_PADDING]; // Unused/reserved space to 0x2000
 };
+static_assert(sizeof(struct cbr_info_buffer) % 16 == 0, "cbr_info_buffer size must be a multiple of 16 bytes");
 #endif
 
 /**
