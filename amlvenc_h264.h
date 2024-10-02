@@ -109,7 +109,7 @@ enum amlvenc_hcodec_cmd {
  * defines for H.264 mb_type
  *******************************************
  */
-enum amlvenc_henc_mb_type {
+enum amlvenc_henc_mb_type : uint8_t {
     HENC_MB_Type_PBSKIP = 0x0,
     HENC_MB_Type_PSKIP = 0x0,
     HENC_MB_Type_BSKIP_DIRECT = 0x0,
@@ -128,10 +128,15 @@ enum amlvenc_henc_mb_type {
     HENC_MB_Type_I8MB = 0xd,
     HENC_MB_Type_IPCM = 0xe,
     HENC_MB_Type_AUTO = 0xf,
-
+	/* unknown 0x14 */
+	/* unknown 0x16 */
+	HENC_MB_Type_P16MB_HORIZ_ONLY = 0x7f,
+	/* unknown 0x99 */
+	/* unknown 0xaa */
     HENC_MB_CBP_AUTO = 0xff,
-    HENC_SKIP_RUN_AUTO = 0xffff,
 };
+
+#define HENC_SKIP_RUN_AUTO 0xffff
 
 
 #define QP_ROWS 8
@@ -153,44 +158,6 @@ typedef struct {
 	qp_union_t i16_qp;  /* intra 16x16 */
 	qp_union_t  me_qp;  /* inter 16x16 */
 } qp_table_t;
-
-#ifdef H264_ENC_CBR
-#define CBR_BLOCK_COUNT 16
-#define CBR_LOG2_BLOCK_MB_SIZE 8  /* table size = 2^8 = 256 */
-#define CBR_BLOCK_MB_SIZE (1 << CBR_LOG2_BLOCK_MB_SIZE)
-#define CBR_TBL_BLOCK_PADDING ( \
-		128 - sizeof(qp_table_t) \
-		- 8 * sizeof(u16)) // offsets
-#define CBR_BUFFER_PADDING ( \
-		0x2000 \
-		- sizeof(struct cbr_tbl_block) * CBR_BLOCK_COUNT \
-	   	- sizeof(u16) * CBR_BLOCK_MB_SIZE)
-#define CBR_TBL_BLOCK_END_MARKER1 0x55aa
-#define CBR_TBL_BLOCK_END_MARKER2 0xaa55
-
-// Structure for each block in the CBR buffer
-struct cbr_tbl_block {
-	qp_table_t qp_table;
-	u16 i4mb_weight_offset;
-	u16 i16mb_weight_offset;
-	u16 me_weight_offset;
-	u16 ie_f_zero_sad_i4;
-	u16 ie_f_zero_sad_i16;
-	u16 me_f_zero_sad;
-	u16 end_marker1; /* 0x55aa */
-	u16 end_marker2; /* 0xaa55 */
-	u8 padding[CBR_TBL_BLOCK_PADDING];  // Padding to 128 bytes
-};
-// Ensure the structure is exactly 128 bytes
-static_assert(sizeof(struct cbr_tbl_block) == 128, "cbr_tbl_block must be exactly 128 bytes");
-
-// Full CBR buffer layout
-struct cbr_info_buffer {
-	struct cbr_tbl_block blocks[CBR_BLOCK_COUNT];  // 16 x 128 bytes
-	u16 block_mb_size[CBR_BLOCK_MB_SIZE]; // 0x800 offset
-};
-static_assert(sizeof(struct cbr_info_buffer) % 16 == 0, "cbr_info_buffer size must be a multiple of 16 bytes");
-#endif
 
 // Struct for amlvenc_h264_init_encoder parameters
 struct amlvenc_h264_init_encoder_params {

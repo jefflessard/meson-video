@@ -22,6 +22,8 @@
 #include "meson-vcodec.h"
 #include "amlogic.h"
 
+#define DEFAULT_FRAMERATE_NUM 1001
+#define DEFAULT_FRAMERATE_DENOM 30000
 
 /* helper macros */
 
@@ -652,6 +654,9 @@ static int meson_vcodec_session_open(struct file *file)
 
 	mutex_init(&session->lock);
 
+	session->timeperframe.numerator = DEFAULT_FRAMERATE_NUM;
+	session->timeperframe.denominator = DEFAULT_FRAMERATE_DENOM;
+
 	return 0;
 
 err_ctrl_handler_free:
@@ -1175,6 +1180,43 @@ static int meson_vcodec_g_fmt_vid(struct file *file, void *priv, struct v4l2_for
 	return 0;
 }
 
+static int meson_vcodec_g_parm(struct file *file, void *fh, struct v4l2_streamparm *sp)
+{
+	struct meson_vcodec_session *session = container_of(file->private_data, struct meson_vcodec_session, fh);
+	struct v4l2_fract *timeperframe = &session->timeperframe;
+
+	stream_trace(session, sp->type);
+
+	if (!IS_SRC_STREAM(sp->type))
+		return -EINVAL;
+
+	sp->parm.output.capability = V4L2_CAP_TIMEPERFRAME;
+	sp->parm.output.timeperframe.numerator = timeperframe->numerator;
+	sp->parm.output.timeperframe.denominator = timeperframe->denominator;
+
+	return 0;
+}
+
+static int meson_vcodec_s_parm(struct file *file, void *fh, struct v4l2_streamparm *sp)
+{
+	struct meson_vcodec_session *session = container_of(file->private_data, struct meson_vcodec_session, fh);
+	struct v4l2_fract *timeperframe = &session->timeperframe;
+	stream_trace(session, sp->type);
+
+	if (!IS_SRC_STREAM(sp->type))
+		return -EINVAL;
+
+	if (!sp->parm.output.timeperframe.numerator ||
+		!sp->parm.output.timeperframe.denominator)
+		return meson_vcodec_g_parm(file, fh, sp);
+
+	sp->parm.output.capability = V4L2_CAP_TIMEPERFRAME;
+	timeperframe->numerator = sp->parm.output.timeperframe.numerator;
+	timeperframe->denominator = sp->parm.output.timeperframe.denominator;
+
+	return 0;
+}
+
 static int meson_vcodec_subscribe_event(struct v4l2_fh *fh, const struct v4l2_event_subscription *sub)
 {
 	struct meson_vcodec_session *session = container_of(fh, struct meson_vcodec_session, fh);
@@ -1221,6 +1263,8 @@ static const struct v4l2_ioctl_ops meson_vcodec_ioctl_ops = {
 	.vidioc_s_fmt_vid_out_mplane = meson_vcodec_s_fmt_vid,
 	.vidioc_g_fmt_vid_cap_mplane = meson_vcodec_g_fmt_vid,
 	.vidioc_g_fmt_vid_out_mplane = meson_vcodec_g_fmt_vid,
+	.vidioc_g_parm = meson_vcodec_g_parm,
+	.vidioc_s_parm = meson_vcodec_s_parm,
 	.vidioc_reqbufs = v4l2_m2m_ioctl_reqbufs,
 	.vidioc_querybuf = v4l2_m2m_ioctl_querybuf,
 	.vidioc_prepare_buf = v4l2_m2m_ioctl_prepare_buf,
