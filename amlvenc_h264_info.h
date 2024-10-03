@@ -14,33 +14,33 @@
 #define CBR_BLOCK_MB_SIZE (1 << CBR_LOG2_BLOCK_MB_SIZE)
 #define CBR_TBL_BLOCK_PADDING ( \
 		128 - sizeof(qp_table_t) \
-		- 8 * sizeof(u16)) // offsets
+		- 8 * sizeof(uint16_t)) // offsets
 #define CBR_BUFFER_PADDING ( \
 		0x2000 \
 		- sizeof(struct cbr_tbl_block) * CBR_BLOCK_COUNT \
-	   	- sizeof(u16) * CBR_BLOCK_MB_SIZE)
+	   	- sizeof(uint16_t) * CBR_BLOCK_MB_SIZE)
 #define CBR_TBL_BLOCK_END_MARKER1 0x55aa
 #define CBR_TBL_BLOCK_END_MARKER2 0xaa55
 
 // Structure for each block in the CBR buffer
 struct cbr_tbl_block {
 	qp_table_t qp_table;
-	u16 i4mb_weight_offset;
-	u16 i16mb_weight_offset;
-	u16 me_weight_offset;
-	u16 ie_f_zero_sad_i4;
-	u16 ie_f_zero_sad_i16;
-	u16 me_f_zero_sad;
-	u16 end_marker1; /* 0x55aa */
-	u16 end_marker2; /* 0xaa55 */
-	u8 padding[CBR_TBL_BLOCK_PADDING];  // Padding to 128 bytes
+	uint16_t i4mb_weight_offset;
+	uint16_t i16mb_weight_offset;
+	uint16_t me_weight_offset;
+	uint16_t ie_f_zero_sad_i4;
+	uint16_t ie_f_zero_sad_i16;
+	uint16_t me_f_zero_sad;
+	uint16_t end_marker1; /* 0x55aa */
+	uint16_t end_marker2; /* 0xaa55 */
+	uint8_t padding[CBR_TBL_BLOCK_PADDING];  // Padding to 128 bytes
 };
 static_assert(sizeof(struct cbr_tbl_block) == 128, "cbr_tbl_block must be exactly 128 bytes");
 
 // Full CBR buffer layout
 struct cbr_info_buffer {
 	struct cbr_tbl_block blocks[CBR_BLOCK_COUNT];  // 16 x 128 bytes
-	u16 block_mb_size[CBR_BLOCK_MB_SIZE]; // 0x800 offset
+	uint16_t block_mb_size[CBR_BLOCK_MB_SIZE]; // 0x800 offset
 };
 static_assert(sizeof(struct cbr_info_buffer) % 16 == 0, "cbr_info_buffer size must be a multiple of 16 bytes");
 static_assert(offsetof(struct cbr_info_buffer, block_mb_size) == CBR_TABLE_SIZE, "cbr_info_buffer block_mb_size must be at offset CBR_TABLE_SIZE");
@@ -110,11 +110,40 @@ struct h264_mb_info {
 };
 static_assert(sizeof(struct h264_mb_info) == MB_INFO_SIZE, "h264_mb_info must be exactly MB_INFO_SIZE bytes");
 
-struct h264_buffer_info {
-	struct cbr_info_buffer *cbr_info;
-	struct h264_mb_info *mb_info;
+struct amlvenc_h264_rc_params {
+	uint32_t initial_target_bitrate;
+	uint32_t frame_rate_num;
+	uint32_t frame_rate_den;
 	uint32_t mb_width;
 	uint32_t mb_height;
+	uint8_t initial_qp;
+	bool rate_control;
+};
+
+struct amlvenc_h264_rc_frame {
+	const bool is_idr;
+};
+
+struct amlvenc_h264_rc_state {
+	uint64_t buffer_fullness;
+	uint32_t bits_per_frame;
+	uint32_t last_frame_bits;
+	uint32_t target_bits;
+	uint64_t encoded_frames;
+	uint64_t last_timestamp;
+	uint32_t max_qp_count;
+#if 0
+	uint32_t me_weight;
+#endif
+	uint32_t target_bitrate;
+	uint8_t current_qp;
+};
+
+struct amlvenc_h264_rc_ctx {
+	struct amlvenc_h264_rc_params params;
+	struct cbr_info_buffer *cbr_info;
+	struct h264_mb_info *mb_info;
+	struct amlvenc_h264_rc_state state;
 
 	uint32_t block_width;
 	uint32_t block_height;
@@ -130,20 +159,32 @@ struct mb_mv {
 	int16_t mvy;
 };
 
-int init_h264_buffer_info(struct h264_buffer_info *info, void *cbr_info, void* mb_info, uint32_t mb_width, uint32_t mb_height);
+int amlvenc_h264_rc_init(struct amlvenc_h264_rc_ctx *ctx, const struct amlvenc_h264_rc_params *params, void *cbr_info, void* mb_info);
 
-static inline void free_h264_buffer_info(struct h264_buffer_info *info) {
-	if (info) {
-		kfree(info->block_sad_size);
+static inline void amlvenc_h264_rc_free(struct amlvenc_h264_rc_ctx *ctx) {
+	if (ctx) {
+		kfree(ctx->block_sad_size);
 	}
 }
 
-static inline struct h264_mb_info *get_mb_info(struct h264_buffer_info *info, uint32_t x, uint32_t y)
+static inline struct h264_mb_info *amlvenc_h264_rc_mb_info(struct amlvenc_h264_rc_ctx *ctx, uint32_t x, uint32_t y)
 {
-	if (x >= info->mb_width || y >= info->mb_height)
+	if (x >= ctx->params.mb_width || y >= ctx->params.mb_height)
 		return NULL;
-	return &info->mb_info[y * info->mb_width + x];
+	return &ctx->mb_info[y * ctx->params.mb_width + x];
 }
+
+int amlvenc_h264_rc_update_stats(struct amlvenc_h264_rc_ctx *ctx, struct amlvenc_h264_configure_encoder_params *p);
+
+void amlvenc_h264_rc_hexdump_mb_info(struct amlvenc_h264_rc_ctx *ctx);
+
+void amlvenc_h264_rc_update_cbr_mb_sizes(struct amlvenc_h264_rc_ctx *ctx);
+
+void amlvenc_h264_rc_cbr_to_risc(struct cbr_info_buffer *cbr_info);
+
+void amlvenc_h264_rc_frame_prepare(struct amlvenc_h264_rc_ctx *ctx, uint64_t timestamp, bool is_idr);
+
+bool amlvenc_h264_rc_frame_done(struct amlvenc_h264_rc_ctx *ctx, uint32_t frame_bits);
 
 // Helper macros to access fields in the raw buffer, matching the original code
 #define get_mb_x(mb) ((mb)->mb_x)
@@ -212,13 +253,5 @@ static inline void get_mb_mv_P8x8(struct h264_mb_info *mb, struct mb_mv mv[16])
 		mv[i*2+8].mvy = mv[i*2+9].mvy = mb->mv[i*4+3];
 	}
 }
-
-int update_sad_stats(struct h264_buffer_info *info, struct amlvenc_h264_configure_encoder_params *p);
-
-void hexdump_mb_info(struct h264_buffer_info *info);
-
-void update_cbr_mb_sizes(struct h264_buffer_info *info, bool rate_control, uint32_t bps, uint32_t fps_num, uint32_t fps_den);
-
-void convert_table_to_risc(struct cbr_info_buffer *cbr_info);
 
 #endif /* __AML_VENC_H264_BUFFERS_H__ */
