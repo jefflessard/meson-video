@@ -360,7 +360,7 @@ int validate_canvas_align(u32 canvas_paddr, u32 canvas_w, u32 canvas_h, u32 widt
 }
 
 static void clamp_qptbl(qp_union_t *tbl, bool is_idr) {
-#if 0
+#if 1
 	uint8_t qp_min = is_idr ? 15 : 20;
 	uint8_t qp_max = is_idr ? 30 : 35;
 #else
@@ -494,6 +494,11 @@ static void amlvenc_h264_rc_update_cbr_quant_tables(struct amlvenc_h264_rc_ctx *
 			tbl_i4i16.rows[j] += qp_step;
 		}
 	}
+
+	pr_debug("h264_encoder: quant=%d, min_qp=%d, max_qp=%d",
+			quant,
+			ctx->cbr_info->blocks[0].qp_table.i4_qp.cells[0][0],
+			ctx->cbr_info->blocks[CBR_BLOCK_COUNT - 1].qp_table.i4_qp.cells[QP_ROWS - 1][QP_COLS - 1]);
 }
 
 static void encoder_init_cbr(struct encoder_h264_ctx *ctx) {
@@ -520,7 +525,7 @@ static void encoder_init_cbr(struct encoder_h264_ctx *ctx) {
 	}
 
 	// TODO configure verbose
-#if 1
+#if 0
 	 print_hex_dump(KERN_DEBUG,
 			 DRIVER_NAME ": " "CBR Buffer MB Size: ",
 			 DUMP_PREFIX_OFFSET,
@@ -638,7 +643,7 @@ static int encoder_init_mdfin(struct encoder_h264_ctx *ctx) {
 static int encoder_configure(struct encoder_h264_ctx *ctx) {
 	struct encoder_task_ctx *t = &ctx->task;
 	bool is_idr = t->cmd == CMD_ENCODE_IDR;
-	u32 quant = ctx->rc_ctx.state.current_qp;
+	u8 quant = ctx->rc_ctx.state.current_qp;
 	int ret;
 
 	if (t->reset_encoder) {
@@ -927,19 +932,6 @@ static void encoder_abort(struct encoder_h264_ctx *ctx) {
 static void encoder_start(struct encoder_h264_ctx *ctx) {
 	struct encoder_task_ctx *t = &ctx->task;
 	bool is_idr;
-	
-	t->gop_size = meson_vcodec_g_ctrl(ctx->session, V4L2_CID(GOP_SIZE));
-	t->repeat_header = meson_vcodec_g_ctrl(ctx->session, V4L2_CID(REPEAT_SEQ_HEADER));
-	t->join_header = meson_vcodec_g_ctrl(ctx->session, V4L2_CID(HEADER_MODE));
-	t->min_qp = meson_vcodec_g_ctrl(ctx->session, V4L2_CID(H264_MIN_QP));
-	t->max_qp = meson_vcodec_g_ctrl(ctx->session, V4L2_CID(H264_MAX_QP));
-
-	job_trace(ctx->job, "Encoding parameters: min_qp=%d, max_qp=%d, bitrate=%d, rc=%d, gop=%d, join_header=%d, repeat_header=%d",
-			t->min_qp, t->max_qp,
-			ctx->rc_ctx.params.initial_target_bitrate,
-			ctx->rc_ctx.params.rate_control,
-			t->gop_size,
-			t->join_header, t->repeat_header);
 
 	// Ensure there are buffers to work on
 	t->src_buf = v4l2_m2m_next_src_buf(ctx->m2m_ctx);
@@ -1161,7 +1153,7 @@ static int encoder_h264_prepare(struct meson_codec_job *job) {
 	init_completion(&ctx->encoder_completion);
 	job->priv = ctx;
 
-	ctx->init_params.init_qppicture = 26;
+	ctx->init_params.init_qppicture = INITIAL_QP;
 	ctx->init_params.idr_pic_id = 1;
 	ctx->init_params.frame_number = 0;
 	ctx->conf_params.qtable = &ctx->qtable;
@@ -1287,6 +1279,20 @@ static int encoder_h264_prepare(struct meson_codec_job *job) {
 		goto free_canvas;
 	}
 
+	ctx->task.gop_size = meson_vcodec_g_ctrl(ctx->session, V4L2_CID(GOP_SIZE));
+	ctx->task.repeat_header = meson_vcodec_g_ctrl(ctx->session, V4L2_CID(REPEAT_SEQ_HEADER));
+	ctx->task.join_header = meson_vcodec_g_ctrl(ctx->session, V4L2_CID(HEADER_MODE));
+	ctx->task.min_qp = meson_vcodec_g_ctrl(ctx->session, V4L2_CID(H264_MIN_QP));
+	ctx->task.max_qp = meson_vcodec_g_ctrl(ctx->session, V4L2_CID(H264_MAX_QP));
+
+	job_trace(ctx->job, "Encoding parameters: min_qp=%d, max_qp=%d, bitrate=%d, rc=%d, gop=%d, join_header=%d, repeat_header=%d",
+			ctx->task.min_qp,
+			ctx->task.max_qp,
+			ctx->rc_ctx.params.initial_target_bitrate,
+			ctx->rc_ctx.params.rate_control,
+			ctx->task.gop_size,
+			ctx->task.join_header,
+			ctx->task.repeat_header);
 	return 0;
 
 canvas_config_failed:

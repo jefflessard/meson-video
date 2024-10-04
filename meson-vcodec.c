@@ -1017,7 +1017,12 @@ static int meson_vcodec_try_fmt_vid(struct file *file, void *priv, struct v4l2_f
 	struct meson_vcodec_session *session = container_of(file->private_data, struct meson_vcodec_session, fh);
 	struct v4l2_format *fmt_src, *fmt_dst;
 
-	stream_trace(session, f->type, "fmt=%.4s", (char*)&f->fmt.pix_mp.pixelformat);
+	stream_trace(session, f->type, "fmt=%.4s, colorspace=%d, ycbcr_enc=%d, quantization=%d, xfer_func=%d",
+			(char*)&f->fmt.pix_mp.pixelformat,
+			f->fmt.pix_mp.colorspace,
+			f->fmt.pix_mp.ycbcr_enc,
+			f->fmt.pix_mp.quantization,
+			f->fmt.pix_mp.xfer_func);
 
 	if (IS_SRC_STREAM(f->type)) {
 		fmt_src = f;

@@ -4,13 +4,14 @@
 
 #include "amlvenc_h264_info.h"
 
+//#define FIXED_RC RC_MAX
+//#define FIXED_RC_QP
+
 #define RC_MAX 0xffff
 #define RC_MIN 0x0000
 #define CBR_MIN_BLOCK_SIZE 4
 #define DIVSCALE 16
 #define DIVSCALE_SQRT 8
-//#define FIXED_RC RC_MIN
-//#define FIXED_RC_QP
 #define IDR_SCALER_RATIO 4
 #define BUFFER_LOW_THRESHOLD 10
 #define BUFFER_HIGH_THRESHOLD 150
@@ -50,8 +51,6 @@ static void amlvenc_h264_rc_calculate_cbr_blocks(struct amlvenc_h264_rc_ctx *ctx
 	pr_debug("h264_encoder: mb_w=%d (n=%d), mb_h=%d (n=%d)", ctx->params.mb_width, block_width_num, ctx->params.mb_height, block_height_num);
 	pr_debug("h264_encoder: block_w=%d (n=%d), block_h=%d (n=%d)", block_width, block_width_n, block_height, block_height_n);
 
-	//ctx->block_width_num  = block_width_num;
-	//ctx->block_height_num = block_height_num;
 	ctx->block_width      = block_width;
 	ctx->block_height     = block_height;
 	ctx->block_width_n    = block_width_n;
@@ -217,17 +216,13 @@ void amlvenc_h264_rc_cbr_to_risc(struct cbr_info_buffer *cbr_info)
 }
 
 void amlvenc_h264_rc_update_cbr_mb_sizes(struct amlvenc_h264_rc_ctx *ctx) {
-	uint32_t fps_num = ctx->params.frame_rate_num;
-	uint32_t fps_den = ctx->params.frame_rate_den;
-	uint32_t bps = ctx->state.target_bitrate;
 	uint16_t *block_mb_size = ctx->cbr_info->block_mb_size;
 	uint32_t total_frame_size = 0;
 	uint32_t total_sad_size = ctx->f_sad_count;
 	uint32_t block_size = ctx->block_width * ctx->block_height;
 	bool rate_control = ctx->params.rate_control;
 
-	uint64_t s_target_frame_size = ((uint64_t) bps * fps_den << (5 + DIVSCALE)) / fps_num; // << 5 = * 32, for 32 bits per block pixel
-	uint64_t s_target_block_size = s_target_frame_size / block_size;
+	uint64_t s_target_block_size = ((uint64_t) ctx->state.target_bits << (5 + DIVSCALE)) / block_size;
 
 	for (int x = 0; x < ctx->block_height_n; x++) {
 		for (int y = 0; y < ctx->block_width_n; y++) {
@@ -241,21 +236,23 @@ void amlvenc_h264_rc_update_cbr_mb_sizes(struct amlvenc_h264_rc_ctx *ctx) {
 					uint64_t block_rc_value = (s_target_block_size * block_sad_size / total_sad_size) >> DIVSCALE;
 
 					block_mb_size[offset] = (uint16_t) min_t(uint64_t, block_rc_value, 0xffff);
+					total_frame_size += block_mb_size[offset] * block_size;
 				} else {
-					block_mb_size[offset] = RC_MAX;
+					block_mb_size[offset] = RC_MIN;
 				}
 			} else {
 				block_mb_size[offset] = RC_MAX;
 			}
-			total_frame_size += block_mb_size[offset] * block_size;
 #endif
 		}
 	}
 
-	pr_debug("h264_encoder: target:%llu, current:%d, diff:%llu",
-			s_target_frame_size >> (8 + DIVSCALE),
-			total_frame_size >> 8,
-			((s_target_frame_size >> DIVSCALE) - total_frame_size) >> 8);
+	if (rate_control) {
+		pr_debug("h264_encoder: target:%d, current:%d, diff:%d",
+				ctx->state.target_bits >> (8 - 5),
+				total_frame_size >> 8,
+				((ctx->state.target_bits << 5) - total_frame_size) >> 8);
+	}
 }
 
 
