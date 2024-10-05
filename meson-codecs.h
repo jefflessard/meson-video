@@ -48,8 +48,8 @@ struct meson_codec_dev {
 struct meson_codec_job {
 	struct meson_vcodec_session *session;
 	struct meson_codec_dev *codec;
-	const struct v4l2_pix_format_mplane *src_fmt;
-	const struct v4l2_pix_format_mplane *dst_fmt;
+	const struct v4l2_format *src_fmt;
+	const struct v4l2_format *dst_fmt;
 	void *priv;
 };
 

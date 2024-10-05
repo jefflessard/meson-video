@@ -559,8 +559,8 @@ static int encoder_init_mdfin(struct encoder_h264_ctx *ctx) {
 	int i, ret;
 
 	// input params
-	p->width = ctx->job->src_fmt->width;
-	p->height = ctx->job->src_fmt->height;
+	p->width = V4L2_FMT_WIDTH(ctx->job->src_fmt);
+	p->height = V4L2_FMT_HEIGHT(ctx->job->src_fmt);
 	p->iformat = s->iformat;
 	p->ifmt_extra = s->ifmt_extra;
 	p->r2y_mode = s->r2y_mode;
@@ -666,8 +666,8 @@ static int encoder_configure(struct encoder_h264_ctx *ctx) {
 		ctx->conf_params.idr = is_idr;
 		ctx->conf_params.quant = quant;
 		ctx->conf_params.qp_mode = 1;
-		ctx->conf_params.encoder_width = ctx->job->src_fmt->width;
-		ctx->conf_params.encoder_height = ctx->job->src_fmt->height;
+		ctx->conf_params.encoder_width = V4L2_FMT_WIDTH(ctx->job->src_fmt);
+		ctx->conf_params.encoder_height = V4L2_FMT_HEIGHT(ctx->job->src_fmt);
 		ctx->conf_params.i4_weight = I4MB_WEIGHT_OFFSET;
 		ctx->conf_params.i16_weight = I16MB_WEIGHT_OFFSET;
 		ctx->conf_params.me_weight = ME_WEIGHT_OFFSET;
@@ -760,7 +760,7 @@ static int encoder_configure(struct encoder_h264_ctx *ctx) {
 
 	// amlvenc_h264_configure_fixed_slice
 	// TODO enable multi slice in I frames
-	amlvenc_h264_configure_fixed_slice(ctx->job->src_fmt->height, 0, 0);
+	amlvenc_h264_configure_fixed_slice(V4L2_FMT_HEIGHT(ctx->job->src_fmt), 0, 0);
 
 	return 0;
 }
@@ -1161,8 +1161,8 @@ static int encoder_h264_prepare(struct meson_codec_job *job) {
 	ctx->me_params = amlvenc_h264_me_defaults;
 	amlvenc_h264_init_me(&ctx->me_params);
 
-	u32 width = job->src_fmt->width;
-	u32 height = job->src_fmt->height;
+	u32 width = V4L2_FMT_WIDTH(job->src_fmt);
+	u32 height = V4L2_FMT_HEIGHT(job->src_fmt);
 	u32 canvas_width = ALIGN(width, 32);
 	u32 canvas_height = ALIGN(height, 16);
 	u32 mb_width = (width + 15) >> 4;
@@ -1185,9 +1185,9 @@ static int encoder_h264_prepare(struct meson_codec_job *job) {
 	// dec1_y: 0x300000 canvas_width, canvas_height / 2
 	ctx->buffers[BUF_REF_UV].size = canvas_width * canvas_height / 2; 
 
-	ctx->encoder_spec = find_encoder_spec(job->src_fmt->pixelformat);
+	ctx->encoder_spec = find_encoder_spec(V4L2_FMT_PIXFMT(job->src_fmt));
 	if (!ctx->encoder_spec) {
-		job_err(job, "Failed to find spec of %.4s", (char *)&job->src_fmt->pixelformat);
+		job_err(job, "Failed to find spec of %.4s", (char *)V4L2_FMT_FOURCC(job->src_fmt));
 		ret = -EINVAL;
 		goto free_ctx;
 	}

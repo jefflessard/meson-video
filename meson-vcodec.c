@@ -188,19 +188,17 @@ static int meson_vcodec_queue_setup(
 	}
 
 	if (*nplanes) {
-		if (*nplanes != fmt->fmt.pix_mp.num_planes) {
+		if (*nplanes != V4L2_FMT_NUMPLANES(fmt)) {
 			stream_err(session, vq->type, "Invalid num_planes");
 			return -EINVAL;
 		}
 
 		for (int i = 0; i < *nplanes; i++) {
-			if (sizes[i] < fmt->fmt.pix_mp.plane_fmt[i].sizeimage) {
+			if (sizes[i] < V4L2_FMT_SIZEIMAGE(fmt, i)) {
 				stream_err(session, vq->type, "Invalid plane size");
 				return -EINVAL;
 			}
 		}
-
-		// TODO set number of buffers depending on the codec
 
 		return 0;
 	}
@@ -209,15 +207,14 @@ static int meson_vcodec_queue_setup(
 		stream_err(session, vq->type, "invalid status to init");
 		return -EINVAL;
 	}
-		
-	*nplanes = fmt->fmt.pix_mp.num_planes;
+
+
+	*nplanes = V4L2_FMT_NUMPLANES(fmt);
 	stream_trace(session, vq->type, "nplanes=%d", *nplanes);
 	for (int i = 0; i < *nplanes; i++) {
-		sizes[i] = fmt->fmt.pix_mp.plane_fmt[i].sizeimage;
+		sizes[i] = V4L2_FMT_SIZEIMAGE(fmt, i);
 		stream_trace(session, vq->type, "planes=%d, size=%d", i, sizes[i]);
 	}
-
-	// TODO set number of buffers depending on the codec
 
 	SET_STREAM_STATUS(session, vq->type, STREAM_STATUS_QSETUP);
 	return 0;
@@ -237,13 +234,13 @@ static int meson_vcodec_buf_prepare(struct vb2_buffer *vb)
 		fmt = &session->dst_fmt;
 	}
 
-	if (vb->num_planes != fmt->fmt.pix_mp.num_planes) {
+	if (vb->num_planes != V4L2_FMT_NUMPLANES(fmt)) {
 		stream_err(session, vb->type, "Invalid num_planes");
 		return -EINVAL;
 	}
 
-	for (int i = 0; i < fmt->fmt.pix_mp.num_planes; i++) {
-		if (vb2_plane_size(vb, i) < fmt->fmt.pix_mp.plane_fmt[i].sizeimage) {
+	for (int i = 0; i < V4L2_FMT_NUMPLANES(fmt); i++) {
+		if (vb2_plane_size(vb, i) < V4L2_FMT_SIZEIMAGE(fmt, i)) {
 			stream_err(session, vb->type, "Invalid plane size");
 			return -EINVAL;
 		}
@@ -720,9 +717,9 @@ static int filter_formats(struct meson_vcodec_session *session, u32 fmt_type, co
 
 	list_src = IS_SRC_STREAM(fmt_type);
 	if (list_src) {
-		pixfmt_filter = session->dst_fmt.fmt.pix_mp.pixelformat;
+		pixfmt_filter = V4L2_FMT_PIXFMT(&session->dst_fmt);
 	} else {
-		pixfmt_filter = session->src_fmt.fmt.pix_mp.pixelformat;
+		pixfmt_filter = V4L2_FMT_PIXFMT(&session->src_fmt);
 	}
 
 	for (i = 0; i < num_codecs; i++) {
@@ -782,8 +779,8 @@ static int meson_vcodec_enum_framesizes(struct file *file, void *priv, struct v4
 	const struct meson_codec_formats *codecs = core->platform_specs->codecs;
 	int num_codecs = core->platform_specs->num_codecs;
 	const struct meson_codec_formats *codec;
-	u32 pxlfmt_src = session->src_fmt.fmt.pix_mp.pixelformat;
-	u32 pxlfmt_dst = session->dst_fmt.fmt.pix_mp.pixelformat;
+	u32 pxlfmt_src = V4L2_FMT_PIXFMT(&session->src_fmt);
+	u32 pxlfmt_dst = V4L2_FMT_PIXFMT(&session->dst_fmt);
 	u16 max_width = 0, max_height = 0;
 	int i;
 
@@ -852,27 +849,28 @@ static void set_buffer_sizes(struct v4l2_format *f, const struct meson_format *f
 	u32 sizeimage, stride;
 	int j;
 
-	y_width = ALIGN((f->fmt.pix_mp.width * fmt->bits_per_px) >> 3, fmt->align_width);
-	y_height = (f->fmt.pix_mp.height * fmt->bits_per_px) >> 3;
+	y_width = ALIGN((V4L2_FMT_WIDTH(f) * fmt->bits_per_px) >> 3, fmt->align_width);
+	y_height = (V4L2_FMT_HEIGHT(f) * fmt->bits_per_px) >> 3;
 
 	uv_width = (y_width * fmt->uvplane_bppx) >> 3;
 	uv_height = (y_height * fmt->uvplane_bppy) >> 3;
 
-	f->fmt.pix_mp.num_planes = fmt->num_planes;
+	V4L2_FMT_SET_NUMPLANES(f, fmt->num_planes);
 	for (j = 0; j < fmt->num_planes; j++) {
-		memset(
-			f->fmt.pix_mp.plane_fmt[j].reserved,
-			0,
-			sizeof(f->fmt.pix_mp.plane_fmt[j].reserved)
-		);
+		if (V4L2_TYPE_IS_MULTIPLANAR(f->type)) {
+			memset(
+					f->fmt.pix_mp.plane_fmt[j].reserved,
+					0,
+					sizeof(f->fmt.pix_mp.plane_fmt[j].reserved));
+		}
 
 		plane_w = j == 0 ? y_width : uv_width;
 		plane_h = j == 0 ? y_height : uv_height;
 		stride = plane_w;
 		sizeimage = ALIGN(stride * plane_h, fmt->align_height);
 
-		f->fmt.pix_mp.plane_fmt[j].bytesperline = stride;
-		f->fmt.pix_mp.plane_fmt[j].sizeimage = sizeimage;
+		V4L2_FMT_SET_BYTESPERLINE(f, j, stride);
+		V4L2_FMT_SET_SIZEIMAGE(f, j, sizeimage);
 	}
 }
 
@@ -905,24 +903,25 @@ static int common_try_fmt_vid(struct meson_vcodec_core *core, u32 fmt_type, stru
 		return -EINVAL;
 	}
 
-	switch(fmt_set->fmt.pix_mp.pixelformat) {
+	// fix for ffmpeg v4l2_m2m_enc that won't set multiplanar formats by itself but that will adjust to it when set on driver's side
+	switch(V4L2_FMT_PIXFMT(fmt_set)) {
 		case V4L2_FMT(YUV420):
-			fmt_set->fmt.pix_mp.pixelformat = V4L2_FMT(YUV420M);
+			V4L2_FMT_SET_PIXFMT(fmt_set, V4L2_FMT(YUV420M));
 			break;
 		case V4L2_FMT(NV12):
-			fmt_set->fmt.pix_mp.pixelformat = V4L2_FMT(NV12M);
+			V4L2_FMT_SET_PIXFMT(fmt_set, V4L2_FMT(NV12M));
 			break;
 	}
 
 	// Both formats set
-	if (fmt_src->fmt.pix_mp.pixelformat &&
-		fmt_dst->fmt.pix_mp.pixelformat
+	if (V4L2_FMT_PIXFMT(fmt_src) &&
+		V4L2_FMT_PIXFMT(fmt_dst)
 	) {
 		// Exact match
 		codec = find_codec(
 			core,
-			fmt_src->fmt.pix_mp.pixelformat,
-			fmt_dst->fmt.pix_mp.pixelformat
+			V4L2_FMT_PIXFMT(fmt_src),
+			V4L2_FMT_PIXFMT(fmt_dst)
 		);
 		if (codec) {
 			max_width = codec->max_width;
@@ -934,16 +933,16 @@ static int common_try_fmt_vid(struct meson_vcodec_core *core, u32 fmt_type, stru
 
 			for(i = 0; i < num_codecs; i++) {
 				if ((is_set_src_fmt &&
-					fmt_dst->fmt.pix_mp.pixelformat == codecs[i].dst_fmt->pixelformat ) ||
-					fmt_src->fmt.pix_mp.pixelformat == codecs[i].src_fmt->pixelformat
+					V4L2_FMT_PIXFMT(fmt_dst) == codecs[i].dst_fmt->pixelformat ) ||
+					V4L2_FMT_PIXFMT(fmt_src) == codecs[i].src_fmt->pixelformat
 				) {
 					codec = &codecs[i];
 					max_width = codec->max_width;
 					max_height = codec->max_height;
-					fmt_set->fmt.pix_mp.pixelformat = 
+					V4L2_FMT_SET_PIXFMT(fmt_set, 
 						is_set_src_fmt ?
 						codecs[i].src_fmt->pixelformat :
-						codecs[i].dst_fmt->pixelformat;
+						codecs[i].dst_fmt->pixelformat);
 					break;
 				}
 			}
@@ -963,7 +962,7 @@ static int common_try_fmt_vid(struct meson_vcodec_core *core, u32 fmt_type, stru
 				codecs[i].src_fmt->pixelformat :
 				codecs[i].dst_fmt->pixelformat;
 
-			if (fmt_set->fmt.pix_mp.pixelformat == pxfmt_match) {
+			if (V4L2_FMT_PIXFMT(fmt_set) == pxfmt_match) {
 				if (codecs[i].max_width > max_width) {
 					max_width = codecs[i].max_width; 
 				}
@@ -982,24 +981,24 @@ static int common_try_fmt_vid(struct meson_vcodec_core *core, u32 fmt_type, stru
 			codec = &codecs[0];
 			max_width = codec->max_width;
 			max_height = codec->max_height;
-			fmt_set->fmt.pix_mp.pixelformat = 
+			V4L2_FMT_SET_PIXFMT(fmt_set, 
 				is_set_src_fmt ?
 				codec->src_fmt->pixelformat :
-				codec->dst_fmt->pixelformat;
+				codec->dst_fmt->pixelformat);
 		}
 	}
 
 	// Set max resolutions
-	fmt_set->fmt.pix_mp.width = clamp(
-		fmt_set->fmt.pix_mp.width,
+	V4L2_FMT_SET_WIDTH(fmt_set, clamp(
+		V4L2_FMT_WIDTH(fmt_set),
 		MIN_RESOLUTION_WIDTH,
 		max_width
-	);
-	fmt_set->fmt.pix_mp.height = clamp(
-		fmt_set->fmt.pix_mp.height,
+	));
+	V4L2_FMT_SET_HEIGHT(fmt_set, clamp(
+		V4L2_FMT_HEIGHT(fmt_set),
 		MIN_RESOLUTION_HEIGHT,
 		max_height
-	);
+	));
 
 	// Set buffer sizes
 	if (is_set_src_fmt) {
@@ -1018,11 +1017,11 @@ static int meson_vcodec_try_fmt_vid(struct file *file, void *priv, struct v4l2_f
 	struct v4l2_format *fmt_src, *fmt_dst;
 
 	stream_trace(session, f->type, "fmt=%.4s, colorspace=%d, ycbcr_enc=%d, quantization=%d, xfer_func=%d",
-			(char*)&f->fmt.pix_mp.pixelformat,
-			f->fmt.pix_mp.colorspace,
-			f->fmt.pix_mp.ycbcr_enc,
-			f->fmt.pix_mp.quantization,
-			f->fmt.pix_mp.xfer_func);
+			V4L2_FMT_FOURCC(f),
+			V4L2_FMT_COLORSPACE(f),
+			V4L2_FMT_YCBCR(f),
+			V4L2_FMT_QUANT(f),
+			V4L2_FMT_XFER(f));
 
 	if (IS_SRC_STREAM(f->type)) {
 		fmt_src = f;
@@ -1043,8 +1042,8 @@ static int meson_vcodec_s_fmt_vid(struct file *file, void *priv, struct v4l2_for
 	struct v4l2_format *fmt_src, *fmt_dst;
 	int ret;
 
-	stream_trace(session, f->type, "fmt=%.4s", (char*)&f->fmt.pix_mp.pixelformat);
-
+	stream_trace(session, f->type, "fmt=%.4s", V4L2_FMT_FOURCC(f));
+	
 	if (IS_SRC_STREAM(f->type)) {
 		fmt_src = f;
 		fmt_dst = &session->dst_fmt;
@@ -1075,19 +1074,19 @@ static int meson_vcodec_s_fmt_vid(struct file *file, void *priv, struct v4l2_for
 	session->dec_job.dst_fmt = NULL;
 
 	// Once both source and destination formats are set
-	if (session->dst_fmt.fmt.pix_mp.pixelformat &&
-		session->dst_fmt.fmt.pix_mp.width &&
-		session->dst_fmt.fmt.pix_mp.height &&
-		session->src_fmt.fmt.pix_mp.pixelformat &&
-		session->src_fmt.fmt.pix_mp.width &&
-		session->src_fmt.fmt.pix_mp.height
+	if (V4L2_FMT_PIXFMT(&session->dst_fmt) &&
+		V4L2_FMT_WIDTH(&session->dst_fmt) &&
+		V4L2_FMT_HEIGHT(&session->dst_fmt) &&
+		V4L2_FMT_PIXFMT(&session->src_fmt) &&
+		V4L2_FMT_WIDTH(&session->src_fmt) &&
+		V4L2_FMT_HEIGHT(&session->src_fmt)
 	) {
-		session_dbg(session, "Formats set: src_fmt=%.4s, dst_fmt=%.4s", (char*)&session->src_fmt.fmt.pix_mp.pixelformat, (char*)&session->dst_fmt.fmt.pix_mp.pixelformat);
+		session_dbg(session, "Formats set: src_fmt=%.4s, dst_fmt=%.4s", V4L2_FMT_FOURCC(&session->src_fmt), V4L2_FMT_FOURCC(&session->dst_fmt));
 
 		codec = find_codec(
 			core,
-			fmt_src->fmt.pix_mp.pixelformat,
-			fmt_dst->fmt.pix_mp.pixelformat
+			V4L2_FMT_PIXFMT(fmt_src),
+			V4L2_FMT_PIXFMT(fmt_dst)
 		);
 		if (!codec) {
 			session_err(session, "Codec formats not found");
@@ -1095,18 +1094,18 @@ static int meson_vcodec_s_fmt_vid(struct file *file, void *priv, struct v4l2_for
 		}
 
 		// Set max resolutions
-		fmt_src->fmt.pix_mp.width = clamp(
-			fmt_src->fmt.pix_mp.width,
+		V4L2_FMT_SET_WIDTH(fmt_src, clamp(
+			V4L2_FMT_WIDTH(fmt_src),
 			MIN_RESOLUTION_WIDTH,
 			codec->max_width
-		);
-		fmt_src->fmt.pix_mp.height = clamp(
-			fmt_src->fmt.pix_mp.height,
+		));
+		V4L2_FMT_SET_HEIGHT(fmt_src, clamp(
+			V4L2_FMT_HEIGHT(fmt_src),
 			MIN_RESOLUTION_HEIGHT,
 			codec->max_height
-		);
-		fmt_dst->fmt.pix_mp.width = fmt_src->fmt.pix_mp.width;
-		fmt_dst->fmt.pix_mp.height = fmt_src->fmt.pix_mp.height;
+		));
+		V4L2_FMT_SET_WIDTH(fmt_dst, V4L2_FMT_WIDTH(fmt_src));
+		V4L2_FMT_SET_HEIGHT(fmt_dst, V4L2_FMT_HEIGHT(fmt_src));
 
 		// Set buffer sizes
 		set_buffer_sizes(fmt_src, codec->src_fmt);
@@ -1121,25 +1120,24 @@ static int meson_vcodec_s_fmt_vid(struct file *file, void *priv, struct v4l2_for
 		}
 		if (codec->decoder) {
 			session->dec_job.codec = &core->codecs[codec->decoder->type];
-			meson_vcodec_add_codec_ctrls(session, session->enc_job.codec);
+			meson_vcodec_add_codec_ctrls(session, session->dec_job.codec);
 		}
 
 		if (codec->decoder && codec->encoder) {
 			session->type = SESSION_TYPE_TRANSCODE;
-			session->dec_job.src_fmt = &session->src_fmt.fmt.pix_mp;
-			session->enc_job.dst_fmt = &session->dst_fmt.fmt.pix_mp;
-
-			session->int_fmt.pixelformat = codec->int_fmt->pixelformat;
-			session->int_fmt.width = session->dec_job.src_fmt->width;
-			session->int_fmt.height = session->dec_job.src_fmt->height;
-			session->int_fmt.num_planes = 0;
+			session->dec_job.src_fmt = &session->src_fmt;
+			session->enc_job.dst_fmt = &session->dst_fmt;
+//			session->int_fmt.pixelformat = codec->int_fmt->pixelformat;
+//			session->int_fmt.width = session->dec_job.src_fmt->width;
+//			session->int_fmt.height = session->dec_job.src_fmt->height;
+//			session->int_fmt.num_planes = 0;
 			session->dec_job.dst_fmt = &session->int_fmt;
 			session->enc_job.src_fmt = &session->int_fmt;
 
 		} else if (codec->encoder) {
 			session->type = SESSION_TYPE_ENCODE;
-			session->enc_job.src_fmt = &session->src_fmt.fmt.pix_mp;
-			session->enc_job.dst_fmt = &session->dst_fmt.fmt.pix_mp;
+			session->enc_job.src_fmt = &session->src_fmt;
+			session->enc_job.dst_fmt = &session->dst_fmt;
 			session->dec_job.src_fmt = NULL;
 			session->dec_job.dst_fmt = NULL;
 
@@ -1147,8 +1145,8 @@ static int meson_vcodec_s_fmt_vid(struct file *file, void *priv, struct v4l2_for
 			session->type = SESSION_TYPE_DECODE;
 			session->enc_job.src_fmt = NULL;
 			session->enc_job.dst_fmt = NULL;
-			session->dec_job.src_fmt = &session->src_fmt.fmt.pix_mp;
-			session->dec_job.dst_fmt = &session->dst_fmt.fmt.pix_mp;
+			session->dec_job.src_fmt = &session->src_fmt;
+			session->dec_job.dst_fmt = &session->dst_fmt;
 
 		} else {
 			session_err(session, "Codec formats has no encoder or decoder set");
@@ -1156,11 +1154,11 @@ static int meson_vcodec_s_fmt_vid(struct file *file, void *priv, struct v4l2_for
 		}
 
 		if (session->dec_job.codec) {
-			job_info(&session->dec_job, "decode job %.4s to %.4s", (char *) &session->dec_job.src_fmt->pixelformat, (char *) &session->dec_job.dst_fmt->pixelformat);
+			job_info(&session->dec_job, "decode job %.4s to %.4s", V4L2_FMT_FOURCC(session->dec_job.src_fmt), V4L2_FMT_FOURCC(session->dec_job.dst_fmt));
 		}
 
 		if (session->enc_job.codec) {
-			job_info(&session->enc_job, "encode job %.4s to %.4s", (char *) &session->enc_job.src_fmt->pixelformat, (char *) &session->enc_job.dst_fmt->pixelformat);
+			job_info(&session->enc_job, "encode job %.4s to %.4s", V4L2_FMT_FOURCC(session->enc_job.src_fmt), V4L2_FMT_FOURCC(session->enc_job.dst_fmt));
 		}
 
 		// Set stream status
@@ -1180,7 +1178,7 @@ static int meson_vcodec_g_fmt_vid(struct file *file, void *priv, struct v4l2_for
 	else
 		*f = session->dst_fmt;
 
-	stream_trace(session, f->type, "fmt=%.4s", (char*)&f->fmt.pix_mp.pixelformat);
+	stream_trace(session, f->type, "fmt=%.4s", V4L2_FMT_FOURCC(f));
 
 	return 0;
 }

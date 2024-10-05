@@ -468,7 +468,7 @@ static int meson_vdec_adapter_prepare(struct meson_codec_job *job) {
 	}
 
 	fmt_out->codec_ops = adapter->vdec_codec_ops;
-	fmt_out->pixfmt = job->src_fmt->pixelformat;
+	fmt_out->pixfmt = V4L2_FMT_PIXFMT(job->src_fmt);
 	fmt_out->firmware_path = (char *)session->core->platform_specs->firmwares[job->codec->spec->type];
 	if (job->codec->spec->type >= VP9_DECODER) {
 		fmt_out->vdec_ops = &vdec_hevc_ops;
@@ -480,10 +480,10 @@ static int meson_vdec_adapter_prepare(struct meson_codec_job *job) {
 	adapter->vdec_sess.fh = &session->fh;
 	adapter->vdec_sess.lock = &session->lock;
 	adapter->vdec_sess.ctrl_handler = &session->ctrl_handler;
-	adapter->vdec_sess.width = job->src_fmt->height;
-	adapter->vdec_sess.height = job->src_fmt->height;
+	adapter->vdec_sess.width = V4L2_FMT_WIDTH(job->src_fmt);
+	adapter->vdec_sess.height = V4L2_FMT_HEIGHT(job->src_fmt);
 	adapter->vdec_sess.m2m_ctx = session->m2m_ctx;
-	adapter->vdec_sess.pixfmt_cap = job->dst_fmt->pixelformat;
+	adapter->vdec_sess.pixfmt_cap = V4L2_FMT_PIXFMT(job->dst_fmt);
 
 	// TODO IRQF_SHARED vs IRQF_ONESHOT
 	ret = request_threaded_irq(session->core->irqs[IRQ_VDEC], vdec_isr, vdec_threaded_isr, IRQF_ONESHOT, "vdec", job);

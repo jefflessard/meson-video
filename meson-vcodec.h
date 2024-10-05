@@ -106,7 +106,7 @@ struct meson_vcodec_session {
 
 	struct v4l2_format src_fmt;
 	struct v4l2_format dst_fmt;
-	struct v4l2_pix_format_mplane int_fmt;
+	struct v4l2_format int_fmt;
 	struct v4l2_fract timeperframe;
 
 	struct meson_codec_job enc_job;
@@ -135,6 +135,83 @@ int meson_vcodec_pwrc_on(struct meson_vcodec_core *core, enum meson_vcodec_pwrc 
 
 
 /* helper macros */
+
+#define V4L2_FMT_WIDTH(__fmt) \
+	(V4L2_TYPE_IS_MULTIPLANAR((__fmt)->type) ? (__fmt)->fmt.pix_mp.width : (__fmt)->fmt.pix.width)
+
+#define V4L2_FMT_SET_WIDTH(__fmt, __val) { \
+	if (V4L2_TYPE_IS_MULTIPLANAR((__fmt)->type)) (__fmt)->fmt.pix_mp.width = (__val); else (__fmt)->fmt.pix.width = (__val);}
+
+#define V4L2_FMT_HEIGHT(__fmt) \
+	(V4L2_TYPE_IS_MULTIPLANAR((__fmt)->type) ? (__fmt)->fmt.pix_mp.height : (__fmt)->fmt.pix.height)
+
+#define V4L2_FMT_SET_HEIGHT(__fmt, __val) { \
+	if (V4L2_TYPE_IS_MULTIPLANAR((__fmt)->type)) (__fmt)->fmt.pix_mp.height = (__val); else (__fmt)->fmt.pix.height = (__val);}
+
+#define V4L2_FMT_PIXFMT(__fmt) \
+	(V4L2_TYPE_IS_MULTIPLANAR((__fmt)->type) ? (__fmt)->fmt.pix_mp.pixelformat : (__fmt)->fmt.pix.pixelformat)
+
+#define V4L2_FMT_SET_PIXFMT(__fmt, __val) { \
+	if (((__val) & (0xff << 16)) == ('M' << 16)) { \
+		 (__fmt)->type = V4L2_TYPE_IS_OUTPUT((__fmt)->type) ? V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE : V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE; \
+	 	(__fmt)->fmt.pix_mp.pixelformat = (__val); \
+	 } else { \
+		 (__fmt)->type = V4L2_TYPE_IS_OUTPUT((__fmt)->type) ? V4L2_BUF_TYPE_VIDEO_OUTPUT : V4L2_BUF_TYPE_VIDEO_CAPTURE; \
+		 (__fmt)->fmt.pix.pixelformat = (__val); \
+	 }}
+
+#define V4L2_FMT_FOURCC(__fmt) \
+	((char*) (V4L2_TYPE_IS_MULTIPLANAR((__fmt)->type) ? &(__fmt)->fmt.pix_mp.pixelformat : &(__fmt)->fmt.pix.pixelformat))
+
+#define V4L2_FMT_NUMPLANES(__fmt) \
+	(V4L2_TYPE_IS_MULTIPLANAR((__fmt)->type) ? (__fmt)->fmt.pix_mp.num_planes : 1)
+
+#define V4L2_FMT_SET_NUMPLANES(__fmt, __val) { \
+	if (V4L2_TYPE_IS_MULTIPLANAR((__fmt)->type)) (__fmt)->fmt.pix_mp.num_planes = (__val);}
+
+#define V4L2_FMT_BYTESPERLINE(__fmt, __plane) \
+	(V4L2_TYPE_IS_MULTIPLANAR((__fmt)->type) ? (__fmt)->fmt.pix_mp.plane_fmt[__plane].bytesperline : (__fmt)->fmt.pix.bytesperline)
+
+#define V4L2_FMT_SET_BYTESPERLINE(__fmt, __plane, __val) { \
+	if (V4L2_TYPE_IS_MULTIPLANAR((__fmt)->type)) (__fmt)->fmt.pix_mp.plane_fmt[__plane].bytesperline = (__val); else (__fmt)->fmt.pix.bytesperline = (__val);}
+
+#define V4L2_FMT_SIZEIMAGE(__fmt, __plane) \
+	(V4L2_TYPE_IS_MULTIPLANAR((__fmt)->type) ? (__fmt)->fmt.pix_mp.plane_fmt[__plane].sizeimage : (__fmt)->fmt.pix.sizeimage)
+
+#define V4L2_FMT_SET_SIZEIMAGE(__fmt, __plane, __val) { \
+	if (V4L2_TYPE_IS_MULTIPLANAR((__fmt)->type)) (__fmt)->fmt.pix_mp.plane_fmt[__plane].sizeimage = (__val); else (__fmt)->fmt.pix.sizeimage = (__val);}
+
+#define V4L2_FMT_COLORSPACE(__fmt) \
+	(V4L2_TYPE_IS_MULTIPLANAR((__fmt)->type) ? (__fmt)->fmt.pix_mp.colorspace : (__fmt)->fmt.pix.colorspace)
+
+#define V4L2_FMT_YCBCR(__fmt) \
+	(V4L2_TYPE_IS_MULTIPLANAR((__fmt)->type) ? (__fmt)->fmt.pix_mp.ycbcr_enc : (__fmt)->fmt.pix.ycbcr_enc)
+
+#define V4L2_FMT_QUANT(__fmt) \
+	(V4L2_TYPE_IS_MULTIPLANAR((__fmt)->type) ? (__fmt)->fmt.pix_mp.quantization : (__fmt)->fmt.pix.quantization)
+
+#define V4L2_FMT_XFER(__fmt) \
+	(V4L2_TYPE_IS_MULTIPLANAR((__fmt)->type) ? (__fmt)->fmt.pix_mp.xfer_func : (__fmt)->fmt.pix.xfer_func)
+
+#define IS_SRC_STREAM(__type) ( \
+		__type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE || \
+		__type == V4L2_BUF_TYPE_VIDEO_OUTPUT)
+
+#define SET_STREAM_STATUS(__session, __type, __status) { \
+	if (IS_SRC_STREAM(__type)) \
+	(__session)->src_status = __status; \
+	else \
+	(__session)->dst_status = __status; \
+}
+
+#define STREAM_STATUS(__session, __type) \
+	(IS_SRC_STREAM(__type) ? \
+	 (__session)->src_status : \
+	 (__session)->dst_status)
+
+
+/* printk macros */
+
 #define HAS_ARGS_(N, ...) N
 #define HAS_ARGS(...) HAS_ARGS_(__VA_OPT__(1,) 0)
 #define MACRO_FN_N__(FN, N, ...) FN##_##N(__VA_ARGS__)
@@ -194,20 +271,6 @@ int meson_vcodec_pwrc_on(struct meson_vcodec_core *core, enum meson_vcodec_pwrc 
 
 #define stream_trace(__session, __type, ...) \
 	MACRO_FN_N(stream_trace, HAS_ARGS(__VA_ARGS__), __session, __type, ##__VA_ARGS__)
-
-#define IS_SRC_STREAM(__type) (__type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE)
-
-#define SET_STREAM_STATUS(__session, __type, __status) { \
-	if (IS_SRC_STREAM(__type)) \
-		(__session)->src_status = __status; \
-	else \
-		(__session)->dst_status = __status; \
-}
-
-#define STREAM_STATUS(__session, __type) \
-	(IS_SRC_STREAM(__type) ? \
-	 (__session)->src_status : \
-	 (__session)->dst_status)
 
 #define job_printk(__level, __job, __fmt, ...) \
 	session_printk(__level, (__job)->session, \
