@@ -97,30 +97,30 @@ const struct meson_codec_spec *codec_specs[MAX_CODECS] = {
 
 /* helper functions */
 
-static void meson_vcodec_add_codec_ctrls(struct meson_vcodec_session *session, struct meson_codec_dev *codec) {
-	struct v4l2_ctrl_handler *handler = &codec->ctrl_handler;
-	const struct v4l2_ctrl_config *ctrls = codec->spec->ctrls;
-	size_t num_ctrls = codec->spec->num_ctrls;
+static void meson_vcodec_add_codec_ctrls(struct meson_codec_job *job) {
+	struct v4l2_ctrl_handler *handler = &job->codec->ctrl_handler;
+	const struct v4l2_ctrl_config *ctrls = job->codec->spec->ctrls;
+	size_t num_ctrls = job->codec->spec->num_ctrls;
 	struct v4l2_ctrl *ctrl;
 	int i, ret;
 
 	ret = v4l2_ctrl_handler_init(handler, num_ctrls);
 	if (ret) {
-		session_warn(session, "Failed to init ctrl_handler of %s", codec->spec->name);
+		job_warn(job, "Failed to init ctrl_handler");
 		return;
 	}
 
 	for (i = 0; i < num_ctrls; i++) {
-		ctrl = v4l2_ctrl_new_custom(handler, &ctrls[i], NULL);
+		ctrl = v4l2_ctrl_new_custom(handler, &ctrls[i], job);
 		if (ctrl == NULL) {
-			session_warn(session, "Failed to create ctrl %u of %s", ctrls[i].id, codec->spec->name);
+			job_warn(job, "Failed to create ctrl %u", ctrls[i].id);
 			continue;
 		}
 	}
 
-	ret = v4l2_ctrl_add_handler(&session->ctrl_handler, handler, NULL, false);
+	ret = v4l2_ctrl_add_handler(&job->session->ctrl_handler, handler, NULL, false);
 	if (ret) {
-		session_warn(session, "Failed to add ctrls of %s", codec->spec->name);
+		job_warn(job, "Failed to add ctrls");
 	}
 }
 
@@ -1116,11 +1116,11 @@ static int meson_vcodec_s_fmt_vid(struct file *file, void *priv, struct v4l2_for
 		session->dec_job.session = session;
 		if (codec->encoder) {
 			session->enc_job.codec = &core->codecs[codec->encoder->type];
-			meson_vcodec_add_codec_ctrls(session, session->enc_job.codec);
+			meson_vcodec_add_codec_ctrls(&session->enc_job);
 		}
 		if (codec->decoder) {
 			session->dec_job.codec = &core->codecs[codec->decoder->type];
-			meson_vcodec_add_codec_ctrls(session, session->dec_job.codec);
+			meson_vcodec_add_codec_ctrls(&session->dec_job);
 		}
 
 		if (codec->decoder && codec->encoder) {

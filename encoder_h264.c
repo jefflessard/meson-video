@@ -20,9 +20,8 @@
 #include "register.h"
 
 #define MHz (1000000)
-#define ENCODER_TIMEOUT_MS 1000
+#define ENCODER_TIMEOUT_MS 5000
 #define MAX_NUM_CANVAS 3
-#define QUANT_MODE 2
 #define INITIAL_QP 26
 
 static const qp_union_t qp_adj_idr = {
@@ -119,12 +118,16 @@ struct encoder_task_ctx {
 	u32 dst_buf_size;
 	dma_addr_t dst_buf_paddr;
 
-	bool reset_encoder;
-	bool join_header;
-	bool repeat_header;
 	int gop_size;
 	int min_qp;
 	int max_qp;
+
+	bool reset_encoder;
+	bool join_header;
+	bool repeat_header;
+	bool needs_2pass;
+	bool is_2nd_pass;
+	bool is_retry;
 };
 
 struct encoder_h264_ctx {
@@ -142,6 +145,7 @@ struct encoder_h264_ctx {
 	struct encoder_h264_buffer buffers[MAX_BUFFERS];
 
 	u8 canvases[MAX_CANVAS_TYPE][MAX_NUM_CANVAS];
+	bool is_next_idr;
 
 	qp_table_t qtable;
 
@@ -220,7 +224,7 @@ static int load_firmware(struct meson_vcodec_core *core) {
 	int ret;
 
 	if (!path) {
-		dev_info(dev, "h264 encoder: No firmware");
+		dev_info(dev, "h264 encoder: No firmware\n");
 		return 0;
 	}
 
@@ -237,7 +241,7 @@ static int load_firmware(struct meson_vcodec_core *core) {
 
 	ret = request_firmware_into_buf(&fw, path, dev, fw_vaddr, fw_size);
 	if (ret < 0) {
-		dev_err(dev, "h264 encoder: Failed to request firmware %s", path);
+		dev_err(dev, "h264 encoder: Failed to request firmware %s\n", path);
 		goto free_dma;
 	}
 
@@ -260,11 +264,11 @@ static int load_firmware(struct meson_vcodec_core *core) {
 
 	ret = wait_hcodec_dma_completed();
 	if (ret) {
-		dev_err(dev, "h264 encoder: Load firmware timed out (dma hang?)");
+		dev_err(dev, "h264 encoder: Load firmware timed out (dma hang?)\n");
 		goto release_firmware;
 	}
 
-	dev_info(dev, "h264 encoder: Firmware %s loaded", path);
+	dev_info(dev, "h264 encoder: Firmware %s loaded\n", path);
 
 release_firmware:
 	release_firmware(fw);
@@ -322,7 +326,7 @@ static void amvenc_stop(void)
 
 	ret = wait_hcodec_dma_completed();
 	if (ret) {
-		pr_warn(DRIVER_NAME ": " "HCODEC dma timed out (dma hang?)");
+		pr_warn(DRIVER_NAME ": " "HCODEC dma timed out (dma hang?)\n");
 	}
 
 	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_SC2) {
@@ -360,12 +364,12 @@ int validate_canvas_align(u32 canvas_paddr, u32 canvas_w, u32 canvas_h, u32 widt
 }
 
 static void clamp_qptbl(qp_union_t *tbl, bool is_idr) {
-#if 1
+#if 0
 	uint8_t qp_min = is_idr ? 15 : 20;
 	uint8_t qp_max = is_idr ? 30 : 35;
 #else
-	uint8_t qp_min = 0;
-	uint8_t qp_max = 51;
+	uint8_t qp_min = 8;
+	uint8_t qp_max = 43;
 #endif
 
 	for (int i = 0; i < QP_ROWS; i++) {
@@ -378,11 +382,15 @@ static void clamp_qptbl(qp_union_t *tbl, bool is_idr) {
 static void init_fixed_quant(struct encoder_h264_ctx *ctx, u8 quant) {
 	qp_table_t *qtable = &ctx->qtable;
 
+	job_trace(ctx->job, "quant=%d", quant);
+
 	memset(qtable, quant, sizeof(qp_table_t));
 }
 
 static void init_linear_quant(struct encoder_h264_ctx *ctx, u8 quant) {
 	qp_table_t *qtable = &ctx->qtable;
+
+	job_trace(ctx->job, "quant=%d", quant);
 
 	if (quant < 4)
 		quant = 4;
@@ -401,6 +409,8 @@ static void init_curve_quant(struct encoder_h264_ctx *ctx, u8 quant, const qp_un
 	qp_table_t *qtable = &ctx->qtable;
 	u32 qp_base = quant | quant << 8 | quant << 16 | quant << 24;
 
+	job_trace(ctx->job, "quant=%d", quant);
+
 	for (int i = 0; i < QP_ROWS; i++) {
 		qtable->i4_qp.rows[i] = qp_base + qp_tbl->rows[i];
 		qtable->i16_qp.rows[i] = qp_base + qp_tbl->rows[i];
@@ -412,74 +422,53 @@ static void init_curve_quant(struct encoder_h264_ctx *ctx, u8 quant, const qp_un
 	clamp_qptbl(&qtable->me_qp, qp_tbl == &qp_adj_idr);
 }
 
-static void amlvenc_h264_rc_cbr_fill_weight_offsets(struct cbr_tbl_block *blk, u16 factor, bool bitrate_urgent_mode) {
-#if 0
-	if (bitrate_urgent_mode) {
-		*short_addr++ = I4MB_WEIGHT_OFFSET_CUSTOM + 4000;
-		*short_addr++ = I16MB_WEIGHT_OFFSET_CUSTOM;
-		*short_addr++ = ME_WEIGHT_OFFSET_CUSTOM + 3500;
-		*short_addr++ = V3_IE_F_ZERO_SAD_I4_CUSTOM + ((i - 13) * 0x480);
-		*short_addr++ = V3_IE_F_ZERO_SAD_I16_CUSTOM + ((i - 13) * 0x200);
-		*short_addr++ = V3_ME_F_ZERO_SAD_CUSTOM + ((i - 13) * 0x280);
-	} else {
-#else
-	{
-#endif
-		blk->i4mb_weight_offset  = I4MB_WEIGHT_OFFSET;
-		blk->i16mb_weight_offset = I16MB_WEIGHT_OFFSET;
-		blk->me_weight_offset    = ME_WEIGHT_OFFSET;
-		blk->ie_f_zero_sad_i4    = V3_IE_F_ZERO_SAD_I4 + (factor * 0x480);
-		blk->ie_f_zero_sad_i16   = V3_IE_F_ZERO_SAD_I16 + (factor * 0x200);
-		blk->me_f_zero_sad       = V3_ME_F_ZERO_SAD + (factor * 0x280);
-		blk->end_marker1 = CBR_TBL_BLOCK_END_MARKER1;
-		blk->end_marker2 = CBR_TBL_BLOCK_END_MARKER2;
-	}
+static void amlvenc_h264_rc_cbr_fill_weight_offsets(struct cbr_tbl_block *blk, u16 factor) {
+	blk->i4mb_weight_offset  = I4MB_WEIGHT_OFFSET;
+	blk->i16mb_weight_offset = I16MB_WEIGHT_OFFSET;
+	blk->me_weight_offset    = ME_WEIGHT_OFFSET;
+	blk->ie_f_zero_sad_i4    = V3_IE_F_ZERO_SAD_I4 + (factor * 0x480);
+	blk->ie_f_zero_sad_i16   = V3_IE_F_ZERO_SAD_I16 + (factor * 0x200);
+	blk->me_f_zero_sad       = V3_ME_F_ZERO_SAD + (factor * 0x280);
+	blk->end_marker1 = CBR_TBL_BLOCK_END_MARKER1;
+	blk->end_marker2 = CBR_TBL_BLOCK_END_MARKER2;
 }
 
-static void amlvenc_h264_rc_update_cbr_quant_tables(struct amlvenc_h264_rc_ctx *ctx, bool is_idr, const qp_union_t *qp_adj_i4i16, const qp_union_t *qp_adj_me) {
-	const bool rate_control = ctx->params.rate_control;
+static void amlvenc_h264_rc_update_cbr_quant_tables(struct amlvenc_h264_rc_ctx *ctx, bool apply_rc, bool is_idr, const qp_union_t *qp_adj, const qp_union_t *qp_adj_i4i16) {
 	const u8 quant = ctx->state.current_qp;
-	const bool bitrate_urgent_mode = false; // TODO ?
 	struct cbr_tbl_block *block_info;
-	qp_union_t tbl_me, tbl_i4i16;
+	qp_union_t tbl, tbl_i4i16;
 	u32 qp_step;
 	u16 i, j;
 
-#ifdef FIXED_RC_QP
-	memset(&tbl_me, quant, sizeof(tbl_me));
-	memset(&tbl_i4i16, quant, sizeof(tbl_i4i16));
-	qp_step = 0;
-#else
 	// Initialize CBR table values
-	if (rate_control) {
+	if (apply_rc) {
 		u8 qp = (quant > START_TABLE_ID) ? (quant - START_TABLE_ID) : 0;
 		u32 qp_base = qp | qp << 8 | qp << 16 | qp << 24;
 		qp_step = 0x01010101;
 		// Fill the table with base values
 		for (i = 0; i < QP_ROWS; i++) {
-			tbl_me.rows[i] = qp_base + qp_adj_me->rows[i];
+			tbl.rows[i] = qp_base + qp_adj->rows[i];
 			tbl_i4i16.rows[i] = qp_base + qp_adj_i4i16->rows[i];
 		}
 	} else {
-		memset(&tbl_me, quant, sizeof(tbl_me));
+		memset(&tbl, quant, sizeof(tbl));
 		memset(&tbl_i4i16, quant, sizeof(tbl_i4i16));
 		qp_step = 0;
 	}
-#endif
 
 	// Fill the CBR table in memory
 	for (i = 0; i < CBR_BLOCK_COUNT; i++) {
 		block_info = &ctx->cbr_info->blocks[i];
 
 		// Apply smoothing at each cycle
-		clamp_qptbl(&tbl_me, is_idr);
+		clamp_qptbl(&tbl, is_idr);
 		clamp_qptbl(&tbl_i4i16, is_idr);
 
 		memcpy(&block_info->qp_table.i4_qp, &tbl_i4i16, sizeof(tbl_i4i16));
 		memcpy(&block_info->qp_table.i16_qp, &tbl_i4i16, sizeof(tbl_i4i16));
-		memcpy(&block_info->qp_table.me_qp, &tbl_me, sizeof(tbl_me));
+		memcpy(&block_info->qp_table.me_qp, &tbl, sizeof(tbl));
 
-		amlvenc_h264_rc_cbr_fill_weight_offsets(block_info, (i < 13 ? 0 : i - 13), bitrate_urgent_mode);
+		amlvenc_h264_rc_cbr_fill_weight_offsets(block_info, (i < 13 ? 0 : i - 13));
 
 		// Apply quantization step for next iteration
 		if (is_idr) {
@@ -490,7 +479,7 @@ static void amlvenc_h264_rc_update_cbr_quant_tables(struct amlvenc_h264_rc_ctx *
 
 		// Update table entries for next iteration
 		for (j = 0; j < QP_ROWS; j++) {
-			tbl_me.rows[j] += qp_step;
+			tbl.rows[j] += qp_step;
 			tbl_i4i16.rows[j] += qp_step;
 		}
 	}
@@ -501,48 +490,66 @@ static void amlvenc_h264_rc_update_cbr_quant_tables(struct amlvenc_h264_rc_ctx *
 			ctx->cbr_info->blocks[CBR_BLOCK_COUNT - 1].qp_table.i4_qp.cells[QP_ROWS - 1][QP_COLS - 1]);
 }
 
-static void encoder_init_cbr(struct encoder_h264_ctx *ctx) {
+static void encoder_config_qp(struct encoder_h264_ctx *ctx) {
 	struct encoder_task_ctx *t = &ctx->task;
 	struct amlvenc_h264_rc_ctx *rc_ctx = &ctx->rc_ctx;
 	bool is_idr = t->cmd == CMD_ENCODE_IDR;
+	bool apply_rc = rc_ctx->params.rate_control && (
+			!t->needs_2pass || t->is_2nd_pass);
+	u8 quant;
 
-	job_trace(ctx->job, "Applying rate control");
-	amlvenc_h264_rc_frame_prepare(rc_ctx, t->src_buf->vb2_buf.timestamp, is_idr);
 
-	job_trace(ctx->job, "Preparing block sizes");
-	amlvenc_h264_rc_update_cbr_mb_sizes(rc_ctx);
-
-	job_trace(ctx->job, "Filling CBR table");
-	amlvenc_h264_rc_update_cbr_quant_tables(
-			rc_ctx, is_idr,
-			&qp_adj_cbr_i4i16,
-			is_idr ? &qp_adj_idr : &qp_adj_non_idr);
-
-	// Convert table to RISC format if needed
-	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_GXTVBB) {
-		job_trace(ctx->job, "to_risc");
-		amlvenc_h264_rc_cbr_to_risc(rc_ctx->cbr_info);
+	if (!t->is_2nd_pass && (
+			t->cmd == CMD_ENCODE_IDR ||
+			t->cmd == CMD_ENCODE_NON_IDR)) {
+		job_trace(ctx->job, "Updating rate control");
+		amlvenc_h264_rc_frame_prepare(rc_ctx, t->src_buf->vb2_buf.timestamp, is_idr);
 	}
 
-	// TODO configure verbose
+	quant = rc_ctx->state.current_qp;
+
+	if (apply_rc) {
+		init_curve_quant(ctx, quant, is_idr ? &qp_adj_idr : &qp_adj_non_idr);
+	} else {
+		init_fixed_quant(ctx, quant);
+	}
+
+	if (t->cmd == CMD_ENCODE_IDR || t->cmd == CMD_ENCODE_NON_IDR) {
+		job_trace(ctx->job, "Preparing block sizes");
+		amlvenc_h264_rc_update_cbr_mb_sizes(rc_ctx, apply_rc);
+
+		job_trace(ctx->job, "Filling CBR table");
+		amlvenc_h264_rc_update_cbr_quant_tables(
+				rc_ctx, apply_rc, is_idr,
+				is_idr ? &qp_adj_idr : &qp_adj_non_idr,
+				&qp_adj_cbr_i4i16);
+
+		// Convert table to RISC format if needed
+		if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_GXTVBB) {
+			job_trace(ctx->job, "to_risc");
+			amlvenc_h264_rc_cbr_to_risc(rc_ctx->cbr_info);
+		}
+
+		// TODO configure verbose
 #if 0
-	 print_hex_dump(KERN_DEBUG,
-			 DRIVER_NAME ": " "CBR Buffer MB Size: ",
-			 DUMP_PREFIX_OFFSET,
-			 16, 2,
-			 rc_ctx->cbr_info->block_mb_size,
-			 rc_ctx->block_width_n * rc_ctx->block_height_n,
-			 false);
+		print_hex_dump(KERN_DEBUG,
+				DRIVER_NAME ": " "CBR Buffer MB Size: ",
+				DUMP_PREFIX_OFFSET,
+				16, 2,
+				rc_ctx->cbr_info->block_mb_size,
+				rc_ctx->block_width_n * rc_ctx->block_height_n,
+				false);
 #endif
 #if 0
-	 print_hex_dump(KERN_DEBUG,
-			 DRIVER_NAME ": " "CBR Buffer: ",
-			 DUMP_PREFIX_OFFSET,
-			 32, 8,
-			 ctx->buffers[BUF_CBR_INFO].vaddr,
-			 0xa00, //ctx->buffers[BUF_CBR_INFO].size,
-			 false);
+		print_hex_dump(KERN_DEBUG,
+				DRIVER_NAME ": " "CBR Buffer: ",
+				DUMP_PREFIX_OFFSET,
+				32, 8,
+				ctx->buffers[BUF_CBR_INFO].vaddr,
+				0xa00, //ctx->buffers[BUF_CBR_INFO].size,
+				false);
 #endif
+	}
 }
 
 static int encoder_init_mdfin(struct encoder_h264_ctx *ctx) {
@@ -643,13 +650,11 @@ static int encoder_init_mdfin(struct encoder_h264_ctx *ctx) {
 static int encoder_configure(struct encoder_h264_ctx *ctx) {
 	struct encoder_task_ctx *t = &ctx->task;
 	bool is_idr = t->cmd == CMD_ENCODE_IDR;
-	u8 quant = ctx->rc_ctx.state.current_qp;
 	int ret;
 
 	if (t->reset_encoder) {
 		// amlvenc_h264_init_encoder
 		ctx->init_params.idr = is_idr;
-		ctx->init_params.init_qppicture = quant;
 		amlvenc_h264_init_encoder(&ctx->init_params);
 
 		// amlvenc_h264_init_input_dct_buffer
@@ -664,30 +669,6 @@ static int encoder_configure(struct encoder_h264_ctx *ctx) {
 
 		// amlvenc_h264_configure_encoder
 		ctx->conf_params.idr = is_idr;
-		ctx->conf_params.quant = quant;
-		ctx->conf_params.qp_mode = 1;
-		ctx->conf_params.encoder_width = V4L2_FMT_WIDTH(ctx->job->src_fmt);
-		ctx->conf_params.encoder_height = V4L2_FMT_HEIGHT(ctx->job->src_fmt);
-		ctx->conf_params.i4_weight = I4MB_WEIGHT_OFFSET;
-		ctx->conf_params.i16_weight = I16MB_WEIGHT_OFFSET;
-		ctx->conf_params.me_weight = ME_WEIGHT_OFFSET;
-#ifdef H264_ENC_CBR
-		ctx->conf_params.cbr_ddr_start_addr = ctx->buffers[BUF_CBR_INFO].paddr;
-		ctx->conf_params.cbr_start_tbl_id = START_TABLE_ID;
-		ctx->conf_params.cbr_short_shift = CBR_SHORT_SHIFT;
-		ctx->conf_params.cbr_long_mb_num = CBR_LONG_MB_NUM;
-		ctx->conf_params.cbr_long_th = CBR_LONG_THRESH;
-		ctx->conf_params.cbr_block_w = ctx->rc_ctx.block_width;
-		ctx->conf_params.cbr_block_h = ctx->rc_ctx.block_height;
-#endif
-		ctx->conf_params.dump_ddr_start_addr = ctx->buffers[BUF_DUMP_INFO].paddr;
-#if QUANT_MODE == 0
-		init_fixed_quant(ctx, quant);
-#elif QUANT_MODE == 1
-		init_linear_quant(ctx, quant);
-#else
-		init_curve_quant(ctx, quant, is_idr ? &qp_adj_idr : &qp_adj_non_idr);
-#endif
 		amlvenc_h264_configure_encoder(&ctx->conf_params);
 
 		// amlvenc_h264_init_firmware_assist_buffer
@@ -739,15 +720,11 @@ static int encoder_configure(struct encoder_h264_ctx *ctx) {
 		// amlvenc_h264_configure_mdfin
 		ret = encoder_init_mdfin(ctx);
 		if (ret) {
-			stream_err(ctx->session, t->src_buf->vb2_buf.type, "Failed to initialize MDFIN parameters");
+			stream_err(ctx->session, t->src_buf->vb2_buf.type, "Failed to initialize MDFIN parameters\n");
 			return ret;
 		}
 
 		amlvenc_h264_configure_mdfin(&ctx->mdfin_params);
-
-#ifdef H264_ENC_CBR
-		encoder_init_cbr(ctx);
-#endif
 
 		// amlvenc_h264_configure_ie_me
 		amlvenc_h264_configure_ie_me(is_idr ? HENC_MB_Type_I4MB :
@@ -766,14 +743,15 @@ static int encoder_configure(struct encoder_h264_ctx *ctx) {
 }
 
 static void encoder_loop(struct encoder_h264_ctx *ctx);
+static void encoder_abort(struct encoder_h264_ctx *ctx);
 
 static void encoder_done(struct encoder_h264_ctx *ctx) {
 	struct encoder_task_ctx *t = &ctx->task;
-	u32 data_len;
+	u32 full_len, frame_len;
 	bool is_last = false;
 
-	data_len = amlvenc_hcodec_vlc_total_bytes();
-	data_len += t->dst_buf_offset; 
+	frame_len = amlvenc_hcodec_vlc_total_bytes();
+	full_len = frame_len + t->dst_buf_offset; 
 
 	// not applicable to SPS and PPS
 	if (t->hcodec_status > ENCODER_PICTURE_DONE) {
@@ -790,7 +768,7 @@ static void encoder_done(struct encoder_h264_ctx *ctx) {
 	}
 
 	job_trace(ctx->job, "id=%d, status=%d, len=%d, ts=%llu",
-			ctx->enc_done_count, t->hcodec_status, data_len,
+			ctx->enc_done_count, t->hcodec_status, full_len,
 			t->src_buf ? t->src_buf->vb2_buf.timestamp : 0l);
 
 #ifdef DEBUG
@@ -798,7 +776,7 @@ static void encoder_done(struct encoder_h264_ctx *ctx) {
 	data = vb2_plane_vaddr(&t->dst_buf->vb2_buf, 0);
 
 	job_trace(ctx->job, "data=%*ph",
-			data_len < 16 ? data_len : 16, data);
+			full_len < 16 ? full_len : 16, data);
 
 	job_trace(ctx->job,
 			"hcodec status: %d, mb info: 0x%x, dct status: 0x%x, vlc status: 0x%x, me status: 0x%x, risc pc:0x%x, debug:0x%x",
@@ -813,7 +791,7 @@ static void encoder_done(struct encoder_h264_ctx *ctx) {
 
 	// update stats
 	ctx->enc_done_count++;
-#ifdef H264_ENC_CBR
+
 	if (t->hcodec_status > ENCODER_PICTURE_DONE) {
 		amlvenc_h264_rc_update_stats(&ctx->rc_ctx, &ctx->conf_params);
 #if 0
@@ -828,26 +806,43 @@ static void encoder_done(struct encoder_h264_ctx *ctx) {
 #if 0
 		amlvenc_h264_rc_hexdump_mb_info(&ctx->rc_ctx);
 #endif
-#endif
-		if (amlvenc_h264_rc_frame_done(&ctx->rc_ctx, data_len << 3)) {
-			// TODO encoder_loop
+
+		if (t->needs_2pass && !t->is_2nd_pass) {
+			t->is_2nd_pass = true;
+			encoder_loop(ctx);
+			return;
+		}
+
+		if (amlvenc_h264_rc_frame_done(&ctx->rc_ctx, frame_len << 3)) {
+			if (t->is_retry) {
+				job_err(ctx->job, "frame size too large for bitrate, aborting (len=%d, target=%d)\n", frame_len, ctx->rc_ctx.state.avg_bits_per_frame >> 3);
+				encoder_abort(ctx);
+				return;
+			}
+			// Reencode frames that are to large
+			// using the increased qp
+			job_info(ctx->job, "frame size too large, retrying with higher qp (len=%d, target=%d)\n", frame_len, ctx->rc_ctx.state.avg_bits_per_frame >> 3);
+			t->is_retry = true;
+			t->is_2nd_pass = false;
+			encoder_loop(ctx);
+			return;
 		}
 	}
 
 	if (t->hcodec_status == ENCODER_SEQUENCE_DONE) {
 		if (t->join_header) {
-			t->dst_buf_offset += amlvenc_hcodec_vlc_total_bytes();
-			t->dst_buf_paddr += t->dst_buf_offset;
-			t->dst_buf_size -= t->dst_buf_offset;
+			t->dst_buf_offset += frame_len;
+			t->dst_buf_paddr += frame_len;
+			t->dst_buf_size -= frame_len;
 		}
 		t->cmd = CMD_ENCODE_PICTURE;
 		encoder_loop(ctx);
 		return;
 
 	} else if (t->hcodec_status == ENCODER_PICTURE_DONE && t->join_header) {
-		t->dst_buf_offset += amlvenc_hcodec_vlc_total_bytes();
-		t->dst_buf_paddr += t->dst_buf_offset;
-		t->dst_buf_size -= t->dst_buf_offset;
+		t->dst_buf_offset += frame_len;
+		t->dst_buf_paddr += frame_len;
+		t->dst_buf_size -= frame_len;
 		t->cmd = CMD_ENCODE_IDR;
 		encoder_loop(ctx);
 		return;
@@ -859,7 +854,7 @@ static void encoder_done(struct encoder_h264_ctx *ctx) {
 			t->src_buf = NULL;
 		}
 
-		vb2_set_plane_payload(&t->dst_buf->vb2_buf, 0, data_len);
+		vb2_set_plane_payload(&t->dst_buf->vb2_buf, 0, full_len);
 
 		is_last = ctx->m2m_ctx->is_draining &&
 			v4l2_m2m_num_src_bufs_ready(ctx->m2m_ctx) == 0;
@@ -895,8 +890,8 @@ static void encoder_done(struct encoder_h264_ctx *ctx) {
 static void encoder_abort(struct encoder_h264_ctx *ctx) {
 	struct encoder_task_ctx *t = &ctx->task;
 
-	job_trace(ctx->job,
-			"hcodec status:%d, mb info: 0x%x, dct status: 0x%x, vlc status: 0x%x, me status: 0x%x, risc pc:0x%x, debug:0x%x",
+	job_err(ctx->job,
+			"encoder_abort: hcodec status:%d, mb info: 0x%x, dct status: 0x%x, vlc status: 0x%x, me status: 0x%x, risc pc:0x%x, debug:0x%x\n",
 			amlvenc_hcodec_status(false),
 			amlvenc_hcodec_mb_info(),
 			amlvenc_hcodec_qdct_status(),
@@ -1004,6 +999,9 @@ static void encoder_start(struct encoder_h264_ctx *ctx) {
 	t->dst_buf_offset = 0;
 
 	// start encoder loop
+	t->needs_2pass = ctx->rc_ctx.params.rate_control && is_idr;
+	t->is_2nd_pass = false;
+	t->is_retry = false;
 	encoder_loop(ctx);
 }
 
@@ -1021,6 +1019,8 @@ static void encoder_loop(struct encoder_h264_ctx *ctx) {
 		amvenc_reset();
 	}
 
+	encoder_config_qp(ctx);
+
 	// Configure encoding parameters
 	ret = encoder_configure(ctx);
 	if (ret) {
@@ -1037,9 +1037,9 @@ static void encoder_loop(struct encoder_h264_ctx *ctx) {
 		return;
 	}
 
-	job_trace(ctx->job, "id=%d, cmd=%d, idr=%d, idr_pic_id=%d, frame_number=%d, ts=%llu",
+	job_trace(ctx->job, "id=%d, cmd=%d, idr=%d, 2nd_pass=%d, idr_pic_id=%d, frame_number=%d, ts=%llu",
 			ctx->enc_start_count, t->cmd,
-			t->cmd == CMD_ENCODE_IDR,
+			t->cmd == CMD_ENCODE_IDR, t->is_2nd_pass,
 			ctx->init_params.idr_pic_id,
 			ctx->init_params.frame_number,
 			t->src_buf ? t->src_buf->vb2_buf.timestamp : 0l);
@@ -1067,12 +1067,12 @@ static void encoder_loop(struct encoder_h264_ctx *ctx) {
 				encoder_done(ctx);
 				break;
 			default:
-				job_warn(ctx->job, "Invalid hcodec_status %d", t->hcodec_status);
+				job_warn(ctx->job, "Invalid hcodec_status %d\n", t->hcodec_status);
 				encoder_abort(ctx);
 				break;
 		}
 	} else {
-		job_err(ctx->job, "encoder timeout");
+		job_err(ctx->job, "encoder timeout\n");
 		encoder_abort(ctx);
 	}
 }
@@ -1156,8 +1156,6 @@ static int encoder_h264_prepare(struct meson_codec_job *job) {
 	ctx->init_params.init_qppicture = INITIAL_QP;
 	ctx->init_params.idr_pic_id = 1;
 	ctx->init_params.frame_number = 0;
-	ctx->conf_params.qtable = &ctx->qtable;
-	ctx->conf_params.me = &ctx->me_params;
 	ctx->me_params = amlvenc_h264_me_defaults;
 	amlvenc_h264_init_me(&ctx->me_params);
 
@@ -1187,19 +1185,19 @@ static int encoder_h264_prepare(struct meson_codec_job *job) {
 
 	ctx->encoder_spec = find_encoder_spec(V4L2_FMT_PIXFMT(job->src_fmt));
 	if (!ctx->encoder_spec) {
-		job_err(job, "Failed to find spec of %.4s", (char *)V4L2_FMT_FOURCC(job->src_fmt));
+		job_err(job, "Failed to find spec of %.4s\n", V4L2_FMT_FOURCC(job->src_fmt));
 		ret = -EINVAL;
 		goto free_ctx;
 	}
 
 	ret = buffers_alloc(session->core->dev, ctx->buffers, MAX_BUFFERS);
 	if (ret) {
-		job_err(job, "Failed to allocate buffer");
+		job_err(job, "Failed to allocate buffer\n");
 		goto free_ctx;
 	}
 
 	struct amlvenc_h264_rc_params rc_params;
-	rc_params.initial_target_bitrate = meson_vcodec_g_ctrl(ctx->session, V4L2_CID(BITRATE));
+	rc_params.target_bitrate = meson_vcodec_g_ctrl(ctx->session, V4L2_CID(BITRATE));
 	rc_params.frame_rate_num = ctx->session->timeperframe.denominator;
 	rc_params.frame_rate_den = ctx->session->timeperframe.numerator;
 	//rc_params.vbv_buffer_size;
@@ -1213,14 +1211,14 @@ static int encoder_h264_prepare(struct meson_codec_job *job) {
 			ctx->buffers[BUF_CBR_INFO].vaddr,
 			ctx->buffers[BUF_DUMP_INFO].vaddr);
 	if (ret) {
-		job_err(job, "Failed to init rate control context");
+		job_err(job, "Failed to init rate control context\n");
 		goto free_buffers;
 	}
 
 	/* alloc canvases */
 	ret = canvas_alloc(session->core, &ctx->canvases[0][0], MAX_CANVAS_TYPE * MAX_NUM_CANVAS);
 	if (ret) {
-		job_err(job, "Failed to allocate canvases");
+		job_err(job, "Failed to allocate canvases\n");
 		goto free_buffers;
 	}
 
@@ -1275,7 +1273,7 @@ static int encoder_h264_prepare(struct meson_codec_job *job) {
 
 	ret = request_irq(session->core->irqs[IRQ_HCODEC], hcodec_isr, IRQF_SHARED, "hcodec", job);
 	if (ret) {
-		job_err(job, "Failed to request HCODEC irq");
+		job_err(job, "Failed to request HCODEC irq\n");
 		goto free_canvas;
 	}
 
@@ -1285,18 +1283,40 @@ static int encoder_h264_prepare(struct meson_codec_job *job) {
 	ctx->task.min_qp = meson_vcodec_g_ctrl(ctx->session, V4L2_CID(H264_MIN_QP));
 	ctx->task.max_qp = meson_vcodec_g_ctrl(ctx->session, V4L2_CID(H264_MAX_QP));
 
-	job_trace(ctx->job, "Encoding parameters: min_qp=%d, max_qp=%d, bitrate=%d, rc=%d, gop=%d, join_header=%d, repeat_header=%d",
+	job_info(ctx->job, "Encoding parameters: min_qp=%d, max_qp=%d, bitrate=%d, rc=%d, frame_rate=%d/%d, duration=%dms, bytes/frame=%d, gop=%d, join_header=%d, repeat_header=%d\n",
 			ctx->task.min_qp,
 			ctx->task.max_qp,
-			ctx->rc_ctx.params.initial_target_bitrate,
+			ctx->rc_ctx.params.target_bitrate,
 			ctx->rc_ctx.params.rate_control,
+			ctx->rc_ctx.params.frame_rate_num,
+			ctx->rc_ctx.params.frame_rate_den,
+			ctx->rc_ctx.state.frame_duration_ms,
+			ctx->rc_ctx.state.avg_bits_per_frame >> 3,
 			ctx->task.gop_size,
 			ctx->task.join_header,
 			ctx->task.repeat_header);
+
+	ctx->conf_params.qp_mode = 1;
+	ctx->conf_params.encoder_width = V4L2_FMT_WIDTH(ctx->job->src_fmt);
+	ctx->conf_params.encoder_height = V4L2_FMT_HEIGHT(ctx->job->src_fmt);
+	ctx->conf_params.i4_weight = I4MB_WEIGHT_OFFSET;
+	ctx->conf_params.i16_weight = I16MB_WEIGHT_OFFSET;
+	ctx->conf_params.me_weight = ME_WEIGHT_OFFSET;
+	ctx->conf_params.cbr_ddr_start_addr = ctx->buffers[BUF_CBR_INFO].paddr;
+	ctx->conf_params.cbr_start_tbl_id = START_TABLE_ID;
+	ctx->conf_params.cbr_short_shift = CBR_SHORT_SHIFT;
+	ctx->conf_params.cbr_long_mb_num = CBR_LONG_MB_NUM;
+	ctx->conf_params.cbr_long_th = CBR_LONG_THRESH;
+	ctx->conf_params.cbr_block_w = ctx->rc_ctx.block_width;
+	ctx->conf_params.cbr_block_h = ctx->rc_ctx.block_height;
+	ctx->conf_params.dump_ddr_start_addr = ctx->buffers[BUF_DUMP_INFO].paddr;
+	ctx->conf_params.qtable = &ctx->qtable;
+	ctx->conf_params.me = &ctx->me_params;
+
 	return 0;
 
 canvas_config_failed:
-	job_err(job, "Failed to configure buffer canvases");
+	job_err(job, "Failed to configure buffer canvases\n");
 	goto free_canvas;
 
 //free_irq:
@@ -1319,14 +1339,14 @@ static int encoder_h264_init(struct meson_codec_dev *codec) {
 	/* hcodec_clk */
 	ret = meson_vcodec_clk_prepare(core, CLK_HCODEC, 667 * MHz);
 	if (ret) {
-		dev_err(core->dev, "Failed to enable HCODEC clock");
+		dev_err(core->dev, "Failed to enable HCODEC clock\n");
 		return ret;
 	}
 
 	/* hcodec_rst */
 	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_SC2) {
 		if (!core->resets[RESET_HCODEC]) {
-			dev_err(core->dev, "Failed to get HCODEC reset");
+			dev_err(core->dev, "Failed to get HCODEC reset\n");
 			ret = -EINVAL;
 			goto disable_clk;
 		}
@@ -1343,7 +1363,7 @@ static int encoder_h264_init(struct meson_codec_dev *codec) {
 	/* Powerup HCODEC & Remove HCODEC ISO */
 	ret = meson_vcodec_pwrc_on(core, PWRC_HCODEC);
 	if (ret) {
-		dev_err(core->dev, "Failed to power on HCODEC");
+		dev_err(core->dev, "Failed to power on HCODEC\n");
 		goto disable_clk;
 	}
 
@@ -1363,13 +1383,13 @@ static int encoder_h264_init(struct meson_codec_dev *codec) {
 	/* load firmware */
 	ret = load_firmware(core);
 	if (ret) {
-		dev_err(core->dev, "Failed to load firmware");
+		dev_err(core->dev, "Failed to load firmware\n");
 		goto disable_hcodec;
 	}
 
 	/* request irq */
 	if (!core->irqs[IRQ_HCODEC]) {
-		dev_err(core->dev, "Failed to get HCODEC irq");
+		dev_err(core->dev, "Failed to get HCODEC irq\n");
 		ret = -EINVAL;
 		goto disable_hcodec;
 	}
@@ -1395,14 +1415,15 @@ static int encoder_h264_start(struct meson_codec_job *job, struct vb2_queue *vq,
 }
 
 static int encoder_h264_queue(struct meson_codec_job *job, struct vb2_v4l2_buffer *vb) {
-	bool force_key_frame;
+	struct encoder_h264_ctx *ctx = job->priv;
 
 	if (IS_SRC_STREAM(vb->vb2_buf.type)) {
 		// handle force key frame
-		force_key_frame = meson_vcodec_g_ctrl(job->session, V4L2_CID(FORCE_KEY_FRAME));
-		if (force_key_frame) {
+		if (ctx->is_next_idr) {
+			job_info(job, "ts=%llu, force_key_frame=%d\n", vb->vb2_buf.timestamp, ctx->is_next_idr);
 			vb->flags |= V4L2_BUF_FLAG_KEYFRAME;
 			vb->flags &= ~(V4L2_BUF_FLAG_PFRAME | V4L2_BUF_FLAG_BFRAME);
+			ctx->is_next_idr = false;
 		}
 	}
 
@@ -1460,14 +1481,31 @@ static void encoder_h264_release(struct meson_codec_dev *codec) {
 	meson_vcodec_clk_unprepare(codec->core, CLK_HCODEC);
 }
 
+static int h264_encoder_s_ctrl(struct v4l2_ctrl *ctrl)
+{
+	struct meson_codec_job *job = (struct meson_codec_job *)ctrl->priv;
+	struct encoder_h264_ctx *ctx = job->priv;
+	job_dbg(job, "FORCE_KEY_FRAME");
+
+	/* ctx may have not been created yet since first frame has not been queued yet */
+	if (ctx) {
+		ctx->is_next_idr = true;
+	}
+	return 0;
+}
+
+static const struct v4l2_ctrl_ops h264_encoder_ctrl_ops = {
+	.s_ctrl = h264_encoder_s_ctrl,
+};
+
 static const struct v4l2_ctrl_config h264_encoder_ctrls[] = {
 //	V4L2_CTRL(B_FRAMES, 0, 16, 1, 2 ),
 	V4L2_CTRL(GOP_SIZE, 1, 300, 1, 30 ),
-	V4L2_CTRL(BITRATE, 100000, 10000000, 100000, 4000000 ),
+	V4L2_CTRL(BITRATE, 100000, 100000000, 100000, 2000000 ),
 	V4L2_CTRL(FRAME_RC_ENABLE, 0, 1, 1, 1 ),
 	V4L2_CTRL(HEADER_MODE, 0, 1, 0, 0 ),
 	V4L2_CTRL(REPEAT_SEQ_HEADER, 0, 1, 1, 0 ),
-	V4L2_CTRL(FORCE_KEY_FRAME, 0, 1, 1, 0 ),
+	V4L2_CTRL_OPS(FORCE_KEY_FRAME, &h264_encoder_ctrl_ops, 0, 0, 0, 0 ),
 	V4L2_CTRL(H264_MIN_QP, 0, 51, 1, 10 ),
 	V4L2_CTRL(H264_MAX_QP, 0, 51, 1, 51 ),
 //	V4L2_CTRL(H264_PROFILE, 0, 4, 1, 0 ),

@@ -16,6 +16,9 @@
 #define V4L2_CTRL(__id, __min, __max, __step, __def) \
 	{ .id = V4L2_CID(__id), .min = (__min), .max = (__max), .step = (__step), .def = (__def), }
 
+#define V4L2_CTRL_OPS(__id, __ops, __min, __max, __step, __def) \
+	{ .id = V4L2_CID(__id), .ops = __ops, .min = (__min), .max = (__max), .step = (__step), .def = (__def), }
+
 enum meson_codecs: u8 {
 	MPEG1_DECODER,
 	MPEG2_DECODER,

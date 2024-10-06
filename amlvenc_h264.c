@@ -772,15 +772,14 @@ void amlvenc_h264_configure_encoder(const struct amlvenc_h264_configure_encoder_
     u32 i_pic_qp, p_pic_qp;
     u32 i_pic_qp_c, p_pic_qp_c;
     u32 pic_width_in_mb;
-    u32 slice_qp;
 
     pic_width  = p->encoder_width;
     pic_height = p->encoder_height;
     pic_mb_nr  = 0;
     pic_mbx    = 0;
     pic_mby    = 0;
-    i_pic_qp   = p->quant;
-    p_pic_qp   = p->quant;
+    i_pic_qp   = 0;
+    p_pic_qp   = 0;
 
     pic_width_in_mb = (pic_width + 15) / 16;
     WRITE_HREG(HCODEC_HDEC_MC_OMEM_AUTO,
@@ -897,20 +896,15 @@ void amlvenc_h264_configure_encoder(const struct amlvenc_h264_configure_encoder_
 	amlvenc_h264_init_qtable(p->qtable);
 
 	if (p->idr) {
-		i_pic_qp =
-			p->qtable->i4_qp.cells[0][0];
-		i_pic_qp +=
-			p->qtable->i16_qp.cells[0][0];
+		i_pic_qp = p->qtable->i4_qp.cells[0][0];
+		i_pic_qp += p->qtable->i16_qp.cells[0][0];
 		i_pic_qp /= 2;
 		p_pic_qp = i_pic_qp;
 	} else {
-		i_pic_qp =
-			p->qtable->i4_qp.cells[0][0];
-		i_pic_qp +=
-			p->qtable->i16_qp.cells[0][0];
-		p_pic_qp = p->qtable->me_qp.cells[0][0];
-		slice_qp = (i_pic_qp + p_pic_qp) / 3;
-		i_pic_qp = slice_qp;
+		i_pic_qp = p->qtable->i4_qp.cells[0][0];
+		i_pic_qp += p->qtable->i16_qp.cells[0][0];
+		i_pic_qp += p->qtable->me_qp.cells[0][0];
+		i_pic_qp /= 3;
 		p_pic_qp = i_pic_qp;
 	}
 #ifdef H264_ENC_CBR

@@ -236,7 +236,6 @@ struct amlvenc_h264_snr_params {
 /**
  * struct amlvenc_h264_configure_encoder_params - Parameters for initializing H.264 encoder
  * @idr: IDR frame flag
- * @quant: Quantization parameter
  * @qp_mode: Quantization parameter mode
  * @encoder_width: Width of the encoded frame
  * @encoder_height: Height of the encoded frame
@@ -257,7 +256,6 @@ struct amlvenc_h264_snr_params {
  */
 struct amlvenc_h264_configure_encoder_params {
     bool idr;
-    u32 quant;
     u32 qp_mode;
     u32 encoder_width;
     u32 encoder_height;
