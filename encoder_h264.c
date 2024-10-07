@@ -22,7 +22,7 @@
 #define MHz (1000000)
 #define ENCODER_TIMEOUT_MS 5000
 #define MAX_NUM_CANVAS 3
-#define INITIAL_QP 26
+#define INITIAL_QP 16
 
 static const qp_union_t qp_adj_idr = {
 	.rows = {
@@ -503,7 +503,7 @@ static void encoder_config_qp(struct encoder_h264_ctx *ctx) {
 			t->cmd == CMD_ENCODE_IDR ||
 			t->cmd == CMD_ENCODE_NON_IDR)) {
 		job_trace(ctx->job, "Updating rate control");
-		amlvenc_h264_rc_frame_prepare(rc_ctx, t->src_buf->vb2_buf.timestamp, is_idr);
+		amlvenc_h264_rc_frame_prepare(rc_ctx, is_idr);
 	}
 
 	quant = rc_ctx->state.current_qp;
@@ -1283,14 +1283,13 @@ static int encoder_h264_prepare(struct meson_codec_job *job) {
 	ctx->task.min_qp = meson_vcodec_g_ctrl(ctx->session, V4L2_CID(H264_MIN_QP));
 	ctx->task.max_qp = meson_vcodec_g_ctrl(ctx->session, V4L2_CID(H264_MAX_QP));
 
-	job_info(ctx->job, "Encoding parameters: min_qp=%d, max_qp=%d, bitrate=%d, rc=%d, frame_rate=%d/%d, duration=%dms, bytes/frame=%d, gop=%d, join_header=%d, repeat_header=%d\n",
+	job_info(ctx->job, "Encoding parameters: min_qp=%d, max_qp=%d, bitrate=%d, rc=%d, frame_rate=%d/%d, bytes/frame=%d, gop=%d, join_header=%d, repeat_header=%d\n",
 			ctx->task.min_qp,
 			ctx->task.max_qp,
 			ctx->rc_ctx.params.target_bitrate,
 			ctx->rc_ctx.params.rate_control,
 			ctx->rc_ctx.params.frame_rate_num,
 			ctx->rc_ctx.params.frame_rate_den,
-			ctx->rc_ctx.state.frame_duration_ms,
 			ctx->rc_ctx.state.avg_bits_per_frame >> 3,
 			ctx->task.gop_size,
 			ctx->task.join_header,

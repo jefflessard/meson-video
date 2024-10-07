@@ -4,19 +4,25 @@
 
 #include "amlvenc_h264_info.h"
 
-#define RC_MAX 0xffff
-#define RC_MIN 0x0000
-#define CBR_MIN_BLOCK_SIZE 4
 #define DIVSCALE 16
 #define DIVSCALE_SQRT 8
-#define US_IN_S  1000000
-#define MS_IN_S  1000
-#define US_IN_MS 1000
-#define RC_IDR_SCALER_RATIO 4
-#define RC_QP_MIN 8
-#define RC_QP_MAX 43
-
 #define DIV_SCALED(num, den) (uint32_t)((((uint64_t) num << DIVSCALE) / den) >> DIVSCALE)
+
+#define CBR_MIN_BLOCK_SIZE 4
+
+#define CBR_RC_MIN 0x0000
+#define CBR_RC_MAX 0xffff
+#define CBR_RC_P_COEFF 400
+#define CBR_RC_I_COEFF  25
+#define CBR_RC_D_COEFF  50
+#define CBR_RC_IDR_RATIO 4
+
+#define CBR_QP_ADJ_INTERVAL 1
+#define CBR_QP_INC_THRESHOLD 12
+#define CBR_QP_DEC_THRESHOLD 10
+#define CBR_QP_MIN 8
+#define CBR_QP_MAX 43
+
 
 static void amlvenc_h264_rc_calculate_cbr_blocks(struct amlvenc_h264_rc_ctx *ctx) {
 	uint32_t block_width_num, block_height_num;
@@ -70,12 +76,15 @@ int amlvenc_h264_rc_init(struct amlvenc_h264_rc_ctx *ctx, const struct amlvenc_h
 		return -ENOMEM;
 	}
 
-	ctx->state.fullness = params->target_bitrate / 2;
 	ctx->state.avg_bits_per_frame = DIV_SCALED(params->target_bitrate * params->frame_rate_den, params->frame_rate_num);
 	ctx->state.target_frame_bits = ctx->state.avg_bits_per_frame;
 	ctx->state.current_qp = params->initial_qp;
-	ctx->state.frame_duration_ms = DIV_SCALED(MS_IN_S * ctx->params.frame_rate_den, ctx->params.frame_rate_num);
-	ctx->state.last_timestamp_us = 0;
+	ctx->state.fullness = 0;
+	ctx->state.total_bits = 0;
+	ctx->state.last_error = 0;
+	ctx->state.error_sum = 0;
+	ctx->state.rc_frame_count = 0;
+	ctx->state.qp_frame_count = 0;
 
 	return 0;
 }
@@ -230,134 +239,109 @@ void amlvenc_h264_rc_update_cbr_mb_sizes(struct amlvenc_h264_rc_ctx *ctx, bool a
 				total_frame_size >> 8,
 				((ctx->state.target_frame_bits << 5) - total_frame_size) >> 8);
 	} else if (apply_rc) {
-		memset(block_mb_size, RC_MIN, ctx->block_width_n * ctx->block_height_n);
+		memset(block_mb_size, CBR_RC_MIN, ctx->block_width_n * ctx->block_height_n);
 	} else {
-		memset(block_mb_size, RC_MAX, ctx->block_width_n * ctx->block_height_n);
+		memset(block_mb_size, CBR_RC_MAX, ctx->block_width_n * ctx->block_height_n);
 	}
 }
 
 
 /* rate control */
 
-static void amlvenc_h264_rc_adjust_rate(struct amlvenc_h264_rc_ctx *ctx, uint64_t timestamp, bool is_idr)
-{
-	uint32_t target_bits = ctx->state.avg_bits_per_frame;
-	uint32_t time_elapsed_ms;
-	int ratio;
-  
-   if (ctx->state.last_timestamp_us) {	
-	   if (timestamp > ctx->state.last_timestamp_us) {
-		   time_elapsed_ms = (timestamp - ctx->state.last_timestamp_us) / US_IN_MS;
-		   target_bits = (target_bits * time_elapsed_ms) / ctx->state.frame_duration_ms;
-		   target_bits = clamp(target_bits, ctx->state.avg_bits_per_frame * 7 /10, ctx->state.avg_bits_per_frame * 13 /10);
-	   }
+static void amlvenc_h264_rc_adjust_qp(struct amlvenc_h264_rc_ctx *ctx) {
+	int32_t avg_bits_per_frame = ctx->state.avg_bits_per_frame;
+	uint32_t fps_num = ctx->params.frame_rate_num;
+	uint32_t fps_den = ctx->params.frame_rate_den;
+	uint32_t fps = DIV_ROUND_CLOSEST(fps_num, fps_den);
 
-	   if (ctx->state.fullness >= target_bits)
-		   ctx->state.fullness -= target_bits;
-	   else
-		   ctx->state.fullness = 0;
+	ctx->state.qp_frame_count++;
 
-	   ratio = ctx->state.fullness * 100 / ctx->params.target_bitrate;
-	   if (ratio < 10) {
-		   ctx->state.fullness = ctx->params.target_bitrate * 10 / 100;
-	   }
-	   ratio = clamp(ratio, 10, 150);
+	if (ctx->state.qp_frame_count >= fps * CBR_QP_ADJ_INTERVAL) {
+		int64_t mabr = ctx->state.total_bits / ctx->state.rc_frame_count;
+		int64_t deviation = 100 * (mabr - avg_bits_per_frame) / avg_bits_per_frame;
 
-	   if (ratio >= 50) {
-		   ratio = min((ratio - 50) * ctx->params.frame_rate_num / (ctx->params.frame_rate_den * 10), 50);
-		   ratio = 100 - ratio;
-	   } else {
-		   ratio = 50 - ratio;
-		   ratio = 100 + ratio;
-	   }
+		uint8_t old_qp = ctx->state.current_qp;
+		int qp_change = 0;
+		if (deviation > CBR_QP_INC_THRESHOLD) {
+			qp_change = min(deviation / CBR_QP_INC_THRESHOLD, 6);
+		} else if (deviation < -CBR_QP_DEC_THRESHOLD) {
+			qp_change = max(deviation / CBR_QP_DEC_THRESHOLD, -4);
+		}
 
-   } else {
-	   ratio = 100;
-   }
+		ctx->state.current_qp = clamp(ctx->state.current_qp + qp_change, CBR_QP_MIN, CBR_QP_MAX);
 
-	target_bits = ctx->state.avg_bits_per_frame * ratio / 100;
+		if (ctx->state.current_qp != old_qp) {
+			ctx->state.qp_frame_count = 0;
+			ctx->state.error_sum = 0;
+			// adjust fullness ?
 
-	if (is_idr)
-		target_bits *= RC_IDR_SCALER_RATIO;
+			pr_debug("h264_encoder: CBR qp adjusted: deviation=%lld, prev=%d, qp=%d (%d)\n",
+					deviation,
+					old_qp,
+					ctx->state.current_qp,
+					qp_change);
+		}
+	}
+}
 
-	ctx->state.target_frame_bits = target_bits;
-	ctx->state.last_timestamp_us = timestamp;
+static void amlvenc_h264_rc_adjust_rate(struct amlvenc_h264_rc_ctx *ctx, uint32_t frame_bits) {
+	int32_t target_bitrate = ctx->params.target_bitrate;
+	int32_t avg_bits_per_frame = ctx->state.avg_bits_per_frame;
+	uint32_t fps_num = ctx->params.frame_rate_num;
+	uint32_t fps_den = ctx->params.frame_rate_den;
+	uint32_t fps = DIV_ROUND_CLOSEST(fps_num, fps_den);
+	int64_t mabr, error;
+	int64_t p_term, i_term, d_term;
+	int32_t target_bits, adjustment;
 
-	pr_debug("h264_encoder: CBR target frame size: ts=%llu, ratio=%d, is_idr=%d, target=%u (avg=%u)\n",
-			timestamp,
-			ratio,
-			is_idr,
+	// Update moving average
+	ctx->state.total_bits += frame_bits; 
+	if (ctx->state.rc_frame_count >= fps) {
+		ctx->state.total_bits -= ctx->state.total_bits / fps;
+	}
+	ctx->state.rc_frame_count = umin(ctx->state.rc_frame_count + 1, fps);
+	mabr = ctx->state.total_bits / ctx->state.rc_frame_count;
+
+	// Update buffer fullness
+	ctx->state.fullness += target_bitrate / fps - frame_bits;
+	ctx->state.fullness = clamp(ctx->state.fullness, target_bitrate, target_bitrate);
+
+	// Calculate error and PID control
+	error = avg_bits_per_frame - mabr;
+	ctx->state.error_sum += error;
+	p_term = CBR_RC_P_COEFF * error / 1000;
+	i_term = CBR_RC_I_COEFF * ctx->state.error_sum / 1000;
+	d_term = CBR_RC_D_COEFF * (error - ctx->state.last_error) / 1000;
+	ctx->state.last_error = error;
+
+	adjustment = p_term + i_term + d_term;
+	target_bits = avg_bits_per_frame + adjustment - ctx->state.fullness / fps;
+	target_bits = clamp(target_bits, avg_bits_per_frame / 2, avg_bits_per_frame * 2);
+
+	pr_debug("h264_encoder: CBR target frame size: last=%d, mabr=%lld, target=%d (%d)\n",
+			frame_bits >> 3,
+			mabr >> 3,
 			target_bits >> 3,
 			ctx->state.avg_bits_per_frame >> 3);
+
+	ctx->state.target_frame_bits = target_bits;
 }
 
-static void amlvenc_h264_rc_update_usage(struct amlvenc_h264_rc_ctx *ctx, uint32_t frame_bits)
-{
-	uint32_t target = ctx->state.target_frame_bits;
-	int qp_offset = 0;
-
-	if (frame_bits > target * 3) {
-		qp_offset = 10;
-	} else if (frame_bits > target * 2) {
-		qp_offset = 6;
-	} else if (frame_bits > target * 3 / 2) {
-		qp_offset = 3;
-	} else if (frame_bits > target * 11 / 10) {
-		qp_offset = 1;
-	} else if (frame_bits < target / 2) {
-		qp_offset = -4;
-	} else if (frame_bits < target * 2 / 3) {
-		qp_offset = -2;
-	} else if (frame_bits < target * 9 / 10) {
-		qp_offset = -1;
-	}
-	
-	ctx->state.current_qp = clamp(ctx->state.current_qp + qp_offset, RC_QP_MIN, RC_QP_MAX);
-
-	ctx->state.fullness += frame_bits;
-
-	pr_debug("h264_encoder: CBR qp adjustments: frame=%u, target=%u, qp_offset=%d, qp=%u\n",
-			frame_bits >> 3,
-			ctx->state.target_frame_bits >> 3,
-			qp_offset,
-			ctx->state.current_qp);
-}
-
-static bool amlvenc_h264_rc_should_reencode(struct amlvenc_h264_rc_ctx *ctx, uint32_t frame_bits)
-{
-	// Re-encode if the frame size is significantly larger than the target
-	if (ctx->state.avg_bits_per_frame > 14 * ctx->params.mb_width * ctx->params.mb_height &&
-			frame_bits > ctx->state.target_frame_bits * 17 / 10) {
-		return true;
-	}
-	return false;
-}
-
-void amlvenc_h264_rc_frame_prepare(struct amlvenc_h264_rc_ctx *ctx, uint64_t timestamp, bool is_idr)
+void amlvenc_h264_rc_frame_prepare(struct amlvenc_h264_rc_ctx *ctx, bool is_idr)
 {
 	if (!ctx->params.rate_control)
 		return;
 
-	amlvenc_h264_rc_adjust_rate(ctx, timestamp, is_idr);
+	if (is_idr)
+		ctx->state.target_frame_bits *= CBR_RC_IDR_RATIO;
 }
 
 bool amlvenc_h264_rc_frame_done(struct amlvenc_h264_rc_ctx *ctx, uint32_t frame_bits)
 {
 	if (!ctx->params.rate_control)
 		return false;
-#if 0
-	if (amlvenc_h264_rc_should_reencode(ctx, frame_bits)) {
-		// Increase QP for re-encoding
-		ctx->state.current_qp += 6 * frame_bits / ctx->state.target_frame_bits;
-		ctx->state.current_qp = amlvenc_h264_rc_clamp_qp(ctx, ctx->state.current_qp);
-		// The frame will be re-encoded with the new QP
-		return true;
-	} else {
-		amlvenc_h264_rc_update_usage(ctx, timestamp, frame_bits);
-		return false;
-	}
-#else
-	amlvenc_h264_rc_update_usage(ctx, frame_bits);
+		
+	amlvenc_h264_rc_adjust_rate(ctx, frame_bits);
+	amlvenc_h264_rc_adjust_qp(ctx);
 	return false;
-#endif
 }

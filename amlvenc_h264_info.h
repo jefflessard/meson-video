@@ -111,7 +111,7 @@ struct h264_mb_info {
 static_assert(sizeof(struct h264_mb_info) == MB_INFO_SIZE, "h264_mb_info must be exactly MB_INFO_SIZE bytes");
 
 struct amlvenc_h264_rc_params {
-	uint32_t target_bitrate;
+	int32_t target_bitrate;
 	uint32_t frame_rate_num;
 	uint32_t frame_rate_den;
 	uint32_t mb_width;
@@ -121,11 +121,14 @@ struct amlvenc_h264_rc_params {
 };
 
 struct amlvenc_h264_rc_state {
+	int64_t total_bits;
 	int64_t fullness;
+	int64_t last_error;
+	int64_t error_sum;
 	uint32_t avg_bits_per_frame;
 	uint32_t target_frame_bits;
-	uint32_t frame_duration_ms;
-	uint64_t last_timestamp_us;
+	uint8_t rc_frame_count;
+	uint8_t qp_frame_count;
 	uint8_t current_qp;
 };
 
@@ -172,7 +175,7 @@ void amlvenc_h264_rc_update_cbr_mb_sizes(struct amlvenc_h264_rc_ctx *ctx, bool a
 
 void amlvenc_h264_rc_cbr_to_risc(struct cbr_info_buffer *cbr_info);
 
-void amlvenc_h264_rc_frame_prepare(struct amlvenc_h264_rc_ctx *ctx, uint64_t timestamp, bool is_idr);
+void amlvenc_h264_rc_frame_prepare(struct amlvenc_h264_rc_ctx *ctx, bool is_idr);
 
 bool amlvenc_h264_rc_frame_done(struct amlvenc_h264_rc_ctx *ctx, uint32_t frame_bits);
 
