@@ -2,7 +2,7 @@
 #include <linux/slab.h>
 #include <linux/types.h>
 
-#include "amlvenc_h264_info.h"
+#include "amlvenc_h264_cbr.h"
 
 #define DIVSCALE 16
 #define DIVSCALE_SQRT 8
@@ -20,11 +20,9 @@
 #define CBR_QP_ADJ_INTERVAL 1
 #define CBR_QP_INC_THRESHOLD 12
 #define CBR_QP_DEC_THRESHOLD 10
-#define CBR_QP_MIN 8
-#define CBR_QP_MAX 43
 
 
-static void amlvenc_h264_rc_calculate_cbr_blocks(struct amlvenc_h264_rc_ctx *ctx) {
+static void amlvenc_h264_cbr_calculate_cbr_blocks(struct amlvenc_h264_cbr_ctx *ctx) {
 	uint32_t block_width_num, block_height_num;
 	uint32_t block_width, block_height;
 	uint32_t block_width_n, block_height_n;
@@ -58,7 +56,7 @@ static void amlvenc_h264_rc_calculate_cbr_blocks(struct amlvenc_h264_rc_ctx *ctx
 	ctx->block_height_n   = block_height_n;
 }
 
-int amlvenc_h264_rc_init(struct amlvenc_h264_rc_ctx *ctx, const struct amlvenc_h264_rc_params *params, void *cbr_info, void* mb_info)
+int amlvenc_h264_cbr_init(struct amlvenc_h264_cbr_ctx *ctx, const struct amlvenc_h264_cbr_params *params, void *cbr_info, void* mb_info)
 {
 	if (params->mb_width == 0 || params->mb_height == 0) {
 		pr_warn("h264_encoder: Invalid MB size mb_width=%d, mb_height=%d", params->mb_width, params->mb_height);
@@ -66,10 +64,10 @@ int amlvenc_h264_rc_init(struct amlvenc_h264_rc_ctx *ctx, const struct amlvenc_h
 	}
 
 	ctx->params = *params;
-	ctx->cbr_info = (struct cbr_info_buffer *) cbr_info;
-	ctx->mb_info = (struct h264_mb_info *) mb_info;
+	ctx->cbr_info = (struct amlvenc_h264_cbr_info *) cbr_info;
+	ctx->mb_info = (struct amlvenc_h264_cbr_mb_info *) mb_info;
 
-	amlvenc_h264_rc_calculate_cbr_blocks(ctx);
+	amlvenc_h264_cbr_calculate_cbr_blocks(ctx);
 
 	ctx->block_sad_size = kcalloc(ctx->block_width_n * ctx->block_height_n, sizeof(*ctx->block_sad_size), GFP_KERNEL);
 	if (!ctx->block_sad_size) {
@@ -89,7 +87,7 @@ int amlvenc_h264_rc_init(struct amlvenc_h264_rc_ctx *ctx, const struct amlvenc_h
 	return 0;
 }
 
-int amlvenc_h264_rc_update_stats(struct amlvenc_h264_rc_ctx *ctx, struct amlvenc_h264_configure_encoder_params *p)
+int amlvenc_h264_cbr_update_stats(struct amlvenc_h264_cbr_ctx *ctx, struct amlvenc_h264_configure_encoder_params *p)
 {
 	if (!ctx || !ctx->block_sad_size) {
 		pr_err("h264_encoder: Invalid input parameters\n");
@@ -111,7 +109,7 @@ int amlvenc_h264_rc_update_stats(struct amlvenc_h264_rc_ctx *ctx, struct amlvenc
 
 	for (uint32_t y = 0; y < mb_height; y++) {
 		for (uint32_t x = 0; x < mb_width; x++) {
-			struct h264_mb_info *mb = amlvenc_h264_rc_mb_info(ctx, x, y);
+			struct amlvenc_h264_cbr_mb_info *mb = amlvenc_h264_cbr_mb_info(ctx, x, y);
 			if (!mb) {
 				pr_err("h264_encoder: Failed to get macroblock at (%u, %u)\n", x, y);
 				return -EFAULT;
@@ -171,10 +169,10 @@ int amlvenc_h264_rc_update_stats(struct amlvenc_h264_rc_ctx *ctx, struct amlvenc
 	return 0;
 }
 
-void amlvenc_h264_rc_hexdump_mb_info(struct amlvenc_h264_rc_ctx *ctx) {
+void amlvenc_h264_cbr_hexdump_mb_info(struct amlvenc_h264_cbr_ctx *ctx) {
 	for(int x = 0; x < ctx->params.mb_width; x++) {	
 		for(int y = 0; y < ctx->params.mb_width; y++) {
-			struct h264_mb_info *mb_info = amlvenc_h264_rc_mb_info(ctx, x, y);
+			struct amlvenc_h264_cbr_mb_info *mb_info = amlvenc_h264_cbr_mb_info(ctx, x, y);
 			if (!mb_info) {
 				pr_debug("h264_encoder: NULL MB info buffer at x=%d, y=%d", x, y);
 				return;
@@ -191,7 +189,7 @@ void amlvenc_h264_rc_hexdump_mb_info(struct amlvenc_h264_rc_ctx *ctx) {
 	}
 }
 
-void amlvenc_h264_rc_cbr_to_risc(struct cbr_info_buffer *cbr_info)
+void amlvenc_h264_cbr_to_risc(struct amlvenc_h264_cbr_info *cbr_info)
 {
 	uint32_t len = sizeof(*cbr_info);
 	if (len < 8 || (len % 8) || !cbr_info) {
@@ -215,7 +213,86 @@ void amlvenc_h264_rc_cbr_to_risc(struct cbr_info_buffer *cbr_info)
 	}
 }
 
-void amlvenc_h264_rc_update_cbr_mb_sizes(struct amlvenc_h264_rc_ctx *ctx, bool apply_rc) {
+void amlvenc_h264_cbr_clamp_qptbl(struct amlvenc_h264_cbr_ctx *ctx, qp_union_t *tbl) {
+	for (int i = 0; i < QP_ROWS; i++) {
+		for (int j = 0; j < QP_COLS; j++) {
+			tbl->cells[i][j] = clamp(
+					tbl->cells[i][j],
+					ctx->params.min_qp,
+					ctx->params.max_qp);
+		}
+	}
+}
+
+static void amlvenc_h264_cbr_fill_weight_offsets(struct amlvenc_h264_cbr_tbl_block *blk, u16 factor) {
+	blk->i4mb_weight_offset  = I4MB_WEIGHT_OFFSET;
+	blk->i16mb_weight_offset = I16MB_WEIGHT_OFFSET;
+	blk->me_weight_offset    = ME_WEIGHT_OFFSET;
+	blk->ie_f_zero_sad_i4    = V3_IE_F_ZERO_SAD_I4 + (factor * 0x480);
+	blk->ie_f_zero_sad_i16   = V3_IE_F_ZERO_SAD_I16 + (factor * 0x200);
+	blk->me_f_zero_sad       = V3_ME_F_ZERO_SAD + (factor * 0x280);
+	blk->end_marker1 = CBR_TBL_BLOCK_END_MARKER1;
+	blk->end_marker2 = CBR_TBL_BLOCK_END_MARKER2;
+}
+
+void amlvenc_h264_cbr_update_quant_tables(struct amlvenc_h264_cbr_ctx *ctx, bool apply_rc, bool is_idr, const qp_union_t *qp_adj, const qp_union_t *qp_adj_i4i16) {
+	const u8 quant = ctx->state.current_qp;
+	struct amlvenc_h264_cbr_tbl_block *block_info;
+	qp_union_t tbl, tbl_i4i16;
+	u32 qp_step;
+	u16 i, j;
+
+	// Initialize CBR table values
+	if (apply_rc) {
+		u8 qp = (quant > START_TABLE_ID) ? (quant - START_TABLE_ID) : 0;
+		u32 qp_base = qp | qp << 8 | qp << 16 | qp << 24;
+		qp_step = 0x01010101;
+		// Fill the table with base values
+		for (i = 0; i < QP_ROWS; i++) {
+			tbl.rows[i] = qp_base + qp_adj->rows[i];
+			tbl_i4i16.rows[i] = qp_base + qp_adj_i4i16->rows[i];
+		}
+	} else {
+		memset(&tbl, quant, sizeof(tbl));
+		memset(&tbl_i4i16, quant, sizeof(tbl_i4i16));
+		qp_step = 0;
+	}
+
+	// Fill the CBR table in memory
+	for (i = 0; i < CBR_BLOCK_COUNT; i++) {
+		block_info = &ctx->cbr_info->blocks[i];
+
+		// Apply smoothing at each cycle
+		amlvenc_h264_cbr_clamp_qptbl(ctx, &tbl);
+		amlvenc_h264_cbr_clamp_qptbl(ctx, &tbl_i4i16);
+
+		memcpy(&block_info->qp_table.i4_qp, &tbl_i4i16, sizeof(tbl_i4i16));
+		memcpy(&block_info->qp_table.i16_qp, &tbl_i4i16, sizeof(tbl_i4i16));
+		memcpy(&block_info->qp_table.me_qp, &tbl, sizeof(tbl));
+
+		amlvenc_h264_cbr_fill_weight_offsets(block_info, (i < 13 ? 0 : i - 13));
+
+		// Apply quantization step for next iteration
+		if (is_idr) {
+			qp_step = (i == 4 || i == 6 || i == 8 || i >= 10) ? 0x01010101 : 0;
+		} else {
+			qp_step = (i == 1 || i == 3 || i == 5 || i >= 6) ? 0x01010101 : 0;
+		}
+
+		// Update table entries for next iteration
+		for (j = 0; j < QP_ROWS; j++) {
+			tbl.rows[j] += qp_step;
+			tbl_i4i16.rows[j] += qp_step;
+		}
+	}
+
+	pr_debug("h264_encoder: quant=%d, min_qp=%d, max_qp=%d",
+			quant,
+			ctx->cbr_info->blocks[0].qp_table.i4_qp.cells[0][0],
+			ctx->cbr_info->blocks[CBR_BLOCK_COUNT - 1].qp_table.i4_qp.cells[QP_ROWS - 1][QP_COLS - 1]);
+}
+
+void amlvenc_h264_cbr_update_mb_sizes(struct amlvenc_h264_cbr_ctx *ctx, bool apply_rc) {
 	uint16_t *block_mb_size = ctx->cbr_info->block_mb_size;
 	uint32_t total_sad_size = ctx->f_sad_count;
 
@@ -248,7 +325,7 @@ void amlvenc_h264_rc_update_cbr_mb_sizes(struct amlvenc_h264_rc_ctx *ctx, bool a
 
 /* rate control */
 
-static void amlvenc_h264_rc_adjust_qp(struct amlvenc_h264_rc_ctx *ctx) {
+static void amlvenc_h264_cbr_adjust_qp(struct amlvenc_h264_cbr_ctx *ctx) {
 	int32_t avg_bits_per_frame = ctx->state.avg_bits_per_frame;
 	uint32_t fps_num = ctx->params.frame_rate_num;
 	uint32_t fps_den = ctx->params.frame_rate_den;
@@ -268,7 +345,7 @@ static void amlvenc_h264_rc_adjust_qp(struct amlvenc_h264_rc_ctx *ctx) {
 			qp_change = max(deviation / CBR_QP_DEC_THRESHOLD, -4);
 		}
 
-		ctx->state.current_qp = clamp(ctx->state.current_qp + qp_change, CBR_QP_MIN, CBR_QP_MAX);
+		ctx->state.current_qp = clamp(ctx->state.current_qp + qp_change, ctx->params.min_qp, ctx->params.max_qp);
 
 		if (ctx->state.current_qp != old_qp) {
 			ctx->state.qp_frame_count = 0;
@@ -284,7 +361,7 @@ static void amlvenc_h264_rc_adjust_qp(struct amlvenc_h264_rc_ctx *ctx) {
 	}
 }
 
-static void amlvenc_h264_rc_adjust_rate(struct amlvenc_h264_rc_ctx *ctx, uint32_t frame_bits) {
+static void amlvenc_h264_cbr_adjust_rate(struct amlvenc_h264_cbr_ctx *ctx, uint32_t frame_bits) {
 	int32_t target_bitrate = ctx->params.target_bitrate;
 	int32_t avg_bits_per_frame = ctx->state.avg_bits_per_frame;
 	uint32_t fps_num = ctx->params.frame_rate_num;
@@ -327,7 +404,7 @@ static void amlvenc_h264_rc_adjust_rate(struct amlvenc_h264_rc_ctx *ctx, uint32_
 	ctx->state.target_frame_bits = target_bits;
 }
 
-void amlvenc_h264_rc_frame_prepare(struct amlvenc_h264_rc_ctx *ctx, bool is_idr)
+void amlvenc_h264_cbr_frame_prepare(struct amlvenc_h264_cbr_ctx *ctx, bool is_idr)
 {
 	if (!ctx->params.rate_control)
 		return;
@@ -336,12 +413,12 @@ void amlvenc_h264_rc_frame_prepare(struct amlvenc_h264_rc_ctx *ctx, bool is_idr)
 		ctx->state.target_frame_bits *= CBR_RC_IDR_RATIO;
 }
 
-bool amlvenc_h264_rc_frame_done(struct amlvenc_h264_rc_ctx *ctx, uint32_t frame_bits)
+bool amlvenc_h264_cbr_frame_done(struct amlvenc_h264_cbr_ctx *ctx, uint32_t frame_bits)
 {
 	if (!ctx->params.rate_control)
 		return false;
 		
-	amlvenc_h264_rc_adjust_rate(ctx, frame_bits);
-	amlvenc_h264_rc_adjust_qp(ctx);
+	amlvenc_h264_cbr_adjust_rate(ctx, frame_bits);
+	amlvenc_h264_cbr_adjust_qp(ctx);
 	return false;
 }

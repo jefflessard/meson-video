@@ -17,13 +17,13 @@
 		- 8 * sizeof(uint16_t)) // offsets
 #define CBR_BUFFER_PADDING ( \
 		0x2000 \
-		- sizeof(struct cbr_tbl_block) * CBR_BLOCK_COUNT \
+		- sizeof(struct amlvenc_h264_cbr_tbl_block) * CBR_BLOCK_COUNT \
 	   	- sizeof(uint16_t) * CBR_BLOCK_MB_SIZE)
 #define CBR_TBL_BLOCK_END_MARKER1 0x55aa
 #define CBR_TBL_BLOCK_END_MARKER2 0xaa55
 
 // Structure for each block in the CBR buffer
-struct cbr_tbl_block {
+struct amlvenc_h264_cbr_tbl_block {
 	qp_table_t qp_table;
 	uint16_t i4mb_weight_offset;
 	uint16_t i16mb_weight_offset;
@@ -35,15 +35,15 @@ struct cbr_tbl_block {
 	uint16_t end_marker2; /* 0xaa55 */
 	uint8_t padding[CBR_TBL_BLOCK_PADDING];  // Padding to 128 bytes
 };
-static_assert(sizeof(struct cbr_tbl_block) == 128, "cbr_tbl_block must be exactly 128 bytes");
+static_assert(sizeof(struct amlvenc_h264_cbr_tbl_block) == 128, "amlvenc_h264_cbr_tbl_block must be exactly 128 bytes");
 
 // Full CBR buffer layout
-struct cbr_info_buffer {
-	struct cbr_tbl_block blocks[CBR_BLOCK_COUNT];  // 16 x 128 bytes
+struct amlvenc_h264_cbr_info {
+	struct amlvenc_h264_cbr_tbl_block blocks[CBR_BLOCK_COUNT];  // 16 x 128 bytes
 	uint16_t block_mb_size[CBR_BLOCK_MB_SIZE]; // 0x800 offset
 };
-static_assert(sizeof(struct cbr_info_buffer) % 16 == 0, "cbr_info_buffer size must be a multiple of 16 bytes");
-static_assert(offsetof(struct cbr_info_buffer, block_mb_size) == CBR_TABLE_SIZE, "cbr_info_buffer block_mb_size must be at offset CBR_TABLE_SIZE");
+static_assert(sizeof(struct amlvenc_h264_cbr_info) % 16 == 0, "amlvenc_h264_cbr_info size must be a multiple of 16 bytes");
+static_assert(offsetof(struct amlvenc_h264_cbr_info, block_mb_size) == CBR_TABLE_SIZE, "amlvenc_h264_cbr_info block_mb_size must be at offset CBR_TABLE_SIZE");
 
 
 #if 0
@@ -60,7 +60,7 @@ enum HENC_MB_Type {
 };
 #endif
 
-struct h264_mb_info {
+struct amlvenc_h264_cbr_mb_info {
 	// Offset 0-3: Used for I4x4 mode (lower 4 bits of each byte)
 	uint8_t i4x4_modes_low[4];
 	// Offset 4: MB CPred
@@ -108,19 +108,21 @@ struct h264_mb_info {
 	// Offset 78-79: Extended Inter SAD
 	uint16_t inter_sad_ex;
 };
-static_assert(sizeof(struct h264_mb_info) == MB_INFO_SIZE, "h264_mb_info must be exactly MB_INFO_SIZE bytes");
+static_assert(sizeof(struct amlvenc_h264_cbr_mb_info) == MB_INFO_SIZE, "amlvenc_h264_cbr_mb_info must be exactly MB_INFO_SIZE bytes");
 
-struct amlvenc_h264_rc_params {
+struct amlvenc_h264_cbr_params {
 	int32_t target_bitrate;
 	uint32_t frame_rate_num;
 	uint32_t frame_rate_den;
 	uint32_t mb_width;
 	uint32_t mb_height;
+	uint8_t min_qp;
+	uint8_t max_qp;
 	uint8_t initial_qp;
 	bool rate_control;
 };
 
-struct amlvenc_h264_rc_state {
+struct amlvenc_h264_cbr_state {
 	int64_t total_bits;
 	int64_t fullness;
 	int64_t last_error;
@@ -132,11 +134,11 @@ struct amlvenc_h264_rc_state {
 	uint8_t current_qp;
 };
 
-struct amlvenc_h264_rc_ctx {
-	struct amlvenc_h264_rc_params params;
-	struct cbr_info_buffer *cbr_info;
-	struct h264_mb_info *mb_info;
-	struct amlvenc_h264_rc_state state;
+struct amlvenc_h264_cbr_ctx {
+	struct amlvenc_h264_cbr_params params;
+	struct amlvenc_h264_cbr_info *cbr_info;
+	struct amlvenc_h264_cbr_mb_info *mb_info;
+	struct amlvenc_h264_cbr_state state;
 
 	uint32_t block_width;
 	uint32_t block_height;
@@ -152,32 +154,36 @@ struct mb_mv {
 	int16_t mvy;
 };
 
-int amlvenc_h264_rc_init(struct amlvenc_h264_rc_ctx *ctx, const struct amlvenc_h264_rc_params *params, void *cbr_info, void* mb_info);
+int amlvenc_h264_cbr_init(struct amlvenc_h264_cbr_ctx *ctx, const struct amlvenc_h264_cbr_params *params, void *cbr_info, void* mb_info);
 
-static inline void amlvenc_h264_rc_free(struct amlvenc_h264_rc_ctx *ctx) {
+static inline void amlvenc_h264_cbr_free(struct amlvenc_h264_cbr_ctx *ctx) {
 	if (ctx) {
 		kfree(ctx->block_sad_size);
 	}
 }
 
-static inline struct h264_mb_info *amlvenc_h264_rc_mb_info(struct amlvenc_h264_rc_ctx *ctx, uint32_t x, uint32_t y)
+static inline struct amlvenc_h264_cbr_mb_info *amlvenc_h264_cbr_mb_info(struct amlvenc_h264_cbr_ctx *ctx, uint32_t x, uint32_t y)
 {
 	if (x >= ctx->params.mb_width || y >= ctx->params.mb_height)
 		return NULL;
 	return &ctx->mb_info[y * ctx->params.mb_width + x];
 }
 
-int amlvenc_h264_rc_update_stats(struct amlvenc_h264_rc_ctx *ctx, struct amlvenc_h264_configure_encoder_params *p);
+int amlvenc_h264_cbr_update_stats(struct amlvenc_h264_cbr_ctx *ctx, struct amlvenc_h264_configure_encoder_params *p);
 
-void amlvenc_h264_rc_hexdump_mb_info(struct amlvenc_h264_rc_ctx *ctx);
+void amlvenc_h264_cbr_clamp_qptbl(struct amlvenc_h264_cbr_ctx *ctx, qp_union_t *tbl);
 
-void amlvenc_h264_rc_update_cbr_mb_sizes(struct amlvenc_h264_rc_ctx *ctx, bool apply_rc);
+void amlvenc_h264_cbr_update_quant_tables(struct amlvenc_h264_cbr_ctx *ctx, bool apply_rc, bool is_idr, const qp_union_t *qp_adj, const qp_union_t *qp_adj_i4i16);
 
-void amlvenc_h264_rc_cbr_to_risc(struct cbr_info_buffer *cbr_info);
+void amlvenc_h264_cbr_to_risc(struct amlvenc_h264_cbr_info *cbr_info);
 
-void amlvenc_h264_rc_frame_prepare(struct amlvenc_h264_rc_ctx *ctx, bool is_idr);
+void amlvenc_h264_cbr_hexdump_mb_info(struct amlvenc_h264_cbr_ctx *ctx);
 
-bool amlvenc_h264_rc_frame_done(struct amlvenc_h264_rc_ctx *ctx, uint32_t frame_bits);
+void amlvenc_h264_cbr_update_mb_sizes(struct amlvenc_h264_cbr_ctx *ctx, bool apply_rc);
+
+void amlvenc_h264_cbr_frame_prepare(struct amlvenc_h264_cbr_ctx *ctx, bool is_idr);
+
+bool amlvenc_h264_cbr_frame_done(struct amlvenc_h264_cbr_ctx *ctx, uint32_t frame_bits);
 
 // Helper macros to access fields in the raw buffer, matching the original code
 #define get_mb_x(mb) ((mb)->mb_x)
@@ -198,7 +204,7 @@ bool amlvenc_h264_rc_frame_done(struct amlvenc_h264_rc_ctx *ctx, uint32_t frame_
 #define get_mb_bits_ex(mb) ((mb)->bits_ex)
 
 // Helper function to get I4x4 modes
-static inline void get_mb_LPred_I4(struct h264_mb_info *mb, uint8_t mode[16])
+static inline void get_mb_LPred_I4(struct amlvenc_h264_cbr_mb_info *mb, uint8_t mode[16])
 {
 	for (int i = 0; i < 4; i++) {
 		mode[i*2] = mb->i4x4_modes_low[i] & 0xf;
@@ -209,7 +215,7 @@ static inline void get_mb_LPred_I4(struct h264_mb_info *mb, uint8_t mode[16])
 }
 
 // Helper functions to get motion vectors
-static inline void get_mb_mv_P16x16(struct h264_mb_info *mb, struct mb_mv mv[16])
+static inline void get_mb_mv_P16x16(struct amlvenc_h264_cbr_mb_info *mb, struct mb_mv mv[16])
 {
 	for (int i = 0; i < 16; i++) {
 		mv[i].mvx = mb->mv[0];
@@ -217,7 +223,7 @@ static inline void get_mb_mv_P16x16(struct h264_mb_info *mb, struct mb_mv mv[16]
 	}
 }
 
-static inline void get_mb_mv_P16x8(struct h264_mb_info *mb, struct mb_mv mv[16])
+static inline void get_mb_mv_P16x8(struct amlvenc_h264_cbr_mb_info *mb, struct mb_mv mv[16])
 {
 	for (int i = 0; i < 8; i++) {
 		mv[i].mvx = mb->mv[0];
@@ -227,7 +233,7 @@ static inline void get_mb_mv_P16x8(struct h264_mb_info *mb, struct mb_mv mv[16])
 	}
 }
 
-static inline void get_mb_mv_P8x16(struct h264_mb_info *mb, struct mb_mv mv[16])
+static inline void get_mb_mv_P8x16(struct amlvenc_h264_cbr_mb_info *mb, struct mb_mv mv[16])
 {
 	for (int i = 0; i < 4; i++) {
 		mv[i].mvx = mv[i+8].mvx = mb->mv[0];
@@ -237,7 +243,7 @@ static inline void get_mb_mv_P8x16(struct h264_mb_info *mb, struct mb_mv mv[16])
 	}
 }
 
-static inline void get_mb_mv_P8x8(struct h264_mb_info *mb, struct mb_mv mv[16])
+static inline void get_mb_mv_P8x8(struct amlvenc_h264_cbr_mb_info *mb, struct mb_mv mv[16])
 {
 	for (int i = 0; i < 4; i++) {
 		mv[i*2].mvx = mv[i*2+1].mvx = mb->mv[i*4];

@@ -16,7 +16,7 @@
 
 #include "amlogic.h"
 #include "amlvenc_h264.h"
-#include "amlvenc_h264_info.h"
+#include "amlvenc_h264_cbr.h"
 #include "register.h"
 
 #define MHz (1000000)
@@ -119,9 +119,6 @@ struct encoder_task_ctx {
 	dma_addr_t dst_buf_paddr;
 
 	int gop_size;
-	int min_qp;
-	int max_qp;
-
 	bool reset_encoder;
 	bool join_header;
 	bool repeat_header;
@@ -141,7 +138,7 @@ struct encoder_h264_ctx {
 	u32 enc_start_count;
 	u32 enc_done_count;
 
-	struct amlvenc_h264_rc_ctx rc_ctx;
+	struct amlvenc_h264_cbr_ctx rc_ctx;
 	struct encoder_h264_buffer buffers[MAX_BUFFERS];
 
 	u8 canvases[MAX_CANVAS_TYPE][MAX_NUM_CANVAS];
@@ -363,22 +360,6 @@ int validate_canvas_align(u32 canvas_paddr, u32 canvas_w, u32 canvas_h, u32 widt
 	return 0;
 }
 
-static void clamp_qptbl(qp_union_t *tbl, bool is_idr) {
-#if 0
-	uint8_t qp_min = is_idr ? 15 : 20;
-	uint8_t qp_max = is_idr ? 30 : 35;
-#else
-	uint8_t qp_min = 8;
-	uint8_t qp_max = 43;
-#endif
-
-	for (int i = 0; i < QP_ROWS; i++) {
-		for (int j = 0; j < QP_COLS; j++) {
-			tbl->cells[i][j] = clamp(tbl->cells[i][j], qp_min, qp_max);
-		}
-	}
-}
-
 static void init_fixed_quant(struct encoder_h264_ctx *ctx, u8 quant) {
 	qp_table_t *qtable = &ctx->qtable;
 
@@ -400,9 +381,9 @@ static void init_linear_quant(struct encoder_h264_ctx *ctx, u8 quant) {
 		memset(&qtable->me_qp.rows[i], quant + (i - 4), QP_COLS);
 	}
 
-	//clamp_qptbl(&qtable->i4_qp, ...);
-	//clamp_qptbl(&qtable->i16_qp, ...);
-	//clamp_qptbl(&qtable->me_qp, ...);
+	amlvenc_h264_cbr_clamp_qptbl(&ctx->rc_ctx, &qtable->i4_qp);
+	amlvenc_h264_cbr_clamp_qptbl(&ctx->rc_ctx, &qtable->i16_qp);
+	amlvenc_h264_cbr_clamp_qptbl(&ctx->rc_ctx, &qtable->me_qp);
 }
 
 static void init_curve_quant(struct encoder_h264_ctx *ctx, u8 quant, const qp_union_t *qp_tbl) {
@@ -417,82 +398,14 @@ static void init_curve_quant(struct encoder_h264_ctx *ctx, u8 quant, const qp_un
 		qtable->me_qp.rows[i] = qp_base + qp_tbl->rows[i];
 	}
 	
-	clamp_qptbl(&qtable->i4_qp, qp_tbl == &qp_adj_idr);
-	clamp_qptbl(&qtable->i16_qp, qp_tbl == &qp_adj_idr);
-	clamp_qptbl(&qtable->me_qp, qp_tbl == &qp_adj_idr);
-}
-
-static void amlvenc_h264_rc_cbr_fill_weight_offsets(struct cbr_tbl_block *blk, u16 factor) {
-	blk->i4mb_weight_offset  = I4MB_WEIGHT_OFFSET;
-	blk->i16mb_weight_offset = I16MB_WEIGHT_OFFSET;
-	blk->me_weight_offset    = ME_WEIGHT_OFFSET;
-	blk->ie_f_zero_sad_i4    = V3_IE_F_ZERO_SAD_I4 + (factor * 0x480);
-	blk->ie_f_zero_sad_i16   = V3_IE_F_ZERO_SAD_I16 + (factor * 0x200);
-	blk->me_f_zero_sad       = V3_ME_F_ZERO_SAD + (factor * 0x280);
-	blk->end_marker1 = CBR_TBL_BLOCK_END_MARKER1;
-	blk->end_marker2 = CBR_TBL_BLOCK_END_MARKER2;
-}
-
-static void amlvenc_h264_rc_update_cbr_quant_tables(struct amlvenc_h264_rc_ctx *ctx, bool apply_rc, bool is_idr, const qp_union_t *qp_adj, const qp_union_t *qp_adj_i4i16) {
-	const u8 quant = ctx->state.current_qp;
-	struct cbr_tbl_block *block_info;
-	qp_union_t tbl, tbl_i4i16;
-	u32 qp_step;
-	u16 i, j;
-
-	// Initialize CBR table values
-	if (apply_rc) {
-		u8 qp = (quant > START_TABLE_ID) ? (quant - START_TABLE_ID) : 0;
-		u32 qp_base = qp | qp << 8 | qp << 16 | qp << 24;
-		qp_step = 0x01010101;
-		// Fill the table with base values
-		for (i = 0; i < QP_ROWS; i++) {
-			tbl.rows[i] = qp_base + qp_adj->rows[i];
-			tbl_i4i16.rows[i] = qp_base + qp_adj_i4i16->rows[i];
-		}
-	} else {
-		memset(&tbl, quant, sizeof(tbl));
-		memset(&tbl_i4i16, quant, sizeof(tbl_i4i16));
-		qp_step = 0;
-	}
-
-	// Fill the CBR table in memory
-	for (i = 0; i < CBR_BLOCK_COUNT; i++) {
-		block_info = &ctx->cbr_info->blocks[i];
-
-		// Apply smoothing at each cycle
-		clamp_qptbl(&tbl, is_idr);
-		clamp_qptbl(&tbl_i4i16, is_idr);
-
-		memcpy(&block_info->qp_table.i4_qp, &tbl_i4i16, sizeof(tbl_i4i16));
-		memcpy(&block_info->qp_table.i16_qp, &tbl_i4i16, sizeof(tbl_i4i16));
-		memcpy(&block_info->qp_table.me_qp, &tbl, sizeof(tbl));
-
-		amlvenc_h264_rc_cbr_fill_weight_offsets(block_info, (i < 13 ? 0 : i - 13));
-
-		// Apply quantization step for next iteration
-		if (is_idr) {
-			qp_step = (i == 4 || i == 6 || i == 8 || i >= 10) ? 0x01010101 : 0;
-		} else {
-			qp_step = (i == 1 || i == 3 || i == 5 || i >= 6) ? 0x01010101 : 0;
-		}
-
-		// Update table entries for next iteration
-		for (j = 0; j < QP_ROWS; j++) {
-			tbl.rows[j] += qp_step;
-			tbl_i4i16.rows[j] += qp_step;
-		}
-	}
-
-	pr_debug("h264_encoder: quant=%d, min_qp=%d, max_qp=%d",
-			quant,
-			ctx->cbr_info->blocks[0].qp_table.i4_qp.cells[0][0],
-			ctx->cbr_info->blocks[CBR_BLOCK_COUNT - 1].qp_table.i4_qp.cells[QP_ROWS - 1][QP_COLS - 1]);
+	amlvenc_h264_cbr_clamp_qptbl(&ctx->rc_ctx, &qtable->i4_qp);
+	amlvenc_h264_cbr_clamp_qptbl(&ctx->rc_ctx, &qtable->i16_qp);
+	amlvenc_h264_cbr_clamp_qptbl(&ctx->rc_ctx, &qtable->me_qp);
 }
 
 static void encoder_config_qp(struct encoder_h264_ctx *ctx) {
 	struct encoder_task_ctx *t = &ctx->task;
-	struct amlvenc_h264_rc_ctx *rc_ctx = &ctx->rc_ctx;
+	struct amlvenc_h264_cbr_ctx *rc_ctx = &ctx->rc_ctx;
 	bool is_idr = t->cmd == CMD_ENCODE_IDR;
 	bool apply_rc = rc_ctx->params.rate_control && (
 			!t->needs_2pass || t->is_2nd_pass);
@@ -503,7 +416,7 @@ static void encoder_config_qp(struct encoder_h264_ctx *ctx) {
 			t->cmd == CMD_ENCODE_IDR ||
 			t->cmd == CMD_ENCODE_NON_IDR)) {
 		job_trace(ctx->job, "Updating rate control");
-		amlvenc_h264_rc_frame_prepare(rc_ctx, is_idr);
+		amlvenc_h264_cbr_frame_prepare(rc_ctx, is_idr);
 	}
 
 	quant = rc_ctx->state.current_qp;
@@ -516,18 +429,17 @@ static void encoder_config_qp(struct encoder_h264_ctx *ctx) {
 
 	if (t->cmd == CMD_ENCODE_IDR || t->cmd == CMD_ENCODE_NON_IDR) {
 		job_trace(ctx->job, "Preparing block sizes");
-		amlvenc_h264_rc_update_cbr_mb_sizes(rc_ctx, apply_rc);
+		amlvenc_h264_cbr_update_mb_sizes(rc_ctx, apply_rc);
 
 		job_trace(ctx->job, "Filling CBR table");
-		amlvenc_h264_rc_update_cbr_quant_tables(
+		amlvenc_h264_cbr_update_quant_tables(
 				rc_ctx, apply_rc, is_idr,
 				is_idr ? &qp_adj_idr : &qp_adj_non_idr,
 				&qp_adj_cbr_i4i16);
 
 		// Convert table to RISC format if needed
 		if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_GXTVBB) {
-			job_trace(ctx->job, "to_risc");
-			amlvenc_h264_rc_cbr_to_risc(rc_ctx->cbr_info);
+			amlvenc_h264_cbr_to_risc(rc_ctx->cbr_info);
 		}
 
 		// TODO configure verbose
@@ -793,7 +705,7 @@ static void encoder_done(struct encoder_h264_ctx *ctx) {
 	ctx->enc_done_count++;
 
 	if (t->hcodec_status > ENCODER_PICTURE_DONE) {
-		amlvenc_h264_rc_update_stats(&ctx->rc_ctx, &ctx->conf_params);
+		amlvenc_h264_cbr_update_stats(&ctx->rc_ctx, &ctx->conf_params);
 #if 0
 		print_hex_dump(KERN_DEBUG,
 				DRIVER_NAME ": " "MB SAD Size: ",
@@ -804,7 +716,7 @@ static void encoder_done(struct encoder_h264_ctx *ctx) {
 				false);
 #endif
 #if 0
-		amlvenc_h264_rc_hexdump_mb_info(&ctx->rc_ctx);
+		amlvenc_h264_cbr_hexdump_mb_info(&ctx->rc_ctx);
 #endif
 
 		if (t->needs_2pass && !t->is_2nd_pass) {
@@ -813,7 +725,7 @@ static void encoder_done(struct encoder_h264_ctx *ctx) {
 			return;
 		}
 
-		if (amlvenc_h264_rc_frame_done(&ctx->rc_ctx, frame_len << 3)) {
+		if (amlvenc_h264_cbr_frame_done(&ctx->rc_ctx, frame_len << 3)) {
 			if (t->is_retry) {
 				job_err(ctx->job, "frame size too large for bitrate, aborting (len=%d, target=%d)\n", frame_len, ctx->rc_ctx.state.avg_bits_per_frame >> 3);
 				encoder_abort(ctx);
@@ -1171,7 +1083,7 @@ static int encoder_h264_prepare(struct meson_codec_job *job) {
 	// assit: 0xc0000
 	ctx->buffers[BUF_ASSIST].size = 0xc0000;
 	// cbr_info: 0x2000
-	ctx->buffers[BUF_CBR_INFO].size = sizeof(struct cbr_info_buffer);
+	ctx->buffers[BUF_CBR_INFO].size = sizeof(struct amlvenc_h264_cbr_info);
 	// dump_info: 0xa0000 (1920x1088/256)x80
 	ctx->buffers[BUF_DUMP_INFO].size = mb_width * mb_height * MB_INFO_SIZE;
 	// dec0_y: 0x300000 canvas_width, canvas_height
@@ -1196,16 +1108,18 @@ static int encoder_h264_prepare(struct meson_codec_job *job) {
 		goto free_ctx;
 	}
 
-	struct amlvenc_h264_rc_params rc_params;
+	struct amlvenc_h264_cbr_params rc_params;
 	rc_params.target_bitrate = meson_vcodec_g_ctrl(ctx->session, V4L2_CID(BITRATE));
 	rc_params.frame_rate_num = ctx->session->timeperframe.denominator;
 	rc_params.frame_rate_den = ctx->session->timeperframe.numerator;
 	//rc_params.vbv_buffer_size;
 	rc_params.mb_width = mb_width;
 	rc_params.mb_height = mb_height;
-	rc_params.initial_qp = INITIAL_QP;
+	rc_params.min_qp = meson_vcodec_g_ctrl(ctx->session, V4L2_CID(H264_MIN_QP));
+	rc_params.max_qp = meson_vcodec_g_ctrl(ctx->session, V4L2_CID(H264_MAX_QP));
+	rc_params.initial_qp = DIV_ROUND_CLOSEST(rc_params.min_qp + rc_params.max_qp, 2);
 	rc_params.rate_control = meson_vcodec_g_ctrl(ctx->session, V4L2_CID(FRAME_RC_ENABLE));
-	ret = amlvenc_h264_rc_init(
+	ret = amlvenc_h264_cbr_init(
 			&ctx->rc_ctx,
 			&rc_params,
 			ctx->buffers[BUF_CBR_INFO].vaddr,
@@ -1280,12 +1194,10 @@ static int encoder_h264_prepare(struct meson_codec_job *job) {
 	ctx->task.gop_size = meson_vcodec_g_ctrl(ctx->session, V4L2_CID(GOP_SIZE));
 	ctx->task.repeat_header = meson_vcodec_g_ctrl(ctx->session, V4L2_CID(REPEAT_SEQ_HEADER));
 	ctx->task.join_header = meson_vcodec_g_ctrl(ctx->session, V4L2_CID(HEADER_MODE));
-	ctx->task.min_qp = meson_vcodec_g_ctrl(ctx->session, V4L2_CID(H264_MIN_QP));
-	ctx->task.max_qp = meson_vcodec_g_ctrl(ctx->session, V4L2_CID(H264_MAX_QP));
 
 	job_info(ctx->job, "Encoding parameters: min_qp=%d, max_qp=%d, bitrate=%d, rc=%d, frame_rate=%d/%d, bytes/frame=%d, gop=%d, join_header=%d, repeat_header=%d\n",
-			ctx->task.min_qp,
-			ctx->task.max_qp,
+			ctx->rc_ctx.params.min_qp,
+			ctx->rc_ctx.params.max_qp,
 			ctx->rc_ctx.params.target_bitrate,
 			ctx->rc_ctx.params.rate_control,
 			ctx->rc_ctx.params.frame_rate_num,
@@ -1323,7 +1235,7 @@ canvas_config_failed:
 free_canvas:
 	canvas_free(session->core, &ctx->canvases[0][0], MAX_CANVAS_TYPE * MAX_NUM_CANVAS);
 free_buffers:
-	amlvenc_h264_rc_free(&ctx->rc_ctx);
+	amlvenc_h264_cbr_free(&ctx->rc_ctx);
 	buffers_free(session->core->dev, ctx->buffers, MAX_BUFFERS);
 free_ctx:
 	kfree(ctx);
@@ -1465,7 +1377,7 @@ static void encoder_h264_unprepare(struct meson_codec_job *job) {
 	free_irq(job->session->core->irqs[IRQ_HCODEC], (void *)job);
 
 	canvas_free(job->session->core, &ctx->canvases[0][0], MAX_CANVAS_TYPE * MAX_NUM_CANVAS);
-	amlvenc_h264_rc_free(&ctx->rc_ctx);
+	amlvenc_h264_cbr_free(&ctx->rc_ctx);
 	buffers_free(job->session->core->dev, ctx->buffers, MAX_BUFFERS);
 
 	kfree(ctx);

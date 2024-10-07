@@ -26,7 +26,9 @@ h264_encode() {
 	ffmpeg $FFMPEG_OPTS \
 		-i sample_h264.mp4 \
 		-map 0:v:0 \
-		-b:v 60000000 \
+		-qmin 22 \
+		-qmax 28 \
+		-b:v 3000000 \
 		-force_key_frames source \
 		-g 300 \
 		-c:v h264_v4l2m2m \
