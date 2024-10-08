@@ -83,6 +83,9 @@ enum AM_MESON_CPU_MAJOR_ID: u8 {
 
 enum AM_MESON_CPU_MAJOR_ID get_cpu_major_id(void);
 
+void WRITE_MPEG_REG(u32 reg, u32 val);
+u32 READ_MPEG_REG(u32 reg);
+
 void WRITE_HREG(u32 reg, u32 val);
 u32 READ_HREG(u32 reg);
 

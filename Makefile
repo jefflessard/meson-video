@@ -17,6 +17,7 @@ meson_vcodec-objs += \
 	amlvenc_h264.o \
 	amlvenc_h264_cbr.o \
 	encoder_h264.o \
+	encoder_hevc.o \
 	meson-platforms.o \
 	meson-vcodec.o
 

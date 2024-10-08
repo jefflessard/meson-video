@@ -27,6 +27,17 @@ inline enum AM_MESON_CPU_MAJOR_ID get_cpu_major_id(void) {
 	return MESON_VCODEC_CORE->platform_specs->platform_id;
 }
 
+inline void WRITE_MPEG_REG(u32 reg, u32 val) {
+	regmap_write(MESON_VCODEC_CORE->regmaps[BUS_DOS], reg << 2, val);
+}
+
+inline u32 READ_MPEG_REG(u32 reg) {
+	u32 val=0;
+
+	regmap_read(MESON_VCODEC_CORE->regmaps[BUS_DOS], reg << 2, &val);
+	return val;
+}
+
 inline void WRITE_HREG(u32 reg, u32 val) {
 	regmap_write(MESON_VCODEC_CORE->regmaps[BUS_DOS], reg << 2, val);
 }

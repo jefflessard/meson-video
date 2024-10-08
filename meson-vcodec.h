@@ -13,16 +13,16 @@
 enum meson_vcodec_regs: u8 {
 	DOS_BASE,
 	PARSER_BASE,
-	HEVCENC_BASE,
+	WAVE420L_BASE,
 	MAX_REGS
 };
 
 enum meson_vcodec_regmaps: u8 {
 	BUS_DOS,
 	BUS_PARSER,
-	BUS_HEVCENC,
 	BUS_AO,
 	BUS_HHI,
+	BUS_WAVE420L,
 	MAX_BUS
 };
 
@@ -33,6 +33,7 @@ enum meson_vcodec_clk: u8 {
 	CLK_HEVC,
 	CLK_HEVCF,
 	CLK_HCODEC,
+	CLK_WAVE420L,
 	MAX_CLKS
 };
 
@@ -46,7 +47,7 @@ enum meson_vcodec_irq: u8 {
 	IRQ_VDEC,
 	IRQ_PARSER,
 	IRQ_HCODEC,
-	IRQ_HEVCENC,
+	IRQ_WAVE420L,
 	MAX_IRQS
 };
 

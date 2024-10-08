@@ -14,6 +14,7 @@ enum meson_vcodec_pwrc: u8 {
 	PWRC_VDEC,
 	PWRC_HEVC,
 	PWRC_HCODEC,
+	PWRC_WAVE420L,
 	MAX_PWRC
 };
 

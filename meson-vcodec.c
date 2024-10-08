@@ -28,26 +28,26 @@
 /* helper macros */
 
 #define CODEC_OPS(__codec, __ops, ...) ( \
-	__codec->spec->ops->__ops ? \
-	__codec->spec->ops->__ops(__codec, ##__VA_ARGS__) \
+	(__codec)->spec->ops->__ops ? \
+	(__codec)->spec->ops->__ops((__codec), ##__VA_ARGS__) \
 	: 0)
 
 #define ENCODER_CODEC_OPS(__session, __ops, ...) \
-	CODEC_OPS(__session->enc_job.codec, __ops, ##__VA_ARGS__)
+	CODEC_OPS((__session)->enc_job.codec, __ops, ##__VA_ARGS__)
 
 #define DECODER_CODEC_OPS(__session, __ops, ...) \
-	CODEC_OPS(__session->dec_job.codec, __ops, ##__VA_ARGS__)
+	CODEC_OPS((__session)->dec_job.codec, __ops, ##__VA_ARGS__)
 
 #define CODEC_JOB_OPS(__job, __ops, ...) ( \
-	__job.codec->spec->ops->__ops ? \
-	__job.codec->spec->ops->__ops(&__job, ##__VA_ARGS__) \
+	(__job).codec->spec->ops->__ops ? \
+	(__job).codec->spec->ops->__ops(&(__job), ##__VA_ARGS__) \
 	: 0)
 
 #define ENCODER_JOB_OPS(__session, __ops, ...) \
-	CODEC_JOB_OPS(__session->enc_job, __ops, ##__VA_ARGS__)
+	CODEC_JOB_OPS((__session)->enc_job, __ops, ##__VA_ARGS__)
 
 #define DECODER_JOB_OPS(__session, __ops, ...) \
-	CODEC_JOB_OPS(__session->dec_job, __ops, ##__VA_ARGS__)
+	CODEC_JOB_OPS((__session)->dec_job, __ops, ##__VA_ARGS__)
 
 
 /* constants */
@@ -55,7 +55,7 @@
 static const char* reg_names[MAX_BUS] = {
 	[BUS_DOS] = "dos",
 	[BUS_PARSER] = "esparser",
-	[BUS_HEVCENC] = "hevcenc",
+	[BUS_WAVE420L] = "wave420l",
 };
 
 static const char* regmap_names[MAX_BUS] = {
@@ -70,6 +70,7 @@ static const char* clk_names[MAX_CLKS] = {
 	[CLK_HEVC] = "vdec_hevc",
 	[CLK_HEVCF] = "vdec_hevcf",
 	[CLK_HCODEC] = "vdec_hcodec",
+	[CLK_WAVE420L] = "wave420l",
 };
 
 static const char* reset_names[MAX_RESETS] = {
@@ -81,7 +82,7 @@ static const char* irq_names[MAX_IRQS] = {
 	[IRQ_VDEC] = "vdec",
 	[IRQ_PARSER] = "esparser",
 	[IRQ_HCODEC] = "hcodec",
-	[IRQ_HEVCENC] = "hevcenc",
+	[IRQ_WAVE420L] = "wave420l",
 };
 
 const struct meson_codec_spec *codec_specs[MAX_CODECS] = {

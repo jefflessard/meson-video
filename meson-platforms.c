@@ -10,6 +10,8 @@
 #include "clk/gxbb.h"
 
 
+#define HHI_WAVE420L_CLK_CNTL ((0x109a - 0x1000) << 2)
+
 /* BEGIN taken from meson-ee-pwrc.c */
 
 /* AO Offsets */
@@ -289,16 +291,158 @@ static struct clk_regmap gxbb_vdec_hcodec = {
 	},
 };
 
+static struct clk_regmap gxbb_wave420l_0_sel = {
+	.data = &(struct clk_regmap_mux_data){
+		.offset = HHI_WAVE420L_CLK_CNTL,
+		.mask = 0x4,
+		.shift = 9,
+		.flags = CLK_MUX_ROUND_CLOSEST | CLK_MUX_INDEX_ONE,
+	},
+	.hw.init = &(struct clk_init_data){
+		.name = "wave420l_0_sel",
+		.ops = &clk_regmap_mux_ops,
+		.parent_names = (const char*[]) {
+			"fclk_div4",
+			"fclk_div3",
+			"fclk_div5",
+			"fclk_div7",
+		},
+		.num_parents = 4,
+		.flags = CLK_SET_RATE_NO_REPARENT,
+	},
+};
+
+static struct clk_regmap gxbb_wave420l_0_div = {
+	.data = &(struct clk_regmap_div_data){
+		.offset = HHI_WAVE420L_CLK_CNTL,
+		.shift = 0,
+		.width = 7,
+		.flags = CLK_DIVIDER_ROUND_CLOSEST,
+	},
+	.hw.init = &(struct clk_init_data){
+		.name = "wave420l_0_div",
+		.ops = &clk_regmap_divider_ops,
+		.parent_hws = (const struct clk_hw *[]) {
+			&gxbb_wave420l_0_sel.hw
+		},
+		.num_parents = 1,
+		.flags = CLK_SET_RATE_PARENT,
+	},
+};
+
+static struct clk_regmap gxbb_wave420l_0 = {
+	.data = &(struct clk_regmap_gate_data){
+		.offset = HHI_WAVE420L_CLK_CNTL,
+		.bit_idx = 8,
+	},
+	.hw.init = &(struct clk_init_data) {
+		.name = "wave420l_0",
+		.ops = &clk_regmap_gate_ops,
+		.parent_hws = (const struct clk_hw *[]) {
+			&gxbb_wave420l_0_div.hw
+		},
+		.num_parents = 1,
+		.flags = CLK_SET_RATE_PARENT | CLK_IGNORE_UNUSED,
+	},
+};
+
+static struct clk_regmap gxbb_wave420l_1_sel = {
+	.data = &(struct clk_regmap_mux_data){
+		.offset = HHI_WAVE420L_CLK_CNTL,
+		.mask = 0x4,
+		.shift = 25,
+		.flags = CLK_MUX_ROUND_CLOSEST | CLK_MUX_INDEX_ONE,
+	},
+	.hw.init = &(struct clk_init_data){
+		.name = "wave420l_1_sel",
+		.ops = &clk_regmap_mux_ops,
+		.parent_names = (const char*[]) {
+			"fclk_div4",
+			"fclk_div3",
+			"fclk_div5",
+			"fclk_div7",
+		},
+		.num_parents = 4,
+		.flags = CLK_SET_RATE_NO_REPARENT,
+	},
+};
+
+static struct clk_regmap gxbb_wave420l_1_div = {
+	.data = &(struct clk_regmap_div_data){
+		.offset = HHI_WAVE420L_CLK_CNTL,
+		.shift = 16,
+		.width = 7,
+		.flags = CLK_DIVIDER_ROUND_CLOSEST,
+	},
+	.hw.init = &(struct clk_init_data){
+		.name = "wave420l_1_div",
+		.ops = &clk_regmap_divider_ops,
+		.parent_hws = (const struct clk_hw *[]) {
+			&gxbb_wave420l_1_sel.hw
+		},
+		.num_parents = 1,
+		.flags = CLK_SET_RATE_PARENT,
+	},
+};
+
+static struct clk_regmap gxbb_wave420l_1 = {
+	.data = &(struct clk_regmap_gate_data){
+		.offset = HHI_WAVE420L_CLK_CNTL,
+		.bit_idx = 24,
+	},
+	.hw.init = &(struct clk_init_data) {
+		.name = "wave420l_1",
+		.ops = &clk_regmap_gate_ops,
+		.parent_hws = (const struct clk_hw *[]) {
+			&gxbb_wave420l_1_div.hw
+		},
+		.num_parents = 1,
+		.flags = CLK_SET_RATE_PARENT | CLK_IGNORE_UNUSED,
+	},
+};
+
+static struct clk_regmap gxbb_wave420l = {
+	.data = &(struct clk_regmap_mux_data){
+		.offset = HHI_WAVE420L_CLK_CNTL,
+		.mask = 1,
+		.shift = 31,
+	},
+	.hw.init = &(struct clk_init_data){
+		.name = "wave420l",
+		.ops = &clk_regmap_mux_ops,
+		.parent_hws = (const struct clk_hw *[]) {
+			&gxbb_wave420l_0.hw,
+			&gxbb_wave420l_1.hw
+		},
+		.num_parents = 2,
+		.flags = CLK_SET_RATE_NO_REPARENT,
+	},
+};
+
 static struct clk_hw *gxbb_hw_clks[] = {
 	&gxbb_vdec_hcodec_sel.hw,
 	&gxbb_vdec_hcodec_div.hw,
 	&gxbb_vdec_hcodec.hw,
+	&gxbb_wave420l_0_sel.hw,
+	&gxbb_wave420l_0_div.hw,
+	&gxbb_wave420l_0.hw,
+	&gxbb_wave420l_1_sel.hw,
+	&gxbb_wave420l_1_div.hw,
+	&gxbb_wave420l_1.hw,
+	&gxbb_wave420l.hw,
 };
 
 static struct clk_regmap *const gxbb_clk_regmaps[] = {
 	&gxbb_vdec_hcodec_sel,
 	&gxbb_vdec_hcodec_div,
 	&gxbb_vdec_hcodec,
+	&gxbb_wave420l_0_sel,
+	&gxbb_wave420l_0_div,
+	&gxbb_wave420l_0,
+	&gxbb_wave420l_1_sel,
+	&gxbb_wave420l_1_div,
+	&gxbb_wave420l_1,
+	&gxbb_wave420l,
 };
 
 static const struct meson_eeclkc_data gxbb_clkc_data = {
@@ -320,12 +464,16 @@ static const struct meson_ee_pwrc_top_domain gx_pwrc[MAX_PWRC] = {
 	[PWRC_HCODEC] = GX_EE_PD(
 			BIT(0) | BIT(1),
 			BIT(4) | BIT(5)),
+	[PWRC_WAVE420L] = GX_EE_PD(
+			BIT(24) | BIT(25),
+			BIT(12) | BIT(13)),
 };
 
 static const struct meson_ee_pwrc_top_domain sm1_pwrc[MAX_PWRC] = {
 	[PWRC_VDEC] = SM1_EE_PD(1),
 	[PWRC_HEVC] = SM1_EE_PD(2),
 	[PWRC_HCODEC] = SM1_EE_PD(1),
+	[PWRC_WAVE420L] = SM1_EE_PD(8),
 };
 
 static const struct meson_codec_formats gxl_codecs[] = {
@@ -347,6 +495,7 @@ const struct meson_platform_specs gxl_platform_specs = {
 	.clks = &gxbb_clkc_data,
 	.hwclks = {
 		[CLK_HCODEC] = &gxbb_vdec_hcodec.hw,
+		[CLK_WAVE420L] = &gxbb_wave420l.hw,
 	},
 	.pwrc = gx_pwrc,
 	.codecs = gxl_codecs,
