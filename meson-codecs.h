@@ -78,6 +78,13 @@ struct meson_codec_formats {
 	const u16 max_height;
 };
 
+struct meson_vcodec_buffer {
+	size_t size;
+	void* vaddr;
+	dma_addr_t paddr;
+	void *priv;
+};
+
 extern const struct meson_codec_spec mpeg1_decoder;
 extern const struct meson_codec_spec mpeg2_decoder;
 extern const struct meson_codec_spec h264_decoder;
@@ -85,5 +92,15 @@ extern const struct meson_codec_spec vp9_decoder;
 extern const struct meson_codec_spec hevc_decoder;
 extern const struct meson_codec_spec h264_encoder;
 extern const struct meson_codec_spec hevc_encoder;
+
+int meson_vcodec_request_firmware(struct meson_codec_dev *codec, struct meson_vcodec_buffer *buf);
+void meson_vcodec_release_firmware(struct meson_codec_dev *codec, struct meson_vcodec_buffer *buf);
+
+void meson_vcodec_buffers_free(struct meson_codec_dev *codec, struct meson_vcodec_buffer *buffers, int num_buffers);
+int meson_vcodec_buffers_alloc(struct meson_codec_dev *codec, struct meson_vcodec_buffer *buffers, int num_buffers);
+
+int meson_vcodec_canvas_alloc(struct meson_codec_dev *codec, u8 canvases[], u8 num_canvas);
+void meson_vcodec_canvas_free(struct meson_codec_dev *codec, u8 canvases[], u8 num_canvas);
+int meson_vcodec_canvas_config(struct meson_codec_dev *codec, u8 canvas_index, u32 paddr, u32 width, u32 height);
 
 #endif

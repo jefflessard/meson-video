@@ -93,12 +93,6 @@ enum encoder_h264_buffers : u8 {
 	MAX_BUFFERS,
 };
 
-struct encoder_h264_buffer {
-	size_t size;
-	void* vaddr;
-	dma_addr_t paddr;
-};
-
 enum encoder_h264_canvas_type : u8 {
 	CANVAS_TYPE_DBLK,  // index 0, 1, 2
 	CANVAS_TYPE_REF,   // index 3, 4, 5
@@ -139,7 +133,7 @@ struct encoder_h264_ctx {
 	u32 enc_done_count;
 
 	struct amlvenc_h264_cbr_ctx rc_ctx;
-	struct encoder_h264_buffer buffers[MAX_BUFFERS];
+	struct meson_vcodec_buffer buffers[MAX_BUFFERS];
 
 	u8 canvases[MAX_CANVAS_TYPE][MAX_NUM_CANVAS];
 	bool is_next_idr;
@@ -165,41 +159,6 @@ static const struct encoder_h264_spec* find_encoder_spec(u32 pixelformat) {
 	return NULL;
 }
 
-static int canvas_alloc(struct meson_vcodec_core *core, u8 canvases[], u8 num_canvas) {
-	int i, ret;
-
-	for (i = 0; i < num_canvas; i++) {
-		ret = meson_canvas_alloc(core->canvas, &canvases[i]);
-		if (ret)
-			goto free_canvases;
-	}
-
-	return 0;
-
-free_canvases:
-	while (--i >= 0) {
-		meson_canvas_free(core->canvas, canvases[i]);
-	}
-	return ret;
-}
-
-static void canvas_free(struct meson_vcodec_core *core, u8 canvases[], u8 num_canvas) {
-	int i;
-
-	for (i = 0; i < num_canvas; i++) {
-		meson_canvas_free(core->canvas, canvases[i]);
-	}
-}
-
-static int canvas_config(struct meson_vcodec_core *core, u8 canvas_index, u32 paddr, u32 width, u32 height) {
-
-	return meson_canvas_config(
-			core->canvas,
-			canvas_index, paddr, width, height,
-			MESON_CANVAS_WRAP_NONE, MESON_CANVAS_BLKMODE_LINEAR, 0
-		);
-}
-
 static int wait_hcodec_dma_completed(void) {
 	int ret;
 
@@ -211,36 +170,20 @@ static int wait_hcodec_dma_completed(void) {
 	return 0;
 }
 
-static int load_firmware(struct meson_vcodec_core *core) {
-	struct device *dev = core->dev;
-	const char *path = core->platform_specs->firmwares[H264_ENCODER];
-	const struct firmware *fw;
-	static void *fw_vaddr;
-	static dma_addr_t fw_paddr;
-	size_t fw_size;
+static int load_firmware(struct meson_codec_dev *codec) {
+	struct meson_vcodec_buffer buf;
 	int ret;
 
-	if (!path) {
-		dev_info(dev, "h264 encoder: No firmware\n");
-		return 0;
-	}
-
 	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_SC2) {
-		fw_size = 4096 * 16;
+		buf.size = 4096 * 16;
 	} else {
-		fw_size = 4096 * 8;
+		buf.size = 4096 * 8;
 	}
 
-	fw_vaddr = dma_alloc_coherent(dev, fw_size, &fw_paddr, GFP_KERNEL);
-	if (!fw_vaddr) {
-		return -ENOMEM;
-	}
-
-	ret = request_firmware_into_buf(&fw, path, dev, fw_vaddr, fw_size);
-	if (ret < 0) {
-		dev_err(dev, "h264 encoder: Failed to request firmware %s\n", path);
-		goto free_dma;
-	}
+	ret = meson_vcodec_request_firmware(codec, &buf);
+	if (ret) {
+		return ret;
+	};
 
 	/* >= AM_MESON_CPU_MAJOR_ID_SC2 */
 	// amlvenc_hcodec_stop
@@ -257,20 +200,16 @@ static int load_firmware(struct meson_vcodec_core *core) {
 
 	usleep_range(10, 20);
 
-	amlvenc_hcodec_dma_load_firmware(fw_paddr, fw_size);
+	amlvenc_hcodec_dma_load_firmware(buf.paddr, buf.size);
 
 	ret = wait_hcodec_dma_completed();
 	if (ret) {
-		dev_err(dev, "h264 encoder: Load firmware timed out (dma hang?)\n");
+		codec_err(codec, "Load firmware timed out (dma hang?)\n");
 		goto release_firmware;
 	}
 
-	dev_info(dev, "h264 encoder: Firmware %s loaded\n", path);
-
 release_firmware:
-	release_firmware(fw);
-free_dma:
-	dma_free_coherent(dev, fw_size, fw_vaddr, fw_paddr);
+	meson_vcodec_release_firmware(codec, &buf);
 	return ret;
 }
 
@@ -539,8 +478,8 @@ static int encoder_init_mdfin(struct encoder_h264_ctx *ctx) {
 				canvas_w, canvas_h,
 				s->width_align, s->height_align);
 
-		ret = canvas_config(
-				ctx->session->core,
+		ret = meson_vcodec_canvas_config(
+				ctx->job->codec,
 				ctx->canvases[CANVAS_TYPE_INPUT][i],
 				canvas_paddr,
 				canvas_w, canvas_h
@@ -1010,47 +949,6 @@ static irqreturn_t hcodec_isr(int irq, void *data)
 	}
 }
 
-static void buffers_free(struct device *dev, struct encoder_h264_buffer *buffers, int num_buffers) {
-	int i;
-
-	for (i = 0; i < num_buffers; i++) {
-		if (buffers[i].size) {
-
-			dma_free_coherent(dev, buffers[i].size, buffers[i].vaddr, buffers[i].paddr);
-		}
-
-		buffers[i].vaddr = NULL;
-		buffers[i].paddr = 0;
-	}
-}
-
-static int buffers_alloc(struct device *dev, struct encoder_h264_buffer *buffers, int num_buffers) {
-	int i, ret;
-
-	for (i = 0; i < num_buffers; i++) {
-		if (buffers[i].size) {
-
-			buffers[i].vaddr = dma_alloc_coherent(dev, buffers[i].size, &buffers[i].paddr, GFP_KERNEL);
-			if (!buffers[i].vaddr) {
-				ret = -ENOMEM;
-				goto free_buffers;
-			}
-		}
-	}
-
-	return 0;
-
-free_buffers:
-	while (--i >= 0) {
-		if (buffers[i].size) {
-			dma_free_coherent(dev, buffers[i].size, buffers[i].vaddr, buffers[i].paddr);
-		}
-		buffers[i].vaddr = NULL;
-		buffers[i].paddr = 0;
-	}
-	return ret;
-}
-
 static int encoder_h264_prepare(struct meson_codec_job *job) {
 	struct meson_vcodec_session *session = job->session;
 	struct encoder_h264_ctx	*ctx;
@@ -1102,7 +1000,7 @@ static int encoder_h264_prepare(struct meson_codec_job *job) {
 		goto free_ctx;
 	}
 
-	ret = buffers_alloc(session->core->dev, ctx->buffers, MAX_BUFFERS);
+	ret = meson_vcodec_buffers_alloc(job->codec, ctx->buffers, MAX_BUFFERS);
 	if (ret) {
 		job_err(job, "Failed to allocate buffer\n");
 		goto free_ctx;
@@ -1130,54 +1028,54 @@ static int encoder_h264_prepare(struct meson_codec_job *job) {
 	}
 
 	/* alloc canvases */
-	ret = canvas_alloc(session->core, &ctx->canvases[0][0], MAX_CANVAS_TYPE * MAX_NUM_CANVAS);
+	ret = meson_vcodec_canvas_alloc(job->codec, &ctx->canvases[0][0], MAX_CANVAS_TYPE * MAX_NUM_CANVAS);
 	if (ret) {
 		job_err(job, "Failed to allocate canvases\n");
 		goto free_buffers;
 	}
 
-	ret = canvas_config(
-			session->core,
+	ret = meson_vcodec_canvas_config(
+			job->codec,
 			ctx->canvases[CANVAS_TYPE_DBLK][0],
 			ctx->buffers[BUF_DBLK_Y].paddr,
 			canvas_width,
 			canvas_height
 		);
 	if (ret) goto canvas_config_failed;
-	ret = canvas_config(
-			session->core,
+	ret = meson_vcodec_canvas_config(
+			job->codec,
 			ctx->canvases[CANVAS_TYPE_DBLK][1],
 			ctx->buffers[BUF_DBLK_UV].paddr,
 			canvas_width,
 			canvas_height / 2
 		);
 	if (ret) goto canvas_config_failed;
-	ret = canvas_config(
-			session->core,
+	ret = meson_vcodec_canvas_config(
+			job->codec,
 			ctx->canvases[CANVAS_TYPE_DBLK][2],
 			ctx->buffers[BUF_DBLK_UV].paddr,
 			canvas_width,
 			canvas_height / 2
 		);
 	if (ret) goto canvas_config_failed;
-	ret = canvas_config(
-			session->core,
+	ret = meson_vcodec_canvas_config(
+			job->codec,
 			ctx->canvases[CANVAS_TYPE_REF][0],
 			ctx->buffers[BUF_REF_Y].paddr,
 			canvas_width,
 			canvas_height
 		);
 	if (ret) goto canvas_config_failed;
-	ret = canvas_config(
-			session->core,
+	ret = meson_vcodec_canvas_config(
+			job->codec,
 			ctx->canvases[CANVAS_TYPE_REF][1],
 			ctx->buffers[BUF_REF_UV].paddr,
 			canvas_width,
 			canvas_height / 2
 		);
 	if (ret) goto canvas_config_failed;
-	ret = canvas_config(
-			session->core,
+	ret = meson_vcodec_canvas_config(
+			job->codec,
 			ctx->canvases[CANVAS_TYPE_REF][2],
 			ctx->buffers[BUF_REF_UV].paddr,
 			canvas_width,
@@ -1185,7 +1083,7 @@ static int encoder_h264_prepare(struct meson_codec_job *job) {
 		);
 	if (ret) goto canvas_config_failed;
 
-	ret = request_irq(session->core->irqs[IRQ_HCODEC], hcodec_isr, IRQF_SHARED, "hcodec", job);
+	ret = request_irq(session->core->irqs[IRQ_MBOX2], hcodec_isr, IRQF_SHARED, "hcodec", job);
 	if (ret) {
 		job_err(job, "Failed to request HCODEC irq\n");
 		goto free_canvas;
@@ -1231,12 +1129,12 @@ canvas_config_failed:
 	goto free_canvas;
 
 //free_irq:
-	free_irq(session->core->irqs[IRQ_HCODEC], (void *)job);
+	free_irq(session->core->irqs[IRQ_MBOX2], (void *)job);
 free_canvas:
-	canvas_free(session->core, &ctx->canvases[0][0], MAX_CANVAS_TYPE * MAX_NUM_CANVAS);
+	meson_vcodec_canvas_free(job->codec, &ctx->canvases[0][0], MAX_CANVAS_TYPE * MAX_NUM_CANVAS);
 free_buffers:
 	amlvenc_h264_cbr_free(&ctx->rc_ctx);
-	buffers_free(session->core->dev, ctx->buffers, MAX_BUFFERS);
+	meson_vcodec_buffers_free(job->codec, ctx->buffers, MAX_BUFFERS);
 free_ctx:
 	kfree(ctx);
 	job->priv = NULL;
@@ -1284,22 +1182,20 @@ static int encoder_h264_init(struct meson_codec_dev *codec) {
 	amlvenc_dos_sw_reset1(0xffffffff);
 	/* dos internal clock gating */
 	amlvenc_dos_hcodec_gateclk(true);
-	/* Powerup HCODEC memories */
-	amlvenc_dos_hcodec_memory(true);
 	/* disable auto-clock gate */
 	amlvenc_dos_disable_auto_gateclk();
 	/* enable hcodec assist */
 	amlvenc_hcodec_assist_enable();
 
 	/* load firmware */
-	ret = load_firmware(core);
+	ret = load_firmware(codec);
 	if (ret) {
 		dev_err(core->dev, "Failed to load firmware\n");
 		goto disable_hcodec;
 	}
 
 	/* request irq */
-	if (!core->irqs[IRQ_HCODEC]) {
+	if (!core->irqs[IRQ_MBOX2]) {
 		dev_err(core->dev, "Failed to get HCODEC irq\n");
 		ret = -EINVAL;
 		goto disable_hcodec;
@@ -1308,7 +1204,6 @@ static int encoder_h264_init(struct meson_codec_dev *codec) {
 	return 0;
 
 disable_hcodec:
-	amlvenc_dos_hcodec_memory(false);
 	amlvenc_dos_hcodec_gateclk(false);
 //pwrc_off:
 	meson_vcodec_pwrc_off(core, PWRC_HCODEC);
@@ -1374,11 +1269,11 @@ static int encoder_h264_stop(struct meson_codec_job *job, struct vb2_queue *vq) 
 static void encoder_h264_unprepare(struct meson_codec_job *job) {
 	struct encoder_h264_ctx *ctx = job->priv;
 
-	free_irq(job->session->core->irqs[IRQ_HCODEC], (void *)job);
+	free_irq(job->session->core->irqs[IRQ_MBOX2], (void *)job);
 
-	canvas_free(job->session->core, &ctx->canvases[0][0], MAX_CANVAS_TYPE * MAX_NUM_CANVAS);
+	meson_vcodec_canvas_free(job->codec, &ctx->canvases[0][0], MAX_CANVAS_TYPE * MAX_NUM_CANVAS);
 	amlvenc_h264_cbr_free(&ctx->rc_ctx);
-	buffers_free(job->session->core->dev, ctx->buffers, MAX_BUFFERS);
+	meson_vcodec_buffers_free(job->codec, ctx->buffers, MAX_BUFFERS);
 
 	kfree(ctx);
 	job->priv = NULL;
@@ -1386,7 +1281,6 @@ static void encoder_h264_unprepare(struct meson_codec_job *job) {
 
 static void encoder_h264_release(struct meson_codec_dev *codec) {
 
-	amlvenc_dos_hcodec_memory(false);
 	amlvenc_dos_hcodec_gateclk(false);
 	meson_vcodec_pwrc_off(codec->core, PWRC_HCODEC);
 	meson_vcodec_clk_unprepare(codec->core, CLK_HCODEC);

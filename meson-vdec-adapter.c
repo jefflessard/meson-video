@@ -10,7 +10,6 @@
 
 #include "vdec/vdec.h"
 #include "vdec/codec_mpeg12.h"
-#include "vdec/codec_h264.h"
 #include "vdec/codec_vp9.h"
 #include "vdec/codec_hevc.h"
 #include "vdec/vdec_1.h"
@@ -24,7 +23,7 @@
 static struct amvdec_codec_ops *vdec_decoders[MAX_CODECS] = {
 	[MPEG1_DECODER] = &codec_mpeg12_ops,
 	[MPEG2_DECODER] = &codec_mpeg12_ops,
-	[H264_DECODER] = &codec_h264_ops,
+	//[H264_DECODER] = NULL,
 	[VP9_DECODER] = &codec_vp9_ops,
 	[HEVC_DECODER] = &codec_hevc_ops,
 	//[H264_ENCODER] = NULL,
@@ -486,7 +485,7 @@ static int meson_vdec_adapter_prepare(struct meson_codec_job *job) {
 	adapter->vdec_sess.pixfmt_cap = V4L2_FMT_PIXFMT(job->dst_fmt);
 
 	// TODO IRQF_SHARED vs IRQF_ONESHOT
-	ret = request_threaded_irq(session->core->irqs[IRQ_VDEC], vdec_isr, vdec_threaded_isr, IRQF_ONESHOT, "vdec", job);
+	ret = request_threaded_irq(session->core->irqs[IRQ_MBOX1], vdec_isr, vdec_threaded_isr, IRQF_ONESHOT, "vdec", job);
 	if (ret) {
 		return ret;
 	}
@@ -566,15 +565,12 @@ static void meson_vdec_adapter_unprepare(struct meson_codec_job *job) {
 	vdec_close(&adapter->vdec_sess);
 
 	free_irq(job->session->core->irqs[IRQ_PARSER], (void *)&adapter->vdec_core);
-	free_irq(job->session->core->irqs[IRQ_VDEC], (void *)job);
+	free_irq(job->session->core->irqs[IRQ_MBOX1], (void *)job);
 	job->priv = NULL;
 	kfree(adapter);
 }
 
 static const struct v4l2_ctrl_config mpeg12_decoder_ctrls[] = {
-};
-
-static const struct v4l2_ctrl_config h264_decoder_ctrls[] = {
 };
 
 static const struct v4l2_ctrl_config vp9_decoder_ctrls[] = {
@@ -607,14 +603,6 @@ const struct meson_codec_spec mpeg2_decoder = {
 	.ops = &codec_ops_vdec_adapter,
 	.ctrls = mpeg12_decoder_ctrls,
 	.num_ctrls = ARRAY_SIZE(mpeg12_decoder_ctrls),
-};
-
-const struct meson_codec_spec h264_decoder = {
-	.type = H264_DECODER,
-	.name = "h264_decoder",
-	.ops = &codec_ops_vdec_adapter,
-	.ctrls = h264_decoder_ctrls,
-	.num_ctrls = ARRAY_SIZE(h264_decoder_ctrls),
 };
 
 const struct meson_codec_spec vp9_decoder = {

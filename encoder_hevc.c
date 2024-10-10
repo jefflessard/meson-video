@@ -152,7 +152,6 @@ static int encoder_hevc_init(struct meson_codec_dev *codec) {
 	 *	Disable wave420l_vpu_idle_fall_irq
 	 */
 	WRITE_VREG(DOS_WAVE420L_CNTL_STAT, 0x1);
-	WRITE_VREG(DOS_MEM_PD_WAVE420L, 0x0);
 
 	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_SC2) {
 
@@ -246,7 +245,6 @@ static void encoder_hevc_unprepare(struct meson_codec_job *job) {
 
 static void encoder_hevc_release(struct meson_codec_dev *codec) {
 
-	WRITE_VREG(DOS_MEM_PD_WAVE420L, 0xffffffff);
 	//amlvenc_dos_hcodec_memory(false);
 	meson_vcodec_pwrc_off(codec->core, PWRC_WAVE420L);
 	meson_vcodec_clk_unprepare(codec->core, CLK_WAVE420L);

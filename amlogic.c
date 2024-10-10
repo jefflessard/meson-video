@@ -27,64 +27,136 @@ inline enum AM_MESON_CPU_MAJOR_ID get_cpu_major_id(void) {
 	return MESON_VCODEC_CORE->platform_specs->platform_id;
 }
 
+inline u32 meson_dos_read(struct meson_vcodec_core *core, u32 reg)
+{
+	u32 val=0;
+
+	regmap_read(core->regmaps[BUS_DOS], DOS_REMAP(reg), &val);
+	return val;
+}
+
+inline void meson_dos_write(struct meson_vcodec_core *core, u32 reg, u32 val)
+{
+	regmap_write(core->regmaps[BUS_DOS], DOS_REMAP(reg), val);
+}
+
+inline void meson_dos_set_bits(struct meson_vcodec_core *core, u32 reg, u32 bits)
+{
+	regmap_set_bits(core->regmaps[BUS_DOS], DOS_REMAP(reg), bits);
+}
+
+void meson_dos_clear_bits(struct meson_vcodec_core *core, u32 reg, u32 bits)
+{
+	regmap_clear_bits(core->regmaps[BUS_DOS], DOS_REMAP(reg), bits);
+}
+
+inline u32 meson_parser_read(struct meson_vcodec_core *core, u32 reg)
+{
+	u32 val=0;
+
+	regmap_read(core->regmaps[BUS_PARSER], PARSER_REMAP(reg), &val);
+	return val;
+}
+
+inline void meson_parser_write(struct meson_vcodec_core *core, u32 reg, u32 val)
+{
+	regmap_write(core->regmaps[BUS_PARSER], PARSER_REMAP(reg), val);
+}
+
+inline void meson_parser_set_bits(struct meson_vcodec_core *core, u32 reg, u32 bits)
+{
+	regmap_set_bits(core->regmaps[BUS_PARSER], PARSER_REMAP(reg), bits);
+}
+
+void meson_parser_clear_bits(struct meson_vcodec_core *core, u32 reg, u32 bits)
+{
+	regmap_clear_bits(core->regmaps[BUS_PARSER], PARSER_REMAP(reg), bits);
+}
+
+inline u32 meson_hhi_read(struct meson_vcodec_core *core, u32 reg)
+{
+	u32 val=0;
+
+	regmap_read(core->regmaps[BUS_HHI], HHI_REMAP(reg), &val);
+	return val;
+}
+
+inline void meson_hhi_write(struct meson_vcodec_core *core, u32 reg, u32 val)
+{
+	regmap_write(core->regmaps[BUS_HHI], HHI_REMAP(reg), val);
+}
+
+inline void meson_hhi_set_bits(struct meson_vcodec_core *core, u32 reg, u32 bits)
+{
+	regmap_set_bits(core->regmaps[BUS_HHI], HHI_REMAP(reg), bits);
+}
+
+void meson_hhi_clear_bits(struct meson_vcodec_core *core, u32 reg, u32 bits)
+{
+	regmap_clear_bits(core->regmaps[BUS_HHI], HHI_REMAP(reg), bits);
+}
+
+inline u32 meson_ao_read(struct meson_vcodec_core *core, u32 reg)
+{
+	u32 val=0;
+
+	regmap_read(core->regmaps[BUS_AO], AO_REMAP(reg), &val);
+	return val;
+}
+
+inline void meson_ao_write(struct meson_vcodec_core *core, u32 reg, u32 val)
+{
+	regmap_write(core->regmaps[BUS_AO], AO_REMAP(reg), val);
+}
+
+inline void meson_ao_set_bits(struct meson_vcodec_core *core, u32 reg, u32 bits)
+{
+	regmap_set_bits(core->regmaps[BUS_AO], AO_REMAP(reg), bits);
+}
+
+void meson_ao_clear_bits(struct meson_vcodec_core *core, u32 reg, u32 bits)
+{
+	regmap_clear_bits(core->regmaps[BUS_AO], AO_REMAP(reg), bits);
+}
+
 inline void WRITE_MPEG_REG(u32 reg, u32 val) {
-	regmap_write(MESON_VCODEC_CORE->regmaps[BUS_DOS], reg << 2, val);
+	meson_dos_write(MESON_VCODEC_CORE, reg, val);
 }
 
 inline u32 READ_MPEG_REG(u32 reg) {
-	u32 val=0;
-
-	regmap_read(MESON_VCODEC_CORE->regmaps[BUS_DOS], reg << 2, &val);
-	return val;
+	return meson_dos_read(MESON_VCODEC_CORE, reg);
 }
 
 inline void WRITE_HREG(u32 reg, u32 val) {
-	regmap_write(MESON_VCODEC_CORE->regmaps[BUS_DOS], reg << 2, val);
+	meson_dos_write(MESON_VCODEC_CORE, reg, val);
 }
 
 inline u32 READ_HREG(u32 reg) {
-	u32 val=0;
-
-	regmap_read(MESON_VCODEC_CORE->regmaps[BUS_DOS], reg << 2, &val);
-	return val;
+	return meson_dos_read(MESON_VCODEC_CORE, reg);
 }
 
 inline void WRITE_VREG(u32 reg, u32 val) {
-	regmap_write(MESON_VCODEC_CORE->regmaps[BUS_DOS], reg << 2, val);
+	meson_dos_write(MESON_VCODEC_CORE, reg, val);
 }
 
 inline u32 READ_VREG(u32 reg) {
-	u32 val=0;
-
-	regmap_read(MESON_VCODEC_CORE->regmaps[BUS_DOS], reg << 2, &val);
-	return val;
+	return meson_dos_read(MESON_VCODEC_CORE, reg);
 }
 
-inline void WRITE_HHI_REG(u32 reg, u32 val) {
-	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_GXBB)
-	   reg -= 0x1000;
-
-	regmap_write(MESON_VCODEC_CORE->regmaps[BUS_HHI], reg << 2, val);
+inline void WRITE_HHI(u32 reg, u32 val) {
+	meson_hhi_write(MESON_VCODEC_CORE, reg, val);
 }
 
-inline u32 READ_HHI_REG(u32 reg) {
-	u32 val=0;
-
-	if (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_GXBB)
-	   reg -= 0x1000;
-
-	regmap_read(MESON_VCODEC_CORE->regmaps[BUS_HHI], reg << 2, &val);
-	return val;
+inline u32 READ_HHI(u32 reg) {
+	return meson_hhi_read(MESON_VCODEC_CORE, reg);
 }
 
 inline void WRITE_AOREG(u32 reg, u32 val) {
-	regmap_write(MESON_VCODEC_CORE->regmaps[BUS_AO], reg, val);
+	meson_ao_write(MESON_VCODEC_CORE, reg, val);
 }
 
 inline u32 READ_AOREG(u32 reg) {
-	u32 val=0;
-	regmap_read(MESON_VCODEC_CORE->regmaps[BUS_AO], reg, &val);
-	return val;
+	return meson_ao_read(MESON_VCODEC_CORE, reg);
 }
 
 inline s32 hcodec_hw_reset(void) {

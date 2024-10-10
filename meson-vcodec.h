@@ -44,9 +44,9 @@ enum meson_vcodec_reset: u8 {
 };
 
 enum meson_vcodec_irq: u8 {
-	IRQ_VDEC,
+	IRQ_MBOX1,
+	IRQ_MBOX2,
 	IRQ_PARSER,
-	IRQ_HCODEC,
 	IRQ_WAVE420L,
 	MAX_IRQS
 };
@@ -247,7 +247,8 @@ int meson_vcodec_pwrc_on(struct meson_vcodec_core *core, enum meson_vcodec_pwrc 
 
 #define stream_printk(__level, __session, __type, __fmt, ...) \
 	session_printk(__level, __session, \
-			"Stream type %d, status %d: " __fmt, __type, \
+			"Stream type %s (%d), status %d: " __fmt, \
+			IS_SRC_STREAM(__type) ? "src" : "dst", __type, \
 			STREAM_STATUS(__session, __type), ##__VA_ARGS__)
 
 #define stream_err(__session, __type, __fmt, ...) \
@@ -261,7 +262,8 @@ int meson_vcodec_pwrc_on(struct meson_vcodec_core *core, enum meson_vcodec_pwrc 
 
 #define stream_dbg(__session, __type, __fmt, ...) \
 	session_dbg(__session, \
-			"Stream type %d, status %d: " __fmt, __type, \
+			"Stream type %s (%d), status %d: " __fmt, \
+			IS_SRC_STREAM(__type) ? "src" : "dst", __type, \
 			STREAM_STATUS(__session, __type), ##__VA_ARGS__)
 
 #define stream_trace_0(__session, __type) \
@@ -298,5 +300,31 @@ int meson_vcodec_pwrc_on(struct meson_vcodec_core *core, enum meson_vcodec_pwrc 
 
 #define job_trace(__job, ...) \
 	MACRO_FN_N(job_trace, HAS_ARGS(__VA_ARGS__), __job, ##__VA_ARGS__)
+
+#define codec_printk(__level, __codec, __fmt, ...) \
+	dev_printk(__level, (__codec)->core->dev, \
+			"%s: " __fmt, (__codec)->spec->name, ##__VA_ARGS__)
+
+#define codec_err(__codec, __fmt, ...) \
+	codec_printk(KERN_ERR, __codec, __fmt, ##__VA_ARGS__)
+
+#define codec_warn(__codec, __fmt, ...) \
+	codec_printk(KERN_WARNING, __codec, __fmt, ##__VA_ARGS__)
+
+#define codec_info(__codec, __fmt, ...) \
+	codec_printk(KERN_INFO, __codec, __fmt, ##__VA_ARGS__)
+
+#define codec_dbg(__codec, __fmt, ...) \
+	dev_dbg((__codec)->core->dev, \
+		"%s: " __fmt, (__codec)->spec->name, ##__VA_ARGS__)
+
+#define codec_trace_0(__codec) \
+	codec_dbg(__codec, "%s", __func__)
+
+#define codec_trace_1(__codec, __fmt, ...) \
+	codec_dbg(__codec, "%s: " __fmt, __func__, ##__VA_ARGS__)
+
+#define codec_trace(__codec, ...) \
+	MACRO_FN_N(codec_trace, HAS_ARGS(__VA_ARGS__), __codec, ##__VA_ARGS__)
 
 #endif

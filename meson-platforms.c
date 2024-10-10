@@ -7,15 +7,11 @@
 #include "meson-platforms.h"
 #include "meson-vcodec.h"
 
-#include "clk/gxbb.h"
+#include "regs/hhi_regs.h"
+#include "regs/ao_regs.h"
+#include "regs/dos_regs.h"
 
-
-#define HHI_WAVE420L_CLK_CNTL ((0x109a - 0x1000) << 2)
-
-/* BEGIN taken from meson-ee-pwrc.c */
-
-/* AO Offsets */
-#define GX_AO_RTI_GEN_PWR_SLEEP0	(0x3a << 2)
+// AO_RTI_GEN_PWR_SLEEP0
 	#define DOS_HEVC _D1_PWR_OFF	BIT(7)
 	#define DOS_HEVC_PWR_OFF		BIT(6)
 	#define DOS_VDEC2_D1_PWR_OFF	BIT(5)
@@ -25,7 +21,7 @@
 	#define DOS_HCODEC_D1_PWR_OFF	BIT(1)
 	#define DOS_HCODEC_PWR_OFF		BIT(0)
 
-#define GX_AO_RTI_GEN_PWR_ISO0		(0x3b << 2)
+// AO_RTI_GEN_PWR_ISO0
 	#define DOS_HEVC_OUT_EN			BIT(11)
 	#define DOS_HEVC_IN_EN		    BIT(10)
 	#define DOS_VDEC2_ISO_OUT_EN	BIT( 9)	
@@ -37,6 +33,14 @@
 	#define GPU_ISO_OUT_EN			BIT( 3)
 	#define GPU_ISO_IN_EN			BIT( 2)
 
+
+/* BEGIN taken from meson-ee-pwrc.c */
+
+struct meson_ee_pwrc_mem_domain {
+	unsigned int reg;
+	unsigned int mask;
+};
+
 struct meson_ee_pwrc_top_domain {
 	unsigned int sleep_reg;
 	unsigned int sleep_mask;
@@ -44,22 +48,40 @@ struct meson_ee_pwrc_top_domain {
 	unsigned int iso_mask;
 };
 
-#define SM1_EE_PD(__bit)				\
-{							\
-	.sleep_reg = GX_AO_RTI_GEN_PWR_SLEEP0, 		\
-	.sleep_mask = BIT(__bit), 			\
-	.iso_reg = GX_AO_RTI_GEN_PWR_ISO0, 		\
-	.iso_mask = BIT(__bit), 			\
+struct meson_ee_pwrc_domain_desc {
+	char *name;
+	struct meson_ee_pwrc_top_domain *top_pd;
+	unsigned int mem_pd_count;
+	struct meson_ee_pwrc_mem_domain *mem_pd;
+};
+
+#define SM1_EE_PD(__bit) \
+{ \
+	.sleep_reg = AO_RTI_GEN_PWR_SLEEP0, \
+	.sleep_mask = BIT(__bit), \
+	.iso_reg = AO_RTI_GEN_PWR_ISO0, \
+	.iso_mask = BIT(__bit), \
 }
 
 /* END taken from meson-ee-pwrc.c */
 
-#define GX_EE_PD(__sleep_mask, __iso_mask)		\
-{							\
-	.sleep_reg = GX_AO_RTI_GEN_PWR_SLEEP0, 		\
-	.sleep_mask = __sleep_mask, 			\
-	.iso_reg = GX_AO_RTI_GEN_PWR_ISO0, 		\
-	.iso_mask = __iso_mask, 			\
+#define GX_EE_PD(__sleep_mask, __iso_mask) \
+{ \
+	.sleep_reg = AO_RTI_GEN_PWR_SLEEP0, \
+	.sleep_mask = __sleep_mask, \
+	.iso_reg = AO_RTI_GEN_PWR_ISO0, \
+	.iso_mask = __iso_mask, \
+}
+
+#define DOS_PD(__name, __top_pd, __mem_reg, __mem_mask) \
+{ \
+	.name = __name, \
+	.top_pd = &(struct meson_ee_pwrc_top_domain) __top_pd, \
+	.mem_pd_count = 1, \
+	.mem_pd = &(struct meson_ee_pwrc_mem_domain) { \
+		.reg = __mem_reg, \
+		.mask = __mem_mask, \
+	}, \
 }
 
 
@@ -164,43 +186,70 @@ int meson_vcodec_clk_prepare(struct meson_vcodec_core *core, enum meson_vcodec_c
 }
 
 int meson_vcodec_pwrc_on(struct meson_vcodec_core *core, enum meson_vcodec_pwrc index) {
-	int ret;
+	struct meson_ee_pwrc_domain_desc *pd;
+	int ret, i;
 
-	ret = regmap_update_bits(core->regmaps[BUS_AO],
-			core->platform_specs->pwrc[index].sleep_reg,
-			core->platform_specs->pwrc[index].sleep_mask, 0);
-	if (ret < 0)
-		return ret;
+	pd = &core->platform_specs->pwrc[index];
 
-	ret = regmap_update_bits(core->regmaps[BUS_AO],
-			core->platform_specs->pwrc[index].iso_reg,
-			core->platform_specs->pwrc[index].iso_mask, 0);
-	if (ret < 0)
-		return ret;
+	if (pd->top_pd) {
+		ret = regmap_clear_bits(core->regmaps[BUS_AO],
+				AO_REMAP(pd->top_pd->sleep_reg),
+				pd->top_pd->sleep_mask);
+		if (ret < 0)
+			return ret;
+	}
+
+	for (i = 0 ; i < pd->mem_pd_count ; ++i) {
+		ret = regmap_clear_bits(core->regmaps[BUS_DOS],
+				   VREG_REMAP(pd->mem_pd[i].reg),
+				   pd->mem_pd[i].mask);
+		if (ret < 0)
+			return ret;
+	}
+
+	if (pd->top_pd) {
+		ret = regmap_clear_bits(core->regmaps[BUS_AO],
+				AO_REMAP(pd->top_pd->iso_reg),
+				pd->top_pd->iso_mask);
+		if (ret < 0)
+			return ret;
+	}
 
 	return 0;
 }
 
 int meson_vcodec_pwrc_off(struct meson_vcodec_core *core, enum meson_vcodec_pwrc index) {
-	int ret;
+	struct meson_ee_pwrc_domain_desc *pd;
+	int ret, i;
 
-	ret = regmap_update_bits(core->regmaps[BUS_AO],
-			core->platform_specs->pwrc[index].sleep_reg,
-			core->platform_specs->pwrc[index].sleep_mask,
-			core->platform_specs->pwrc[index].sleep_mask);
-	if (ret < 0)
-		return ret;
+	pd = &core->platform_specs->pwrc[index];
 
-	ret = regmap_update_bits(core->regmaps[BUS_AO],
-			core->platform_specs->pwrc[index].iso_reg,
-			core->platform_specs->pwrc[index].iso_mask,
-			core->platform_specs->pwrc[index].iso_mask);
-	if (ret < 0)
-		return ret;
+	if (pd->top_pd) {
+		ret = regmap_set_bits(core->regmaps[BUS_AO],
+				AO_REMAP(pd->top_pd->sleep_reg),
+				pd->top_pd->sleep_mask);
+		if (ret < 0)
+			return ret;
+	}
+
+	for (i = 0 ; i < pd->mem_pd_count ; ++i) {
+		ret = regmap_set_bits(core->regmaps[BUS_DOS],
+				   VREG_REMAP(pd->mem_pd[i].reg),
+				   pd->mem_pd[i].mask);
+		if (ret < 0)
+			return ret;
+	}
+
+	if (pd->top_pd) {
+		ret = regmap_set_bits(core->regmaps[BUS_AO],
+				AO_REMAP(pd->top_pd->iso_reg),
+				pd->top_pd->iso_mask);
+		if (ret < 0)
+			return ret;
+	}
 
 	return 0;
 }
-
 
 /* platform functions */
 
@@ -214,8 +263,9 @@ int meson_platform_register_clks(struct meson_vcodec_core *core) {
 		return 0;
 	}
 
-	for (i = 0; i < data->regmap_clk_num; i++)
+	for (i = 0; i < data->regmap_clk_num; i++) {
 		data->regmap_clks[i]->map = map;
+	}
 
 	for (i = 0; i < data->hw_clks.num; i++) {
 		/* array might be sparse */
@@ -238,7 +288,7 @@ int meson_platform_register_clks(struct meson_vcodec_core *core) {
 
 static struct clk_regmap gxbb_vdec_hcodec_sel = {
 	.data = &(struct clk_regmap_mux_data){
-		.offset = HHI_VDEC_CLK_CNTL,
+		.offset = HHI_REMAP(HHI_VDEC_CLK_CNTL),
 		.mask = 0x3,
 		.shift = 25,
 		.flags = CLK_MUX_ROUND_CLOSEST,
@@ -259,7 +309,7 @@ static struct clk_regmap gxbb_vdec_hcodec_sel = {
 
 static struct clk_regmap gxbb_vdec_hcodec_div = {
 	.data = &(struct clk_regmap_div_data){
-		.offset = HHI_VDEC_CLK_CNTL,
+		.offset = HHI_REMAP(HHI_VDEC_CLK_CNTL),
 		.shift = 16,
 		.width = 7,
 		.flags = CLK_DIVIDER_ROUND_CLOSEST,
@@ -277,7 +327,7 @@ static struct clk_regmap gxbb_vdec_hcodec_div = {
 
 static struct clk_regmap gxbb_vdec_hcodec = {
 	.data = &(struct clk_regmap_gate_data){
-		.offset = HHI_VDEC_CLK_CNTL,
+		.offset = HHI_REMAP(HHI_VDEC_CLK_CNTL),
 		.bit_idx = 24,
 	},
 	.hw.init = &(struct clk_init_data) {
@@ -293,7 +343,7 @@ static struct clk_regmap gxbb_vdec_hcodec = {
 
 static struct clk_regmap gxbb_wave420l_0_sel = {
 	.data = &(struct clk_regmap_mux_data){
-		.offset = HHI_WAVE420L_CLK_CNTL,
+		.offset = HHI_REMAP(HHI_WAVE420L_CLK_CNTL),
 		.mask = 0x4,
 		.shift = 9,
 		.flags = CLK_MUX_ROUND_CLOSEST | CLK_MUX_INDEX_ONE,
@@ -314,7 +364,7 @@ static struct clk_regmap gxbb_wave420l_0_sel = {
 
 static struct clk_regmap gxbb_wave420l_0_div = {
 	.data = &(struct clk_regmap_div_data){
-		.offset = HHI_WAVE420L_CLK_CNTL,
+		.offset = HHI_REMAP(HHI_WAVE420L_CLK_CNTL),
 		.shift = 0,
 		.width = 7,
 		.flags = CLK_DIVIDER_ROUND_CLOSEST,
@@ -332,7 +382,7 @@ static struct clk_regmap gxbb_wave420l_0_div = {
 
 static struct clk_regmap gxbb_wave420l_0 = {
 	.data = &(struct clk_regmap_gate_data){
-		.offset = HHI_WAVE420L_CLK_CNTL,
+		.offset = HHI_REMAP(HHI_WAVE420L_CLK_CNTL),
 		.bit_idx = 8,
 	},
 	.hw.init = &(struct clk_init_data) {
@@ -348,7 +398,7 @@ static struct clk_regmap gxbb_wave420l_0 = {
 
 static struct clk_regmap gxbb_wave420l_1_sel = {
 	.data = &(struct clk_regmap_mux_data){
-		.offset = HHI_WAVE420L_CLK_CNTL,
+		.offset = HHI_REMAP(HHI_WAVE420L_CLK_CNTL),
 		.mask = 0x4,
 		.shift = 25,
 		.flags = CLK_MUX_ROUND_CLOSEST | CLK_MUX_INDEX_ONE,
@@ -369,7 +419,7 @@ static struct clk_regmap gxbb_wave420l_1_sel = {
 
 static struct clk_regmap gxbb_wave420l_1_div = {
 	.data = &(struct clk_regmap_div_data){
-		.offset = HHI_WAVE420L_CLK_CNTL,
+		.offset = HHI_REMAP(HHI_WAVE420L_CLK_CNTL),
 		.shift = 16,
 		.width = 7,
 		.flags = CLK_DIVIDER_ROUND_CLOSEST,
@@ -387,7 +437,7 @@ static struct clk_regmap gxbb_wave420l_1_div = {
 
 static struct clk_regmap gxbb_wave420l_1 = {
 	.data = &(struct clk_regmap_gate_data){
-		.offset = HHI_WAVE420L_CLK_CNTL,
+		.offset = HHI_REMAP(HHI_WAVE420L_CLK_CNTL),
 		.bit_idx = 24,
 	},
 	.hw.init = &(struct clk_init_data) {
@@ -403,7 +453,7 @@ static struct clk_regmap gxbb_wave420l_1 = {
 
 static struct clk_regmap gxbb_wave420l = {
 	.data = &(struct clk_regmap_mux_data){
-		.offset = HHI_WAVE420L_CLK_CNTL,
+		.offset = HHI_REMAP(HHI_WAVE420L_CLK_CNTL),
 		.mask = 1,
 		.shift = 31,
 	},
@@ -454,28 +504,43 @@ static const struct meson_eeclkc_data gxbb_clkc_data = {
 	},
 };
 
-static const struct meson_ee_pwrc_top_domain gx_pwrc[MAX_PWRC] = {
-	[PWRC_VDEC] = GX_EE_PD(
+static struct meson_ee_pwrc_domain_desc gx_pwrc_domains[] = {
+	[PWRC_VDEC1] = DOS_PD("VDEC1",
+		GX_EE_PD(
 			BIT(2) | BIT(3),
 			BIT(6) | BIT(7)),
-	[PWRC_HEVC] = GX_EE_PD(
+		DOS_MEM_PD_VDEC, 0xffffffff),
+	[PWRC_HEVC] = DOS_PD("HEVC",
+		GX_EE_PD(
 			BIT(6) | BIT(7),
 			BIT(6) | BIT(7)),
-	[PWRC_HCODEC] = GX_EE_PD(
+		DOS_MEM_PD_HEVC, 0xffffffff),
+	[PWRC_HCODEC] = DOS_PD("HCODEC",
+		GX_EE_PD(
 			BIT(0) | BIT(1),
 			BIT(4) | BIT(5)),
-	[PWRC_WAVE420L] = GX_EE_PD(
+		DOS_MEM_PD_HCODEC, 0xffffffff),
+	[PWRC_WAVE420L] = DOS_PD("WAVE420L",
+		GX_EE_PD(
 			BIT(24) | BIT(25),
 			BIT(12) | BIT(13)),
+		DOS_MEM_PD_WAVE420L, 0xffffffff),
 };
 
-static const struct meson_ee_pwrc_top_domain sm1_pwrc[MAX_PWRC] = {
-	[PWRC_VDEC] = SM1_EE_PD(1),
-	[PWRC_HEVC] = SM1_EE_PD(2),
-	[PWRC_HCODEC] = SM1_EE_PD(1),
-	[PWRC_WAVE420L] = SM1_EE_PD(8),
+static struct meson_ee_pwrc_domain_desc sm1_pwrc_domains[] = {
+	[PWRC_VDEC1] = DOS_PD("VDEC1",
+			SM1_EE_PD(1),
+			DOS_MEM_PD_VDEC, 0xffffffff),
+	[PWRC_HEVC] = DOS_PD("HEVC",
+			SM1_EE_PD(2),
+			DOS_MEM_PD_HEVC, 0xffffffff),
+	[PWRC_HCODEC] = DOS_PD("HCODEC",
+			SM1_EE_PD(1),
+			DOS_MEM_PD_HCODEC, 0xffffffff),
+	[PWRC_WAVE420L] = DOS_PD("WAVE420L",
+			SM1_EE_PD(8),
+			DOS_MEM_PD_WAVE420L, 0xffffffff),
 };
-
 static const struct meson_codec_formats gxl_codecs[] = {
 	DECODER(mpeg1, 1920, 1080, nv12, yuv420)
 	DECODER(mpeg2, 1920, 1080, nv12, yuv420)
@@ -497,7 +562,7 @@ const struct meson_platform_specs gxl_platform_specs = {
 		[CLK_HCODEC] = &gxbb_vdec_hcodec.hw,
 		[CLK_WAVE420L] = &gxbb_wave420l.hw,
 	},
-	.pwrc = gx_pwrc,
+	.pwrc = gx_pwrc_domains,
 	.codecs = gxl_codecs,
 	.num_codecs = ARRAY_SIZE(gxl_codecs),
 	.firmwares = {

@@ -1,12 +1,18 @@
 #!/bin/bash
 
 #FFMPEG_OPTS="-hide_banner -loglevel warning -benchmark -stats"
-FFMPEG_OPTS="-hide_banner -loglevel info -benchmark -stats"
-#FFMPEG_OPTS="-hide_banner -loglevel debug -benchmark -stats"
+#FFMPEG_OPTS="-hide_banner -loglevel info -benchmark -stats"
+FFMPEG_OPTS="-hide_banner -loglevel debug -benchmark -stats"
 
 
 h264_decode() {
-	ffmpeg $FFMPEG_OPTS -c:v h264_v4l2m2m -i sample_h264.mp4 -f rawvideo -pix_fmt nv12 /dev/null -y
+#		-pix_fmt nv12 \
+	ffmpeg $FFMPEG_OPTS \
+		-c:v h264_v4l2m2m \
+		-i sample_h264.mp4 \
+		-map 0:v:0 \
+		-f rawvideo \
+		-y /dev/null
 #	ffmpeg $FFMPEG_OPTS -c:v h264_v4l2m2m -i sample_h264.mp4 -map 0:v:0 -f null -
 }
 
@@ -68,8 +74,8 @@ exec_time() {
 test_fn=$1
 if [ -z "$test_fn" ]
 then
-	#time h264_decode
-	time h264_encode
+	time h264_decode
+	#time h264_encode
 	#time h264_transcode
 else
 	time $test_fn

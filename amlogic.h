@@ -21,6 +21,13 @@
 
 #include <linux/types.h>
 
+//#define HHI_REMAP(reg) ((reg - (get_cpu_major_id() >= AM_MESON_CPU_MAJOR_ID_GXBB ? 0x1000 : 0)) << 2)
+#define HHI_REMAP(reg) ((reg - 0x1000) << 2)
+#define VREG_REMAP(reg) (reg << 2)
+#define DOS_REMAP(reg) (reg << 2)
+#define AO_REMAP(reg) (reg)
+#define PARSER_REMAP(reg) ((reg << 2) - 0xa580)
+
 #define WRITE_VREG_BITS(r, val, start, len) \
 	WRITE_VREG(r, ( \
 		READ_VREG(r) & ~(((1L<<(len))-1)<<(start)) \
@@ -82,6 +89,26 @@ enum AM_MESON_CPU_MAJOR_ID: u8 {
 };
 
 enum AM_MESON_CPU_MAJOR_ID get_cpu_major_id(void);
+
+u32 meson_dos_read(struct meson_vcodec_core *core, u32 reg);
+void meson_dos_write(struct meson_vcodec_core *core, u32 reg, u32 val);
+void meson_dos_set_bits(struct meson_vcodec_core *core, u32 reg, u32 bits);
+void meson_dos_clear_bits(struct meson_vcodec_core *core, u32 reg, u32 bits);
+
+u32 meson_parser_read(struct meson_vcodec_core *core, u32 reg);
+void meson_parser_write(struct meson_vcodec_core *core, u32 reg, u32 val);
+void meson_parser_set_bits(struct meson_vcodec_core *core, u32 reg, u32 bits);
+void meson_parser_clear_bits(struct meson_vcodec_core *core, u32 reg, u32 bits);
+
+u32 meson_hhi_read(struct meson_vcodec_core *core, u32 reg);
+void meson_hhi_write(struct meson_vcodec_core *core, u32 reg, u32 val);
+void meson_hhi_set_bits(struct meson_vcodec_core *core, u32 reg, u32 bits);
+void meson_hhi_clear_bits(struct meson_vcodec_core *core, u32 reg, u32 bits);
+
+u32 meson_ao_read(struct meson_vcodec_core *core, u32 reg);
+void meson_ao_write(struct meson_vcodec_core *core, u32 reg, u32 val);
+void meson_ao_set_bits(struct meson_vcodec_core *core, u32 reg, u32 bits);
+void meson_ao_clear_bits(struct meson_vcodec_core *core, u32 reg, u32 bits);
 
 void WRITE_MPEG_REG(u32 reg, u32 val);
 u32 READ_MPEG_REG(u32 reg);

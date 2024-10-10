@@ -79,9 +79,9 @@ static const char* reset_names[MAX_RESETS] = {
 };
 
 static const char* irq_names[MAX_IRQS] = {
-	[IRQ_VDEC] = "vdec",
+	[IRQ_MBOX1] = "vdec",
+	[IRQ_MBOX2] = "hcodec",
 	[IRQ_PARSER] = "esparser",
-	[IRQ_HCODEC] = "hcodec",
 	[IRQ_WAVE420L] = "wave420l",
 };
 
@@ -767,6 +767,7 @@ static int meson_vcodec_enum_fmt_vid(struct file *file, void *priv, struct v4l2_
 		f->pixelformat = fmt->pixelformat;
 		strncpy(f->description, fmt->description, sizeof(f->description) - 1);
 		f->flags = fmt->flags;
+		stream_trace(session, f->type, "index=%d, fmt=%.4s", f->index, (char *) &f->pixelformat);
 		return 0;
 	}
 
@@ -875,8 +876,9 @@ static void set_buffer_sizes(struct v4l2_format *f, const struct meson_format *f
 	}
 }
 
-static int common_try_fmt_vid(struct meson_vcodec_core *core, u32 fmt_type, struct v4l2_format *fmt_src, struct v4l2_format *fmt_dst)
+static int common_try_fmt_vid(struct meson_vcodec_session *session, u32 fmt_type, struct v4l2_format *fmt_src, struct v4l2_format *fmt_dst)
 {
+	struct meson_vcodec_core *core = session->core;
 	const struct meson_codec_formats *codecs = core->platform_specs->codecs;
 	int num_codecs = core->platform_specs->num_codecs;
 	const struct meson_codec_formats *codec = NULL;
@@ -905,13 +907,15 @@ static int common_try_fmt_vid(struct meson_vcodec_core *core, u32 fmt_type, stru
 	}
 
 	// fix for ffmpeg v4l2_m2m_enc that won't set multiplanar formats by itself but that will adjust to it when set on driver's side
-	switch(V4L2_FMT_PIXFMT(fmt_set)) {
-		case V4L2_FMT(YUV420):
-			V4L2_FMT_SET_PIXFMT(fmt_set, V4L2_FMT(YUV420M));
-			break;
-		case V4L2_FMT(NV12):
-			V4L2_FMT_SET_PIXFMT(fmt_set, V4L2_FMT(NV12M));
-			break;
+	if (IS_SRC_STREAM(fmt_type)) {
+		switch(V4L2_FMT_PIXFMT(fmt_set)) {
+			case V4L2_FMT(YUV420):
+				V4L2_FMT_SET_PIXFMT(fmt_set, V4L2_FMT(YUV420M));
+				break;
+			case V4L2_FMT(NV12):
+				V4L2_FMT_SET_PIXFMT(fmt_set, V4L2_FMT(NV12M));
+				break;
+		}
 	}
 
 	// Both formats set
@@ -1008,6 +1012,7 @@ static int common_try_fmt_vid(struct meson_vcodec_core *core, u32 fmt_type, stru
 		set_buffer_sizes(fmt_set, codec->dst_fmt);
 	}
 
+	session_trace(session, "src_fmt=%.4s, dst_fmt=%.4s", (char*) &codec->src_fmt->pixelformat, (char *) &codec->dst_fmt->pixelformat);
 	return 0;
 }
 
@@ -1032,7 +1037,7 @@ static int meson_vcodec_try_fmt_vid(struct file *file, void *priv, struct v4l2_f
 		fmt_dst = f;
 	}
 
-	return common_try_fmt_vid(core, f->type, fmt_src, fmt_dst);
+	return common_try_fmt_vid(session, f->type, fmt_src, fmt_dst);
 }
 
 static int meson_vcodec_s_fmt_vid(struct file *file, void *priv, struct v4l2_format *f)
@@ -1053,9 +1058,11 @@ static int meson_vcodec_s_fmt_vid(struct file *file, void *priv, struct v4l2_for
 		fmt_dst = f;
 	}
 
-	ret = common_try_fmt_vid(core, f->type, fmt_src, fmt_dst);
+	ret = common_try_fmt_vid(session, f->type, fmt_src, fmt_dst);
 	if (ret)
 		return ret;
+	
+	stream_trace(session, f->type, "fmt=%.4s", V4L2_FMT_FOURCC(f));
 
 	if (IS_SRC_STREAM(f->type)) {
 		session->src_fmt = *f;
