@@ -250,8 +250,6 @@ static int vdec1_init(struct meson_vcodec_core *core)
 	meson_dos_write(core, DOS_SW_RESET0, 0xfffffffc);
 	meson_dos_write(core, DOS_SW_RESET0, 0x00000000);
 
-	meson_dos_write(core, DOS_GCLK_EN0, 0x3ff);
-
 	/* Reset DOS top registers */
 	meson_dos_write(core, DOS_VDEC_MCRCC_STALL_CTRL, 0);
 

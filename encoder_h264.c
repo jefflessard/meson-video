@@ -1180,8 +1180,6 @@ static int encoder_h264_init(struct meson_codec_dev *codec) {
 
 	/* DOS_SW_RESET1 */
 	amlvenc_dos_sw_reset1(0xffffffff);
-	/* dos internal clock gating */
-	amlvenc_dos_hcodec_gateclk(true);
 	/* disable auto-clock gate */
 	amlvenc_dos_disable_auto_gateclk();
 	/* enable hcodec assist */
@@ -1204,7 +1202,6 @@ static int encoder_h264_init(struct meson_codec_dev *codec) {
 	return 0;
 
 disable_hcodec:
-	amlvenc_dos_hcodec_gateclk(false);
 //pwrc_off:
 	meson_vcodec_pwrc_off(core, PWRC_HCODEC);
 disable_clk:
@@ -1281,7 +1278,6 @@ static void encoder_h264_unprepare(struct meson_codec_job *job) {
 
 static void encoder_h264_release(struct meson_codec_dev *codec) {
 
-	amlvenc_dos_hcodec_gateclk(false);
 	meson_vcodec_pwrc_off(codec->core, PWRC_HCODEC);
 	meson_vcodec_clk_unprepare(codec->core, CLK_HCODEC);
 }
