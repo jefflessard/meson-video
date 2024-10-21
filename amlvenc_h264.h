@@ -486,17 +486,4 @@ void amlvenc_hcodec_power_on(u8 clocklevel);
 void amlvenc_hcodec_power_off(void);
 #endif
 
-#define COMBINE_CANVAS_HELPER(index1, index2, index3, ...) \
-	((index1 & 0xFF) | ((index2 & 0xFF) << 8) | ((index3 & 0xFF) << 16))
-
-#define COMBINE_CANVAS(...) \
-	COMBINE_CANVAS_HELPER(__VA_ARGS__, 0, 0, 0)
-
-#define COMBINE_CANVAS_ARRAY(indexes, num_canvas) \
-	COMBINE_CANVAS_HELPER( \
-			(num_canvas > 0 ? indexes[0] : 0), \
-			(num_canvas > 1 ? indexes[1] : 0), \
-			(num_canvas > 2 ? indexes[2] : 0), \
-		)
-
 #endif /* __AML_VENC_H264_H__ */

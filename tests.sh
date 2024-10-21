@@ -1,8 +1,8 @@
 #!/bin/bash
 
 #FFMPEG_OPTS="-hide_banner -loglevel warning -benchmark -stats"
-#FFMPEG_OPTS="-hide_banner -loglevel info -benchmark -stats"
-FFMPEG_OPTS="-hide_banner -loglevel debug -benchmark -stats"
+FFMPEG_OPTS="-hide_banner -loglevel info -benchmark -stats"
+#FFMPEG_OPTS="-hide_banner -loglevel debug -benchmark -stats"
 
 
 h264_decode() {
@@ -11,6 +11,7 @@ h264_decode() {
 		-c:v h264_v4l2m2m \
 		-i sample_h264.mp4 \
 		-map 0:v:0 \
+		-pix_fmt yuv420p \
 		-f rawvideo \
 		-y /dev/null
 #	ffmpeg $FFMPEG_OPTS -c:v h264_v4l2m2m -i sample_h264.mp4 -map 0:v:0 -f null -
@@ -31,6 +32,7 @@ h264_encode() {
 		#-pix_fmt nv12 \
 	ffmpeg $FFMPEG_OPTS \
 		-i sample_h264.mp4 \
+		-pix_fmt yuv420p \
 		-map 0:v:0 \
 		-qmin 22 \
 		-qmax 28 \

@@ -79,9 +79,10 @@ static const char* reset_names[MAX_RESETS] = {
 };
 
 static const char* irq_names[MAX_IRQS] = {
-	[IRQ_MBOX1] = "vdec",
-	[IRQ_MBOX2] = "hcodec",
-	[IRQ_PARSER] = "esparser",
+	[IRQ_PARSER]   = "esparser",
+	[IRQ_MBOX0]    = "mbox0",
+	[IRQ_MBOX1]    = "mbox1",
+	[IRQ_MBOX2]    = "mbox2",
 	[IRQ_WAVE420L] = "wave420l",
 };
 
@@ -521,6 +522,30 @@ static const struct vb2_ops meson_vcodec_vb2_ops = {
 
 /* v4l2_m2m_ops */
 
+static int meson_vcodec_m2m_job_ready(void *priv)
+{
+	struct meson_vcodec_session *session = priv;
+
+	session_trace(session);
+
+	switch (session->type) {
+		case SESSION_TYPE_ENCODE:
+			if (session->enc_job.codec->spec->ops->ready)
+				return session->enc_job.codec->spec->ops->ready(&session->enc_job);
+			return 1;
+
+		case SESSION_TYPE_DECODE:
+		case SESSION_TYPE_TRANSCODE:
+			if (session->dec_job.codec->spec->ops->ready)
+				return session->dec_job.codec->spec->ops->ready(&session->dec_job);
+			return 1;
+
+		case SESSION_TYPE_NONE:
+		default:
+			return 0;
+	}
+}
+
 static void meson_vcodec_m2m_device_run(void *priv)
 {
 	struct meson_vcodec_session *session = priv;
@@ -581,6 +606,7 @@ static void meson_vcodec_m2m_job_abort(void *priv)
 
 static const struct v4l2_m2m_ops meson_vcodec_m2m_ops = {
 	.device_run = meson_vcodec_m2m_device_run,
+	.job_ready = meson_vcodec_m2m_job_ready,
 	.job_abort = meson_vcodec_m2m_job_abort,
 };
 
@@ -672,6 +698,7 @@ static int meson_vcodec_session_release(struct file *file)
 
 	session_trace(session);
 
+	meson_vcodec_remove_codec_ctrls(session);
 	v4l2_m2m_ctx_release(session->m2m_ctx);
 	v4l2_ctrl_handler_free(&session->ctrl_handler);
 	v4l2_fh_del(&session->fh);

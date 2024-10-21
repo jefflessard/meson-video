@@ -21,7 +21,6 @@
 
 #define MHz (1000000)
 #define ENCODER_TIMEOUT_MS 5000
-#define MAX_NUM_CANVAS 3
 #define INITIAL_QP 16
 
 static const qp_union_t qp_adj_idr = {
@@ -284,21 +283,6 @@ static void amvenc_stop(void)
 	}
 }
 
-int validate_canvas_align(u32 canvas_paddr, u32 canvas_w, u32 canvas_h, u32 width_align, u32 height_align) {
-	if ( canvas_w % width_align != 0 ||
-		(canvas_w * canvas_h) % height_align != 0) {
-		pr_warn(DRIVER_NAME ": " "Canvas width or height is not aligned. Canvas width = %u, Canvas height = %u\n", canvas_w, canvas_h);
-		return -EINVAL;
-	}
-
-	if (canvas_paddr % width_align != 0) {
-		pr_warn(DRIVER_NAME ": " "Canvas physical address is not aligned. Canvas paddr = 0x%x\n", canvas_paddr);
-		return -EINVAL;
-	}
-
-	return 0;
-}
-
 static void init_fixed_quant(struct encoder_h264_ctx *ctx, u8 quant) {
 	qp_table_t *qtable = &ctx->qtable;
 
@@ -409,11 +393,6 @@ static int encoder_init_mdfin(struct encoder_h264_ctx *ctx) {
 	struct vb2_buffer *vb2 = &t->src_buf->vb2_buf;
 	const struct encoder_h264_spec *s = ctx->encoder_spec;
 	bool is_idr = t->cmd == CMD_ENCODE_IDR;
-	u32 y_width, y_height;
-	u32 uv_width, uv_height;
-	u8 uv_bppx, uv_bppy;
-	u32 canvas_w, canvas_h;
-	dma_addr_t canvas_paddr;
 	int i, ret;
 
 	// input params
@@ -438,62 +417,16 @@ static int encoder_init_mdfin(struct encoder_h264_ctx *ctx) {
 	p->y_tnr = &amlvenc_h264_tnr_defaults;
 	p->c_tnr = &amlvenc_h264_tnr_defaults;
 
-	if (V4L2_TYPE_IS_MULTIPLANAR(vb2->type) && vb2->num_planes != s->num_canvas) {
-		// TODO not supported
-		return -EINVAL; 
+	ret = meson_vcodec_config_vb2_canvas(
+			ctx->job->codec, ctx->job->src_fmt,
+			vb2, ctx->canvases[CANVAS_TYPE_INPUT]); 
+	if (ret < 0) {
+		// TODO report config canvas failed
+		return ret;
 	}
+	p->input.canvas = ret;
 
-	// Y plane
-	y_width = ALIGN((p->width * s->bits_per_pixel) >> 3, s->width_align);
-	y_height = (p->height * s->bits_per_pixel) >> 3;
-
-	// UV planes
-	uv_bppx = s->canvasN_bppx == MDFIN_BPP_HALF ? 4 : s->canvasN_bppx * 8;
-	uv_bppy = s->canvasN_bppy == MDFIN_BPP_HALF ? 4 : s->canvasN_bppy * 8;
-	uv_width = (y_width * uv_bppx) >> 3;
-	uv_height = (y_height * uv_bppy) >> 3;
-
-	for (i = 0; i < s->num_canvas; i++) {
-		if (vb2->num_planes == s->num_canvas) {
-			canvas_paddr = vb2_dma_contig_plane_dma_addr(vb2, i);
-		} else {
-			// TODO single plane to multi canvas paddr offset mapping
-		}
-
-		canvas_w = i == 0 ? y_width : uv_width;
-		canvas_h = i == 0 ? y_height : uv_height;
-
-#ifdef DEBUG
-		u32 canvas_size = canvas_w * canvas_h;
-		job_trace(ctx->job, "plane %d: bytes=%lu, size=%lu, canvas=%d, canvas_size=%d",
-				i,
-				vb2_get_plane_payload(&t->src_buf->vb2_buf, i),
-				vb2_plane_size(&t->src_buf->vb2_buf, i),
-				ctx->canvases[CANVAS_TYPE_INPUT][i],
-				canvas_size);
-#endif
-
-		ret = validate_canvas_align(
-				canvas_paddr,
-				canvas_w, canvas_h,
-				s->width_align, s->height_align);
-
-		ret = meson_vcodec_canvas_config(
-				ctx->job->codec,
-				ctx->canvases[CANVAS_TYPE_INPUT][i],
-				canvas_paddr,
-				canvas_w, canvas_h
-			);
-		if (ret) {
-			// TODO report config canvas failed
-			return ret;
-		}
-	}
-
-	p->input.canvas = COMBINE_CANVAS_ARRAY(
-				ctx->canvases[CANVAS_TYPE_INPUT],
-				s->num_canvas
-			);
+	job_trace(ctx->job, "input_canvas=%d, ret=%d", p->input.canvas, ret);
 
 	return 0;
 }

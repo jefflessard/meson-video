@@ -44,9 +44,10 @@ enum meson_vcodec_reset: u8 {
 };
 
 enum meson_vcodec_irq: u8 {
+	IRQ_PARSER,
+	IRQ_MBOX0,
 	IRQ_MBOX1,
 	IRQ_MBOX2,
-	IRQ_PARSER,
 	IRQ_WAVE420L,
 	MAX_IRQS
 };

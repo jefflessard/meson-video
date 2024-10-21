@@ -10,6 +10,7 @@
 
 #define MIN_RESOLUTION_WIDTH 320
 #define MIN_RESOLUTION_HEIGHT 240
+#define MAX_NUM_CANVAS 3
 
 #define V4L2_CID(x) (V4L2_CID_MPEG_VIDEO_##x)
 
@@ -18,6 +19,19 @@
 
 #define V4L2_CTRL_OPS(__id, __ops, __min, __max, __step, __def) \
 	{ .id = V4L2_CID(__id), .ops = __ops, .min = (__min), .max = (__max), .step = (__step), .def = (__def), }
+
+#define COMBINE_CANVAS_HELPER(index1, index2, index3, ...) \
+	((index1 & 0xFF) | ((index2 & 0xFF) << 8) | ((index3 & 0xFF) << 16))
+
+#define COMBINE_CANVAS(...) \
+	COMBINE_CANVAS_HELPER(__VA_ARGS__, 0, 0, 0)
+
+#define COMBINE_CANVAS_ARRAY(indexes, num_canvas) \
+	COMBINE_CANVAS_HELPER( \
+			(num_canvas > 0 ? indexes[0] : 0), \
+			(num_canvas > 1 ? indexes[1] : 0), \
+			(num_canvas > 2 ? indexes[2] : 0), \
+		)
 
 enum meson_codecs: u8 {
 	MPEG1_DECODER,
@@ -61,6 +75,7 @@ struct meson_codec_ops {
 	int (*prepare)(struct meson_codec_job *job);
 	int (*start)(struct meson_codec_job *job, struct vb2_queue *vq, u32 count);
 	int (*queue)(struct meson_codec_job *job, struct vb2_v4l2_buffer *vb);
+	bool (*ready)(struct meson_codec_job *job);
 	void (*run)(struct meson_codec_job *job);
 	void (*abort)(struct meson_codec_job *job);
 	int (*stop)(struct meson_codec_job *job, struct vb2_queue *vq);
@@ -102,5 +117,6 @@ int meson_vcodec_buffers_alloc(struct meson_codec_dev *codec, struct meson_vcode
 int meson_vcodec_canvas_alloc(struct meson_codec_dev *codec, u8 canvases[], u8 num_canvas);
 void meson_vcodec_canvas_free(struct meson_codec_dev *codec, u8 canvases[], u8 num_canvas);
 int meson_vcodec_canvas_config(struct meson_codec_dev *codec, u8 canvas_index, u32 paddr, u32 width, u32 height);
+int meson_vcodec_config_vb2_canvas(struct meson_codec_dev *codec, const struct v4l2_format *fmt, struct vb2_buffer *vb2, u8 canvases[MAX_NUM_CANVAS]);
 
 #endif

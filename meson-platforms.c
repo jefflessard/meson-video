@@ -731,7 +731,7 @@ static struct meson_ee_pwrc_domain_desc sm1_pwrc_domains[] = {
 static const struct meson_codec_formats gxl_codecs[] = {
 	DECODER(mpeg1, 1920, 1080, nv12, yuv420)
 	DECODER(mpeg2, 1920, 1080, nv12, yuv420)
-	DECODER(h264,  3840, 2160, nv12)
+	DECODER(h264,  3840, 2160, nv12, yuv420)
 	DECODER(vp9,   3840, 2160, nv12)
 	DECODER(hevc,  3840, 2160, nv12)
 
@@ -757,7 +757,7 @@ const struct meson_platform_specs gxl_platform_specs = {
 	.firmwares = {
 		[MPEG1_DECODER] = "meson/vdec/gxl_mpeg12.bin",
 		[MPEG2_DECODER] = "meson/vdec/gxl_mpeg12.bin",
-		[H264_DECODER] = "meson/vdec/gxl_h264.bin",
+		[H264_DECODER] = "meson/vdec/gxl_h264_multi.bin",
 		[VP9_DECODER] = "meson/vdec/gxl_vp9.bin",
 		[HEVC_DECODER] = "meson/vdec/gxl_hevc.bin",
 		[H264_ENCODER] = "meson/vdec/gxl_h264_enc.bin",
