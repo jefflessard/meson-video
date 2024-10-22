@@ -7,13 +7,16 @@ FFMPEG_OPTS="-hide_banner -loglevel info -benchmark -stats"
 
 h264_decode() {
 #		-pix_fmt nv12 \
+#		-pix_fmt yuv420p \
+#		-f rawvideo \
+#		-y /dev/null
 	ffmpeg $FFMPEG_OPTS \
 		-c:v h264_v4l2m2m \
 		-i sample_h264.mp4 \
 		-map 0:v:0 \
-		-pix_fmt yuv420p \
-		-f rawvideo \
-		-y /dev/null
+		-c:v libx264 \
+		-preset ultrafast \
+		-y output.ts
 #	ffmpeg $FFMPEG_OPTS -c:v h264_v4l2m2m -i sample_h264.mp4 -map 0:v:0 -f null -
 }
 
