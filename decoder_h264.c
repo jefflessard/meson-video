@@ -13,6 +13,7 @@
 #include "meson-formats.h"
 #include "meson-codecs.h"
 #include "meson-vcodec.h"
+#include "amlvdec_h264_dpb.h"
 
 #include "amlogic.h"
 //#include "register.h"
@@ -23,7 +24,9 @@
 #define MHz (1000000)
 #define DECODER_TIMEOUT_MS 5000
 #define MIN_NUM_FRAMES 1
-#define MAX_NUM_FRAMES 16
+#define MAX_NUM_FRAMES 1
+#define MAX_REF_FRAMES 16
+#define MB_MV_SIZE 96
 #define VLD_PADDING_SIZE 1024
 
 #define CLEAR_VREG_MASK(r, mask)  WRITE_VREG(r, READ_VREG(r) & ~(mask))
@@ -61,7 +64,6 @@
 	/* param1 / seq_info2
 	 * mb_width = param1 & 0xff;
 	 * mb_total = (param1 >> 8) & 0xffff;
-	 * max_ref = (param1 >> 24) & 0xfff;
 	 * mb_mv_byte = (seq_info2 & 0x80000000) ? 24 : 96;*/
 	/* reserved_byte*8
 	 *  reused to store the reserved bit_cnt for one packet multi-frame */
@@ -209,6 +211,7 @@ enum decoder_h264_buffers : u8 {
 	BUF_WORKSPACE,
 	BUF_LMEM,
 	BUF_AUX,
+	BUF_REF,
 	MAX_BUFFERS,
 };
 
@@ -226,10 +229,24 @@ struct decoder_h264_ctx {
 
 	struct decoder_task_ctx task;
 	struct meson_vcodec_buffer buffers[MAX_BUFFERS];
+	struct amlvdec_h264_lmem *lmem;
+	struct amlvdec_h264_poc poc;
+
 	u8 canvases[MAX_NUM_FRAMES][MAX_NUM_CANVAS];
 	struct vb2_v4l2_buffer *dst_bufs[MAX_NUM_FRAMES];
 	int num_dst_bufs;
 	int cur_dst_buf;
+
+#if 0
+	struct meson_vcodec_buffer ref_buffers[MAX_REF_FRAMES];
+	u8 ref_canvases[MAX_REF_FRAMES][MAX_NUM_CANVAS];
+#endif
+
+	u32 pic_width;
+	u32 pic_height;
+	u32 mb_width;
+	u32 mb_height;
+	u32 mb_total;
 
 	u32 cmd;
 	u32 status;
@@ -442,6 +459,15 @@ static inline void dump_registers(struct decoder_h264_ctx *ctx) {
 			READ_VREG(ASSIST_MBOX1_MASK),
 			READ_VREG(ASSIST_MBOX1_IRQ_REG));
 #endif
+
+#if 0
+	job_dbg(ctx->job,
+			"DPB: cropl=%d, cropb=%d, mbh=%d/%d/%d\n",
+			ctx->lmem->params.frame_crop_left_offset,
+			ctx->lmem->params.frame_crop_bottom_offset,
+			ctx->lmem->params.total_mb_height,
+			ctx->lmem->params.mb_height, mb_height);
+#endif
 }
 
 static int config_decode_canvas(struct decoder_h264_ctx *ctx, int index)
@@ -537,14 +563,6 @@ static void vdec_h264_input(struct decoder_h264_ctx *ctx) {
 	WRITE_VREG(H264_DECODE_INFO, (1<<13));
 	WRITE_VREG(H264_DECODE_SIZE, data_len);
 	WRITE_VREG(VIFF_BIT_CNT, data_len << 3);
-
-#if 0
-	u8 max_reference_size = MAX_NUM_FRAMES;
-	WRITE_VREG(AV_SCRATCH_7,
-			(max_reference_size << 24) |
-			(ctx->num_dst_bufs << 16) |
-			(ctx->num_dst_bufs << 8));
-#endif
 
 #if 0
 	for(int i = 0; i < ctx->num_dst_bufs; i++) {
@@ -671,6 +689,13 @@ static void vdec_h264_init(struct decoder_h264_ctx *ctx) {
 			(UCODE_IP_ONLY_PARAM << 6) |
 			(error_recovery_mode_in << 4));
 
+	if (ctx->init_flag == 0) {
+		WRITE_VREG(DPB_STATUS_REG, 0);
+	} else {
+		/* will trigger a new frame number on H264_ACTION_DECODE_NEWPIC */
+		WRITE_VREG(DPB_STATUS_REG, H264_ACTION_DECODE_START);
+	}
+
 	WRITE_VREG(FRAME_COUNTER_REG, ctx->decode_pic_count);
 
 	WRITE_VREG(DEBUG_REG1, 0);
@@ -693,13 +718,12 @@ static void vdec_h264_init(struct decoder_h264_ctx *ctx) {
 
 #define enable_itu_t35 0
 #define mmu_enable 0
-#define bitstream_restriction_flag 0
 	u8 level_idc = READ_VREG(AV_SCRATCH_B) && 0xff;
 	WRITE_VREG(NAL_SEARCH_CTL,
 			(enable_itu_t35 << 0) |
 			(mmu_enable << 1) |
 			(1 << 2) |
-			(bitstream_restriction_flag << 15) |
+			(ctx->lmem->params.sps_flags2.bitstream_restriction_flag << 15) |
 			(level_idc << 7));
 
 	WRITE_VREG(MDEC_EXTIF_CFG2, READ_VREG(MDEC_EXTIF_CFG2) | 0x20);
@@ -710,9 +734,9 @@ static void vdec_h264_init(struct decoder_h264_ctx *ctx) {
 #else
 	WRITE_VREG(AV_SCRATCH_1, decode_size << 3); // reuse the register AV_SCRATCH_1 to store the reserved bit_cnt for one packet multi-frame
 #endif
-	WRITE_VREG(H264_DECODE_SEQINFO, ctx->seq_info2);
-	WRITE_VREG(HEAD_PADDING_REG, 0);
 #endif
+	WRITE_VREG(H264_DECODE_SEQINFO, READ_VREG(AV_SCRATCH_1));
+	WRITE_VREG(HEAD_PADDING_REG, 0);
 
 /* begin config_decode_mode */
 	WRITE_VREG(H264_DECODE_MODE, DECODE_MODE_MULTI_FRAMEBASE);
@@ -730,49 +754,61 @@ static void vdec_h264_init(struct decoder_h264_ctx *ctx) {
 
 }
 
-static void vdec_h264_configure(struct decoder_h264_ctx *ctx) {
+static void vdec_h264_configure_request(struct decoder_h264_ctx *ctx) {
 	job_trace(ctx->job);
+
+#if 0
+	dump_dpb_params(&ctx->lmem->params);
+	dump_dpb(&ctx->lmem->dpb);
+	//dump_mmco(&ctx->lmem->mmco);
+#endif
 
 /* begin work DEC_RESULT_CONFIG_PARAM */
 	u32 param1 = READ_VREG(AV_SCRATCH_1);
 	u32 param2 = READ_VREG(AV_SCRATCH_2);
 	u32 param3 = READ_VREG(AV_SCRATCH_6);
 	u32 param4 = READ_VREG(AV_SCRATCH_B);
-	u8 max_reference_size = (param4 >> 8) & 0xff;
 
-	u32 mb_width = param1 & 0xff;
-	u32 mb_total = (param1 >> 8) & 0xffff;
-	u32 mb_height = 0;
-	if (!mb_width && mb_total) /*for 4k2k*/
-		mb_width = 256;
-	if (mb_width)
-		mb_height = mb_total/mb_width;
-	u32 frame_width = mb_width << 4;
-	u32 frame_height = mb_height << 4;
-
-	u32 pic_width = V4L2_FMT_WIDTH(ctx->job->src_fmt);
-	u32 pic_height = V4L2_FMT_HEIGHT(ctx->job->src_fmt);
-	if (ALIGN(pic_width, 16) != frame_width ||
-		ALIGN(pic_height, 16) != frame_height) {
+	u32 frame_width = get_picture_width(&ctx->lmem->params);
+	u32 frame_height = get_picture_height(&ctx->lmem->params);
+	job_dbg(ctx->job, "resolution %ux%u\n", frame_width, frame_height);
+	if (ctx->pic_width != frame_width ||
+		ctx->pic_height != frame_height) {
 		job_info(ctx->job, "resolution changed to %ux%u\n",
 				frame_width, frame_height);
 		// TODO notify resolution has changed
 	}
 
-
 	WRITE_VREG(AV_SCRATCH_0,
-			(max_reference_size << 24) |
+			(ctx->lmem->params.max_reference_frame_num << 24) |
 			(ctx->num_dst_bufs << 16) |
 			(ctx->num_dst_bufs << 8));
 /* end work DEC_RESULT_CONFIG_PARAM */
 }
 
-static void vdec_h264_picture(struct decoder_h264_ctx *ctx) {
+static void vdec_h264_header_done(struct decoder_h264_ctx *ctx) {
 	job_trace(ctx->job);
 
+#if 1
+	dump_dpb_params(&ctx->lmem->params);
+	dump_dpb(&ctx->lmem->dpb);
+	//dump_mmco(&ctx->lmem->mmco);
+#endif
+
+
+	amlvdec_h264_decode_poc(ctx->lmem, &ctx->poc);
+	job_dbg(ctx->job, "POC: %d, %d, %d, %d\n",
+			ctx->poc.ThisPOC,
+			ctx->poc.framepoc,
+			ctx->poc.toppoc,
+			ctx->poc.bottompoc);
+
 /* begin config_decode_buf */
-	//WRITE_VREG(H264_CURRENT_POC_IDX_RESET, 0);
-	//WRITE_VREG(H264_CURRENT_POC, 0);
+	WRITE_VREG(H264_CURRENT_POC_IDX_RESET, 0);
+	WRITE_VREG(H264_CURRENT_POC, ctx->poc.framepoc);
+	WRITE_VREG(H264_CURRENT_POC, ctx->poc.toppoc);
+	WRITE_VREG(H264_CURRENT_POC, ctx->poc.bottompoc);
+
 	//WRITE_VREG(MDEC_DOUBLEW_CFG0, 0);
 
 #if 0
@@ -792,9 +828,38 @@ static void vdec_h264_picture(struct decoder_h264_ctx *ctx) {
 
 	//WRITE_VREG(H264_BUFFER_INFO_DATA, 0);
 	//WRITE_VREG(H264_BUFFER_INFO_INDEX, 0);
-	//WRITE_VREG(H264_CO_MB_RD_ADDR, 0);
-	//WRITE_VREG(H264_CO_MB_WR_ADDR, 0);
 
+#if 0
+	u32 colocate_adr_offset = MB_MV_SIZE;
+	// TODO use_direct_8x8
+#ifdef TODO
+	// TODO pic->structure != FRAME || pic->mb_aff_frame_flag
+	if ((pic->structure != FRAME || pic->mb_aff_frame_flag)) {
+		colocate_adr_offset += MB_MV_SIZE;
+	}
+	// TODO pSlice->first_mb_in_slice
+	colocate_adr_offset *= pSlice->first_mb_in_slice;
+#endif
+
+	//TODO
+	int colocated_buf_index = ctx->decode_pic_count % MAX_REF_FRAMES;
+	u32 colocate_wr_adr = ctx->buffers[BUF_REF].paddr +
+		(ctx->mb_total * MB_MV_SIZE) * colocated_buf_index;
+
+	WRITE_VREG(H264_CO_MB_WR_ADDR, 
+			colocate_wr_adr + colocate_adr_offset);
+
+	u32 colocate_rd_adr_offset = MB_MV_SIZE;
+	int cur_colocate_ref_type = 0;
+	colocated_buf_index = 0;
+	u32 colocate_rd_adr = ctx->buffers[BUF_REF].paddr +
+		(ctx->mb_total * MB_MV_SIZE) * colocated_buf_index;
+	int l10_structure = 2;
+
+	WRITE_VREG(H264_CO_MB_RD_ADDR, 
+			((colocate_rd_adr+colocate_rd_adr_offset)>>3) |
+			(l10_structure << 30) | (cur_colocate_ref_type << 29));
+#endif
 /* end config_decode_buf */
 }
 
@@ -807,7 +872,12 @@ static void decoder_done(struct decoder_h264_ctx *ctx) {
 	
 	job_trace(ctx->job);
 
-	amvdec_stop(ctx);
+#if 0
+	dump_dpb_params(&ctx->lmem->params);
+	dump_dpb(&ctx->lmem->dpb);
+	//dump_mmco(&ctx->lmem->mmco);
+#endif
+//	amvdec_stop(ctx);
 
 	ctx->decode_pic_count++;
 
@@ -825,6 +895,7 @@ static void decoder_done(struct decoder_h264_ctx *ctx) {
 			v4l2_m2m_num_src_bufs_ready(ctx->m2m_ctx) == 0;
 	if (is_last) {
 		v4l2_m2m_last_buffer_done(ctx->m2m_ctx, t->dst_buf);
+		amvdec_stop(ctx);
 	} else {
 		v4l2_m2m_buf_done(t->dst_buf, VB2_BUF_STATE_DONE);
 	}
@@ -894,10 +965,9 @@ static void decoder_start(struct decoder_h264_ctx *ctx) {
 	ctx->dst_bufs[ctx->cur_dst_buf] = t->dst_buf;
 	config_decode_canvas(ctx, ctx->cur_dst_buf);
 
-	vdec_reset_core(ctx);
+	//vdec_reset_core(ctx);
 	vdec_h264_init(ctx);
 	vdec_h264_input(ctx);
-	vdec_h264_picture(ctx);
 	amvdec_start(ctx);
 
 	ctx->cmd = H264_ACTION_SEARCH_HEAD;
@@ -953,13 +1023,13 @@ static void decoder_loop(struct decoder_h264_ctx *ctx) {
 
 		/* decoder loop cases */
 		case H264_CONFIG_REQUEST:
-			vdec_h264_configure(ctx);
+			vdec_h264_configure_request(ctx);
 			ctx->cmd = H264_ACTION_CONFIG_DONE;
 			decoder_loop(ctx);
 			return;
 		case H264_SLICE_HEAD_DONE:
 			if (t->slice_count == 0) {
-				//vdec_h264_picture(ctx);
+				vdec_h264_header_done(ctx);
 				ctx->cmd = H264_ACTION_DECODE_NEWPIC;
 			} else {
 				ctx->cmd = H264_ACTION_DECODE_SLICE;
@@ -1156,16 +1226,26 @@ static int decoder_h264_prepare(struct meson_codec_job *job) {
 	init_completion(&ctx->decoder_completion);
 	job->priv = ctx;
 
+	// TODO replace with actual parsed size and refs
+	ctx->pic_width = V4L2_FMT_WIDTH(job->src_fmt);
+	ctx->pic_height = V4L2_FMT_HEIGHT(job->src_fmt);
+	ctx->mb_width = (ctx->pic_width + 15) >> 4;
+	ctx->mb_height = (ctx->pic_height + 15) >> 4;
+	ctx->mb_total = ctx->mb_width * ctx->mb_height;
+	u32 ref_size = ALIGN(ctx->mb_width, 4) * ALIGN(ctx->mb_height, 4) * MB_MV_SIZE * MAX_REF_FRAMES;
+
 	ctx->buffers[BUF_FW].size = MC_TOTAL_SIZE;
 	ctx->buffers[BUF_WORKSPACE].size = WORKSPACE_SIZE;
 	ctx->buffers[BUF_LMEM].size = LMEM_SIZE;
 	ctx->buffers[BUF_AUX].size = AUX_SIZE;
+	ctx->buffers[BUF_REF].size = ref_size;
 
 	ret = meson_vcodec_buffers_alloc(job->codec, ctx->buffers, MAX_BUFFERS);
 	if (ret) {
 		job_err(job, "Failed to allocate buffer\n");
 		goto free_ctx;
 	}
+	ctx->lmem = ctx->buffers[BUF_LMEM].vaddr;
 
 	ret = load_firmware(ctx);
 	if (ret) {

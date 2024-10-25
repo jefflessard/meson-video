@@ -10,9 +10,11 @@ h264_decode() {
 #		-pix_fmt yuv420p \
 #		-f rawvideo \
 #		-y /dev/null
+#		-vf select="gte(n\, 2)" \
 	ffmpeg $FFMPEG_OPTS \
 		-c:v h264_v4l2m2m \
 		-i sample_h264.mp4 \
+		-frames:v 5 \
 		-map 0:v:0 \
 		-c:v libx264 \
 		-preset ultrafast \
