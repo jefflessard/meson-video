@@ -1,18 +1,18 @@
 #include "amlvdec_h264_dpb.h"
 
+#define MAX_FRAME_NUM U16_MAX
 
-
-void amlvdec_h264_decode_poc(const struct amlvdec_h264_lmem *lmem, struct amlvdec_h264_poc *poc)
+static void amlvdec_h264_decode_poc(const struct amlvdec_h264_lmem *lmem, poc_state_t *poc, dpb_entry_t *entry)
 {
 	const struct amlvdec_h264_rpm *params = &lmem->params;
 	const struct amlvdec_h264_dpb *dpb = &lmem->dpb;
 	const struct amlvdec_h264_mmco *mmco = &lmem->mmco;
 
 	const bool field_pic_flag =
-		params->new_picture_structure == TOP_FIELD ||
-		params->new_picture_structure == BOTTOM_FIELD;
+		entry->picture_structure == MMCO_TOP_FIELD ||
+		entry->picture_structure == MMCO_BOTTOM_FIELD;
 	const bool bottom_field_flag =
-		params->new_picture_structure == BOTTOM_FIELD;
+		entry->picture_structure == MMCO_BOTTOM_FIELD;
 	const uint16_t pic_order_cnt_lsb = dpb->pic_order_cnt_lsb;
 	const int frame_num = dpb->frame_num;
 	const int delta_pic_order_cnt_bottom = 
@@ -28,10 +28,12 @@ void amlvdec_h264_decode_poc(const struct amlvdec_h264_lmem *lmem, struct amlvde
 	const int max_frame_num = 1 << params->log2_max_frame_num;
 	const uint16_t *offset_for_ref_frame = mmco->offset_for_ref_frame_base;
 
+	int ThisPOC = 0;
+
 	switch (params->pic_order_cnt_type) {
 		case 0: /* POC MODE 0 */
 			// Reset POC MSB and LSB for IDR pictures or after MMCO5
-			if (is_idr_pic(params)) {
+			if (is_idr_pic(lmem)) {
 				poc->PrevPicOrderCntMsb = 0;
 				poc->PrevPicOrderCntLsb = 0;
 			} else if (poc->last_has_mmco_5) {
@@ -40,7 +42,7 @@ void amlvdec_h264_decode_poc(const struct amlvdec_h264_lmem *lmem, struct amlvde
 					poc->PrevPicOrderCntLsb = 0;
 				} else {
 					poc->PrevPicOrderCntMsb = 0;
-					poc->PrevPicOrderCntLsb = poc->toppoc;
+					poc->PrevPicOrderCntLsb = entry->top_poc;
 				}
 			}
 
@@ -56,18 +58,18 @@ void amlvdec_h264_decode_poc(const struct amlvdec_h264_lmem *lmem, struct amlvde
 
 			// Calculate POC based on picture type
 			if (!field_pic_flag) {
-				poc->toppoc = poc->PicOrderCntMsb + pic_order_cnt_lsb;
-				poc->bottompoc = poc->toppoc + delta_pic_order_cnt_bottom;
-				poc->ThisPOC = poc->framepoc = 
-					(poc->toppoc < poc->bottompoc) ? poc->toppoc : poc->bottompoc;
+				entry->top_poc = poc->PicOrderCntMsb + pic_order_cnt_lsb;
+				entry->bottom_poc = entry->top_poc + delta_pic_order_cnt_bottom;
+				ThisPOC = entry->frame_poc = 
+					(entry->top_poc < entry->bottom_poc) ? entry->top_poc : entry->bottom_poc;
 			} else if (!bottom_field_flag) {
-				poc->ThisPOC = poc->toppoc = 
+				ThisPOC = entry->top_poc = 
 					poc->PicOrderCntMsb + pic_order_cnt_lsb;
 			} else {
-				poc->ThisPOC = poc->bottompoc = 
+				ThisPOC = entry->bottom_poc = 
 					poc->PicOrderCntMsb + pic_order_cnt_lsb;
 			}
-			poc->framepoc = poc->ThisPOC;
+			entry->frame_poc = ThisPOC;
 
 			// Update previous values for reference pictures
 			poc->PreviousFrameNum = frame_num;
@@ -79,7 +81,7 @@ void amlvdec_h264_decode_poc(const struct amlvdec_h264_lmem *lmem, struct amlvde
 
 		case 1: /* POC MODE 1 */
 			// Calculate FrameNumOffset
-			if (is_idr_pic(params)) {
+			if (is_idr_pic(lmem)) {
 				poc->FrameNumOffset = 0;
 			} else {
 				if (poc->last_has_mmco_5) {
@@ -128,18 +130,18 @@ void amlvdec_h264_decode_poc(const struct amlvdec_h264_lmem *lmem, struct amlvde
 
 			// Calculate final POC values
 			if (!field_pic_flag) {
-				poc->toppoc = poc->ExpectedPicOrderCnt + delta_pic_order_cnt_0;
-				poc->bottompoc = poc->toppoc + params->offset_for_top_to_bottom_field + delta_pic_order_cnt_1;
-				poc->ThisPOC = poc->framepoc = 
-					(poc->toppoc < poc->bottompoc) ? poc->toppoc : poc->bottompoc;
+				entry->top_poc = poc->ExpectedPicOrderCnt + delta_pic_order_cnt_0;
+				entry->bottom_poc = entry->top_poc + params->offset_for_top_to_bottom_field + delta_pic_order_cnt_1;
+				ThisPOC = entry->frame_poc = 
+					(entry->top_poc < entry->bottom_poc) ? entry->top_poc : entry->bottom_poc;
 			} else if (!bottom_field_flag) {
-				poc->ThisPOC = poc->toppoc = 
+				ThisPOC = entry->top_poc = 
 					poc->ExpectedPicOrderCnt + delta_pic_order_cnt_0;
 			} else {
-				poc->ThisPOC = poc->bottompoc = poc->ExpectedPicOrderCnt + 
+				ThisPOC = entry->bottom_poc = poc->ExpectedPicOrderCnt + 
 					params->offset_for_top_to_bottom_field + delta_pic_order_cnt_0;
 			}
-			poc->framepoc = poc->ThisPOC;
+			entry->frame_poc = ThisPOC;
 
 			// Update previous values
 			poc->PreviousFrameNum = frame_num;
@@ -147,9 +149,9 @@ void amlvdec_h264_decode_poc(const struct amlvdec_h264_lmem *lmem, struct amlvde
 			break;
 
 		case 2: /* POC MODE 2 */
-			if (is_idr_pic(params)) {
+			if (is_idr_pic(lmem)) {
 				poc->FrameNumOffset = 0;
-				poc->ThisPOC = poc->framepoc = poc->toppoc = poc->bottompoc = 0;
+				ThisPOC = entry->frame_poc = entry->top_poc = entry->bottom_poc = 0;
 			} else {
 				if (poc->last_has_mmco_5) {
 					poc->PreviousFrameNum = 0;
@@ -161,15 +163,15 @@ void amlvdec_h264_decode_poc(const struct amlvdec_h264_lmem *lmem, struct amlvde
 					poc->FrameNumOffset = poc->PreviousFrameNumOffset;
 
 				poc->AbsFrameNum = poc->FrameNumOffset + frame_num;
-				poc->ThisPOC = (!params->nal_ref_idc) ? 
+				ThisPOC = (!params->nal_ref_idc) ? 
 					(2 * poc->AbsFrameNum - 1) : (2 * poc->AbsFrameNum);
 
 				if (!field_pic_flag)
-					poc->toppoc = poc->bottompoc = poc->framepoc = poc->ThisPOC;
+					entry->top_poc = entry->bottom_poc = entry->frame_poc = ThisPOC;
 				else if (!bottom_field_flag)
-					poc->toppoc = poc->framepoc = poc->ThisPOC;
+					entry->top_poc = entry->frame_poc = ThisPOC;
 				else
-					poc->bottompoc = poc->framepoc = poc->ThisPOC;
+					entry->bottom_poc = entry->frame_poc = ThisPOC;
 			}
 
 			poc->PreviousFrameNum = frame_num;
@@ -178,260 +180,321 @@ void amlvdec_h264_decode_poc(const struct amlvdec_h264_lmem *lmem, struct amlvde
 	}
 }
 
-void dump_dpb_params(const struct amlvdec_h264_rpm *params) {
-	pr_debug("DPB PARAM: fixed_frame_rate_flag: %u", params->fixed_frame_rate_flag);
-	pr_debug("DPB PARAM: offset_delimiter_lo: %u", params->offset_delimiter_lo);
-	pr_debug("DPB PARAM: offset_delimiter_hi: %u", params->offset_delimiter_hi);
-	pr_debug("DPB PARAM: slice_iponly_break: %u", params->slice_iponly_break);
-	pr_debug("DPB PARAM: prev_max_reference_frame_num: %u", params->prev_max_reference_frame_num);
-	pr_debug("DPB PARAM: eos: %u", params->eos);
-	pr_debug("DPB PARAM: frame_packing_type: %u", params->frame_packing_type);
-	pr_debug("DPB PARAM: old_poc_par_1: %u", params->old_poc_par_1);
-	pr_debug("DPB PARAM: old_poc_par_2: %u", params->old_poc_par_2);
-	pr_debug("DPB PARAM: prev_mbx: %u", params->prev_mbx);
-	pr_debug("DPB PARAM: prev_mby: %u", params->prev_mby);
-	pr_debug("DPB PARAM: error_skip_mb_num: %u", params->error_skip_mb_num);
-	pr_debug("DPB PARAM: error_mb_status_raw: %u", params->error_mb_status_raw);
-	pr_debug("DPB PARAM: l0_pic0_status: %u", params->l0_pic0_status);
-	pr_debug("DPB PARAM: timeout_counter: %u", params->timeout_counter);
-	pr_debug("DPB PARAM: buffer_size: %u", params->buffer_size);
-	pr_debug("DPB PARAM: buffer_size_hi: %u", params->buffer_size_hi);
-	pr_debug("DPB PARAM: frame_crop_left_offset: %u", params->frame_crop_left_offset);
-	pr_debug("DPB PARAM: frame_crop_right_offset: %u", params->frame_crop_right_offset);
-	pr_debug("DPB PARAM: sps_flags2_raw: %u", params->sps_flags2_raw);
-	pr_debug("DPB PARAM: num_reorder_frames: %u", params->num_reorder_frames);
-	pr_debug("DPB PARAM: max_buffer_frame: %u", params->max_buffer_frame);
-	pr_debug("DPB PARAM: non_conforming_stream: %u", params->non_conforming_stream);
-	pr_debug("DPB PARAM: recovery_point: %u", params->recovery_point);
-	pr_debug("DPB PARAM: post_canvas: %u", params->post_canvas);
-	pr_debug("DPB PARAM: post_canvas_h: %u", params->post_canvas_h);
-	pr_debug("DPB PARAM: skip_pic_count: %u", params->skip_pic_count);
-	pr_debug("DPB PARAM: target_num_scaling_list: %u", params->target_num_scaling_list);
-	pr_debug("DPB PARAM: ff_post_one_frame: %u", params->ff_post_one_frame);
-	pr_debug("DPB PARAM: previous_bit_cnt: %u", params->previous_bit_cnt);
-	pr_debug("DPB PARAM: mb_not_shift_count: %u", params->mb_not_shift_count);
-	pr_debug("DPB PARAM: pic_status: %u", params->pic_status);
-	pr_debug("DPB PARAM: frame_counter: %u", params->frame_counter);
-	pr_debug("DPB PARAM: new_slice_type: %u", params->new_slice_type);
-	pr_debug("DPB PARAM: new_frame_num: %u", params->new_frame_num);
-	pr_debug("DPB PARAM: new_idr_pic_id: %u", params->new_idr_pic_id);
-	pr_debug("DPB PARAM: idr_pic_id: %u", params->idr_pic_id);
-	pr_debug("DPB PARAM: nal_unit_type: %u", params->nal_unit_type);
-	pr_debug("DPB PARAM: nal_ref_idc: %u", params->nal_ref_idc);
-	pr_debug("DPB PARAM: slice_type: %u", params->slice_type);
-	pr_debug("DPB PARAM: log2_max_frame_num: %u", params->log2_max_frame_num);
-	pr_debug("DPB PARAM: frame_mbs_only_flag: %u", params->frame_mbs_only_flag);
-	pr_debug("DPB PARAM: pic_order_cnt_type: %u", params->pic_order_cnt_type);
-	pr_debug("DPB PARAM: log2_max_pic_order_cnt_lsb: %u", params->log2_max_pic_order_cnt_lsb);
-	pr_debug("DPB PARAM: pic_order_present_flag: %u", params->pic_order_present_flag);
-	pr_debug("DPB PARAM: redundant_pic_cnt_present_flag: %u", params->redundant_pic_cnt_present_flag);
-	pr_debug("DPB PARAM: pic_init_qp_minus26: %u", params->pic_init_qp_minus26);
-	pr_debug("DPB PARAM: deblocking_filter_control_present_flag: %u", params->deblocking_filter_control_present_flag);
-	pr_debug("DPB PARAM: num_slice_groups_minus1: %u", params->num_slice_groups_minus1);
-	pr_debug("DPB PARAM: mode_8x8_flags: %u", params->mode_8x8_flags);
-	pr_debug("DPB PARAM: entropy_coding_mode_flag: %u", params->entropy_coding_mode_flag);
-	pr_debug("DPB PARAM: slice_quant: %u", params->slice_quant);
-	pr_debug("DPB PARAM: total_mb_height: %u", params->total_mb_height);
-	pr_debug("DPB PARAM: top_intra_type: %u", params->top_intra_type);
-	pr_debug("DPB PARAM: rv_ai_status: %u", params->rv_ai_status);
-	pr_debug("DPB PARAM: ai_read_start: %u", params->ai_read_start);
-	pr_debug("DPB PARAM: ai_write_start: %u", params->ai_write_start);
-	pr_debug("DPB PARAM: ai_cur_buffer: %u", params->ai_cur_buffer);
-	pr_debug("DPB PARAM: ai_dma_buffer: %u", params->ai_dma_buffer);
-	pr_debug("DPB PARAM: ai_read_offset: %u", params->ai_read_offset);
-	pr_debug("DPB PARAM: ai_write_offset: %u", params->ai_write_offset);
-	pr_debug("DPB PARAM: ai_write_offset_save: %u", params->ai_write_offset_save);
-	pr_debug("DPB PARAM: rv_ai_buff_start: %u", params->rv_ai_buff_start);
-	pr_debug("DPB PARAM: i_pic_mb_count: %u", params->i_pic_mb_count);
-	pr_debug("DPB PARAM: ai_wr_dcac_dma_ctrl: %u", params->ai_wr_dcac_dma_ctrl);
-	pr_debug("DPB PARAM: slice_mb_count: %u", params->slice_mb_count);
-	pr_debug("DPB PARAM: pictype_raw: %u", params->pictype_raw);
-	pr_debug("DPB PARAM: slice_group_map_type: %u", params->slice_group_map_type);
-	pr_debug("DPB PARAM: mb_type_raw: %u", params->mb_type_raw);
-	pr_debug("DPB PARAM: mb_aff_added_dma: %u", params->mb_aff_added_dma);
-	pr_debug("DPB PARAM: previous_mb_type: %u", params->previous_mb_type);
-	pr_debug("DPB PARAM: weighted_pred_flag: %u", params->weighted_pred_flag);
-	pr_debug("DPB PARAM: weighted_bipred_idc: %u", params->weighted_bipred_idc);
-	pr_debug("DPB PARAM: mbff_info_raw: %u", params->mbff_info_raw);
-	pr_debug("DPB PARAM: top_intra_type_top: %u", params->top_intra_type_top);
-	pr_debug("DPB PARAM: rv_ai_buff_inc: %u", params->rv_ai_buff_inc);
-	pr_debug("DPB PARAM: default_mb_info_lo: %u", params->default_mb_info_lo);
-	pr_debug("DPB PARAM: need_read_top_info: %u", params->need_read_top_info);
-	pr_debug("DPB PARAM: read_top_info_state: %u", params->read_top_info_state);
-	pr_debug("DPB PARAM: dcac_mbx: %u", params->dcac_mbx);
-	pr_debug("DPB PARAM: top_mb_info_offset: %u", params->top_mb_info_offset);
-	pr_debug("DPB PARAM: top_mb_info_rd_idx: %u", params->top_mb_info_rd_idx);
-	pr_debug("DPB PARAM: top_mb_info_wr_idx: %u", params->top_mb_info_wr_idx);
-	pr_debug("DPB PARAM: vld_waiting: %u", params->vld_waiting);
-	pr_debug("DPB PARAM: mb_x_num: %u", params->mb_x_num);
-	pr_debug("DPB PARAM: mb_width: %u", params->mb_width);
-	pr_debug("DPB PARAM: mb_height: %u", params->mb_height);
-	pr_debug("DPB PARAM: mbx: %u", params->mbx);
-	pr_debug("DPB PARAM: total_mby: %u", params->total_mby);
-	pr_debug("DPB PARAM: intr_msk_save: %u", params->intr_msk_save);
-	pr_debug("DPB PARAM: need_disable_ppe: %u", params->need_disable_ppe);
-	pr_debug("DPB PARAM: is_new_picture: %u", params->is_new_picture);
-	pr_debug("DPB PARAM: prev_nal_ref_idc: %u", params->prev_nal_ref_idc);
-	pr_debug("DPB PARAM: prev_nal_unit_type: %u", params->prev_nal_unit_type);
-	pr_debug("DPB PARAM: frame_mb_count: %u", params->frame_mb_count);
-	pr_debug("DPB PARAM: slice_group_ucode: %u", params->slice_group_ucode);
-	pr_debug("DPB PARAM: slice_group_change_rate: %u", params->slice_group_change_rate);
-	pr_debug("DPB PARAM: slice_group_change_cycle_len: %u", params->slice_group_change_cycle_len);
-	pr_debug("DPB PARAM: delay_length: %u", params->delay_length);
-	pr_debug("DPB PARAM: frame_crop_top_offset: %u", params->frame_crop_top_offset);
-	pr_debug("DPB PARAM: dcac_previous_mb_type: %u", params->dcac_previous_mb_type);
-	pr_debug("DPB PARAM: time_stamp: %u", params->time_stamp);
-	pr_debug("DPB PARAM: h_time_stamp: %u", params->h_time_stamp);
-	pr_debug("DPB PARAM: vpts_map_addr: %u", params->vpts_map_addr);
-	pr_debug("DPB PARAM: h_vpts_map_addr: %u", params->h_vpts_map_addr);
-	pr_debug("DPB PARAM: frame_crop_bottom_offset: %u", params->frame_crop_bottom_offset);
-	pr_debug("DPB PARAM: pic_insert_flag: %u", params->pic_insert_flag);
-	pr_debug("DPB PARAM: offset_for_non_ref_pic: %u", params->offset_for_non_ref_pic);
-	pr_debug("DPB PARAM: offset_for_top_to_bottom_field: %u", params->offset_for_top_to_bottom_field);
-	pr_debug("DPB PARAM: max_reference_frame_num: %u", params->max_reference_frame_num);
-	pr_debug("DPB PARAM: frame_num_gap_allowed: %u", params->frame_num_gap_allowed);
-	pr_debug("DPB PARAM: num_ref_frames_in_pic_order_cnt_cycle: %u", params->num_ref_frames_in_pic_order_cnt_cycle);
-	pr_debug("DPB PARAM: profile_idc_mmco: %u", params->profile_idc_mmco);
-	pr_debug("DPB PARAM: profile_idc: %u", params->profile_idc);
-	pr_debug("DPB PARAM: level_idc_mmco: %u", params->level_idc_mmco);
-	pr_debug("DPB PARAM: frame_size_in_mb: %u", params->frame_size_in_mb);
-	pr_debug("DPB PARAM: delta_pic_order_always_zero_flag: %u", params->delta_pic_order_always_zero_flag);
-	pr_debug("DPB PARAM: pps_num_ref_idx_l0_active_minus1: %u", params->pps_num_ref_idx_l0_active_minus1);
-	pr_debug("DPB PARAM: pps_num_ref_idx_l1_active_minus1: %u", params->pps_num_ref_idx_l1_active_minus1);
-	pr_debug("DPB PARAM: current_sps_id: %u", params->current_sps_id);
-	pr_debug("DPB PARAM: current_pps_id: %u", params->current_pps_id);
-	pr_debug("DPB PARAM: decode_status_raw: %u", params->decode_status_raw);
-	pr_debug("DPB PARAM: first_mb_in_slice: %u", params->first_mb_in_slice);
-	pr_debug("DPB PARAM: prev_mb_width: %u", params->prev_mb_width);
-	pr_debug("DPB PARAM: prev_frame_size_in_mb: %u", params->prev_frame_size_in_mb);
-	pr_debug("DPB PARAM: max_reference_frame_num_in_mem: %u", params->max_reference_frame_num_in_mem);
-	pr_debug("DPB PARAM: chroma_format_idc: %u", params->chroma_format_idc);
-	pr_debug("DPB PARAM: vui_status_raw: %u", params->vui_status_raw);
-	pr_debug("DPB PARAM: aspect_ratio_idc: %u", params->aspect_ratio_idc);
-	pr_debug("DPB PARAM: aspect_ratio_sar_width: %u", params->aspect_ratio_sar_width);
-	pr_debug("DPB PARAM: aspect_ratio_sar_height: %u", params->aspect_ratio_sar_height);
-	pr_debug("DPB PARAM: num_units_in_tick: %u", params->num_units_in_tick);
-	pr_debug("DPB PARAM: time_scale: %u", params->time_scale);
-	pr_debug("DPB PARAM: current_pic_info_raw: %u", params->current_pic_info_raw);
-	pr_debug("DPB PARAM: dpb_buffer_info: %u", params->dpb_buffer_info);
-	pr_debug("DPB PARAM: reference_pool_info: %u", params->reference_pool_info);
-	pr_debug("DPB PARAM: reference_list_info: %u\n", params->reference_list_info);
+// Initialize DPB buffer
+void amlvdec_h264_dpb_init(dpb_buffer_t *dpb, const struct amlvdec_h264_lmem *hw_dpb) {
+	memset(dpb, 0, sizeof(dpb_buffer_t));
+	dpb->hw_dpb = hw_dpb;
+	dpb->max_frames = 0;
 }
 
-void dump_dpb(const struct amlvdec_h264_dpb *dpb) {
-	pr_debug("DPB: dpb_max_buffer_frame: %u", dpb->dpb_max_buffer_frame);
-	pr_debug("DPB: actual_dpb_size: %u", dpb->actual_dpb_size);
-	pr_debug("DPB: colocated_buf_status: %u", dpb->colocated_buf_status);
-	pr_debug("DPB: num_forward_short_term_reference_pic: %u", dpb->num_forward_short_term_reference_pic);
-	pr_debug("DPB: num_short_term_reference_pic: %u", dpb->num_short_term_reference_pic);
-	pr_debug("DPB: num_reference_pic: %u", dpb->num_reference_pic);
-	pr_debug("DPB: current_dpb_index: %u", dpb->current_dpb_index);
-	pr_debug("DPB: current_decoded_frame_num: %u", dpb->current_decoded_frame_num);
-	pr_debug("DPB: current_reference_frame_num: %u", dpb->current_reference_frame_num);
-	pr_debug("DPB: l0_size: %u", dpb->l0_size);
-	pr_debug("DPB: l1_size: %u", dpb->l1_size);
-	pr_debug("DPB: NAL_info_mmco: %u", dpb->NAL_info_mmco);
-	pr_debug("DPB: picture_structure_mmco: %u", dpb->picture_structure_mmco);
-	pr_debug("DPB: frame_num: %u", dpb->frame_num);
-	pr_debug("DPB: pic_order_cnt_lsb: %u", dpb->pic_order_cnt_lsb);
-	pr_debug("DPB: num_ref_idx_l0_active_minus1: %u", dpb->num_ref_idx_l0_active_minus1);
-	pr_debug("DPB: num_ref_idx_l1_active_minus1: %u", dpb->num_ref_idx_l1_active_minus1);
-	pr_debug("DPB: PrevPicOrderCntLsb: %u", dpb->PrevPicOrderCntLsb);
-	pr_debug("DPB: PreviousFrameNum: %u", dpb->PreviousFrameNum);
-	pr_debug("DPB: delta_pic_order_cnt_bottom[2]: %u %u",
-			dpb->delta_pic_order_cnt_bottom_hi,
-			dpb->delta_pic_order_cnt_bottom_lo);
-	pr_debug("DPB: delta_pic_order_cnt_0[2]: %u %u",
-			dpb->delta_pic_order_cnt_0_hi,
-			dpb->delta_pic_order_cnt_0_lo);
-	pr_debug("DPB: delta_pic_order_cnt_1[2]: %u %u",
-			dpb->delta_pic_order_cnt_1_hi,
-			dpb->delta_pic_order_cnt_1_lo);
-	pr_debug("DPB: PrevPicOrderCntMsb[2]: %u %u",
-			dpb->PrevPicOrderCntMsb_hi,
-			dpb->PrevPicOrderCntMsb_lo);
-	pr_debug("DPB: PrevFrameNumOffset[2]: %u %u",
-			dpb->PrevFrameNumOffset_hi,
-			dpb->PrevFrameNumOffset_lo);
-	pr_debug("DPB: frame_pic_order_cnt[2]: %u %u",
-			dpb->frame_pic_order_cnt_hi,
-			dpb->frame_pic_order_cnt_lo);
-	pr_debug("DPB: top_field_pic_order_cnt[2]: %u %u",
-			dpb->top_field_pic_order_cnt_hi,
-			dpb->top_field_pic_order_cnt_lo);
-	pr_debug("DPB: bottom_field_pic_order_cnt[2]: %u %u",
-			dpb->bottom_field_pic_order_cnt_hi,
-			dpb->bottom_field_pic_order_cnt_lo);
-	pr_debug("DPB: colocated_mv_addr_start[2]: %u %u",
-			dpb->colocated_mv_addr_start_hi,
-			dpb->colocated_mv_addr_start_lo);
-	pr_debug("DPB: colocated_mv_addr_end[2]: %u %u",
-			dpb->colocated_mv_addr_end_hi,
-			dpb->colocated_mv_addr_end_lo);
-	pr_debug("DPB: colocated_mv_wr_addr[2]: %u %u",
-			dpb->colocated_mv_wr_addr_hi,
-			dpb->colocated_mv_wr_addr_lo);
-	pr_debug("DPB: frame_crop_left_offset: %u", dpb->frame_crop_left_offset);
-	pr_debug("DPB: frame_crop_right_offset: %u", dpb->frame_crop_right_offset);
-	pr_debug("DPB: frame_crop_top_offset: %u", dpb->frame_crop_top_offset);
-	pr_debug("DPB: frame_crop_bottom_offset: %u", dpb->frame_crop_bottom_offset);
-	pr_debug("DPB: chroma_format_idc: %u\n", dpb->chroma_format_idc);
+// Find empty slot in DPB
+static int find_empty_dpb_slot(dpb_buffer_t *dpb) {
+	for (int i = 0; i < dpb->max_frames; i++) {
+		if (!dpb->frames[i].is_used) {
+			return i;
+		}
+	}
+	return -1;
 }
 
-void dump_mmco(const struct amlvdec_h264_mmco *mmco) {
-	print_hex_dump(KERN_DEBUG,
-			"MMCO: offset_for_ref_frame_base",
-			DUMP_PREFIX_OFFSET,
-			16, 2,
-			mmco->offset_for_ref_frame_base,
-			sizeof(mmco->offset_for_ref_frame_base),
-			false);
+// Find a frame that can be removed from DPB
+static int find_removable_frame(dpb_buffer_t *dpb) {
+	int oldest_poc = INT_MAX;
+	int oldest_idx = -1;
 
-	print_hex_dump(KERN_DEBUG,
-			"MMCO: reference_base",
-			DUMP_PREFIX_OFFSET,
-			16, 2,
-			mmco->reference_base,
-			sizeof(mmco->reference_base),
-			false);
+	for (int i = 0; i < dpb->max_frames; i++) {
+		if (dpb->frames[i].is_used && !dpb->frames[i].is_reference) {
+			if (dpb->frames[i].frame_poc < oldest_poc) {
+				oldest_poc = dpb->frames[i].frame_poc;
+				oldest_idx = i;
+			}
+		}
+	}
+	return oldest_idx;
+}
 
-	print_hex_dump(KERN_DEBUG,
-			"MMCO: l0_reorder_cmd: ",
-			DUMP_PREFIX_OFFSET,
-			16, 2,
-			mmco->l0_reorder_cmd,
-			sizeof(mmco->l0_reorder_cmd),
-			false);
 
-	print_hex_dump(KERN_DEBUG,
-			"MMCO: l1_reorder_cmd: ",
-			DUMP_PREFIX_OFFSET,
-			16, 2,
-			mmco->l1_reorder_cmd,
-			sizeof(mmco->l1_reorder_cmd),
-			false);
+// Mark frames as unused based on MMCO commands
+static void dpb_mark_short_term_unused(dpb_buffer_t *dpb, uint16_t frame_num) {
+	for (int i = 0; i < dpb->max_frames; i++) {
+		if (dpb->frames[i].is_used && 
+			!dpb->frames[i].is_long_term &&
+			dpb->frames[i].frame_num == frame_num) {
+			dpb->frames[i].is_reference = false;
+		}
+	}
+}
 
-	print_hex_dump(KERN_DEBUG,
-			"MMCO: mmco_cmd: ",
-			DUMP_PREFIX_OFFSET,
-			16, 2,
-			mmco->mmco_cmd,
-			sizeof(mmco->mmco_cmd),
-			false);
+static void dpb_mark_long_term_unused(dpb_buffer_t *dpb, uint16_t long_term_pic_num) {
+	for (int i = 0; i < dpb->max_frames; i++) {
+		if (dpb->frames[i].is_used && 
+			dpb->frames[i].is_long_term &&
+			dpb->frames[i].frame_num == long_term_pic_num) {
+			dpb->frames[i].is_reference = false;
+			dpb->frames[i].is_long_term = false;
+		}
+	}
+}
 
-	print_hex_dump(KERN_DEBUG,
-			"MMCO: l0_base: ",
-			DUMP_PREFIX_OFFSET,
-			16, 2,
-			mmco->l0_base,
-			sizeof(mmco->l0_base),
-			false);
+// Update DPB with new frame info from hardware registers
+dpb_entry_t* dpb_store_frame(dpb_buffer_t *dpb) {
+	const struct amlvdec_h264_lmem *hw_dpb = dpb->hw_dpb;
 
-	print_hex_dump(KERN_DEBUG,
-			"MMCO: l1_base: ",
-			DUMP_PREFIX_OFFSET,
-			16, 2,
-			mmco->l1_base,
-			sizeof(mmco->l1_base),
-			false);
+	// Find or make space in DPB
+	int slot = find_empty_dpb_slot(dpb);
+	if (slot < 0) {
+		slot = find_removable_frame(dpb);
+		if (slot < 0) {
+			pr_err("DPB: DPB full with reference frames");
+			// DPB full with reference frames - error condition
+			return NULL;
+		}
+	}
+
+	dpb_entry_t *entry = &dpb->frames[slot];
+
+	// Fill entry with current frame info
+	entry->frame_num = hw_dpb->dpb.frame_num;
+	entry->pic_order_cnt_lsb = hw_dpb->dpb.pic_order_cnt_lsb;
+	entry->picture_structure = hw_dpb->dpb.picture_structure_mmco;
+
+	// Extract NAL info
+	entry->nal_ref_idc = hw_dpb->dpb.nal_info_mmco.nal_ref_idc;
+	entry->nal_unit_type = hw_dpb->dpb.nal_info_mmco.nal_unit_type;
+
+#if 0
+	// Store POC information
+	entry->frame_poc = (hw_dpb->dpb.frame_pic_order_cnt_hi << 16) | hw_dpb->dpb.frame_pic_order_cnt_lo;
+	entry->top_poc = (hw_dpb->dpb.top_field_pic_order_cnt_hi << 16) | hw_dpb->dpb.top_field_pic_order_cnt_lo;
+	entry->bottom_poc = entry->frame_poc - entry->top_poc;
+#endif
+
+	// Set buffer management flags
+	entry->is_reference = (entry->nal_ref_idc != 0);
+	entry->is_used = true;
+
+	bool is_idr = is_idr_pic(hw_dpb);
+	if (is_idr) {
+		uint16_t cmd = amlvdec_h264_mmco_cmd(hw_dpb, 0);
+		bool long_term_reference_flag = cmd & 1;
+		bool no_output_of_prior_pics_flag = (cmd >> 1) & 1;
+	}
+
+	bool adaptive_ref_pic_buffering_flag = false;
+
+	dpb->poc_state.last_has_mmco_5 = false;
+
+	if (entry->is_reference) {
+		// Process MMCO commands if present
+		// TODO lmem swapped
+		for (int i = 0; i < 44; i++) {
+			uint16_t cmd = amlvdec_h264_mmco_cmd(hw_dpb, i);
+
+			if (cmd == 0)
+				break;
+
+			adaptive_ref_pic_buffering_flag = true;
+
+			int difference_of_pic_nums_minus1 = 0;
+			int long_term_pic_num = 0;
+			int long_term_frame_idx = 0;
+			int max_long_term_frame_idx_plus1 = 0;
+
+			pr_debug("DPB MMCO CMD: cmd=%u, ", cmd);
+			switch (cmd) {
+				case 1:
+					difference_of_pic_nums_minus1 = amlvdec_h264_mmco_cmd(hw_dpb, i++);
+					pr_cont("difference_of_pic_nums_minus1=%u\n", difference_of_pic_nums_minus1);
+					// TODO mm_unmark_short_term_for_reference
+					dpb_mark_short_term_unused(dpb,
+							entry->frame_num - (difference_of_pic_nums_minus1 + 1));
+					break;
+				case 2:
+					long_term_pic_num = amlvdec_h264_mmco_cmd(hw_dpb, i++);
+					pr_cont("long_term_pic_num=%u\n", long_term_pic_num);
+					// TODO mm_unmark_long_term_for_reference
+					dpb_mark_long_term_unused(dpb, long_term_pic_num);
+					break;
+				case 3:
+					difference_of_pic_nums_minus1 = amlvdec_h264_mmco_cmd(hw_dpb, i++);
+					long_term_frame_idx = amlvdec_h264_mmco_cmd(hw_dpb, i++);
+					pr_cont("difference_of_pic_nums_minus1=%u, long_term_frame_idx=%u\n", difference_of_pic_nums_minus1, long_term_frame_idx);
+					// TODO mm_assign_long_term_frame_idx
+					if (entry->is_reference) {
+						entry->is_long_term = true;
+					}
+					break;
+				case 4:
+					max_long_term_frame_idx_plus1 = amlvdec_h264_mmco_cmd(hw_dpb, i++);
+					pr_cont("max_long_term_frame_idx_plus1=%u\n", max_long_term_frame_idx_plus1);
+					// TODO mm_update_max_long_term_frame_idx
+					break;
+				case 5:
+					dpb->poc_state.last_has_mmco_5 = true;
+					pr_cont("last_has_mmco_5=%u\n", dpb->poc_state.last_has_mmco_5);
+					// TODO mm_unmark_all_short_term_for_reference
+					// TODO mm_unmark_all_long_term_for_reference
+					break;
+				case 6:
+					long_term_frame_idx = amlvdec_h264_mmco_cmd(hw_dpb, i++);
+					pr_cont("long_term_frame_idx=%u\n", long_term_frame_idx);
+					// TODO mm_mark_current_picture_long_term
+					break;
+				default:
+					pr_cont("\n");
+					pr_warn("DPB MMCO CMD: Invalid cmd=%u\n", cmd);
+					break;
+			}
+		}
+	}
+
+	return entry;
+}
+
+// Sort reference list by POC
+static void sort_ref_list_by_poc(dpb_entry_t **ref_list, int size, int32_t curr_poc, bool before) {
+	// Simple bubble sort
+	for (int i = 0; i < size - 1; i++) {
+		for (int j = 0; j < size - i - 1; j++) {
+			bool should_swap;
+			if (before) {
+				// For ref_list0: closest POC before current
+				should_swap = abs(ref_list[j]->frame_poc - curr_poc) > abs(ref_list[j + 1]->frame_poc - curr_poc);
+			} else {
+				// For ref_list1: closest POC after current
+				should_swap = abs(ref_list[j]->frame_poc - curr_poc) < abs(ref_list[j + 1]->frame_poc - curr_poc);
+			}
+
+			if (should_swap) {
+				dpb_entry_t *temp = ref_list[j];
+				ref_list[j] = ref_list[j + 1];
+				ref_list[j + 1] = temp;
+			}
+		}
+	}
+}
+
+// Sort reference list by frame number
+static void sort_ref_list_by_frame_num(dpb_entry_t **ref_list, int size, uint16_t curr_frame_num) {
+	// Simple bubble sort
+	for (int i = 0; i < size - 1; i++) {
+		for (int j = 0; j < size - i - 1; j++) {
+			int diff_j = (curr_frame_num >= ref_list[j]->frame_num) ?
+				(curr_frame_num - ref_list[j]->frame_num) :
+				(curr_frame_num + MAX_FRAME_NUM - ref_list[j]->frame_num);
+
+			int diff_next = (curr_frame_num >= ref_list[j + 1]->frame_num) ?
+				(curr_frame_num - ref_list[j + 1]->frame_num) :
+				(curr_frame_num + MAX_FRAME_NUM - ref_list[j + 1]->frame_num);
+
+			if (diff_j > diff_next) {
+				dpb_entry_t *temp = ref_list[j];
+				ref_list[j] = ref_list[j + 1];
+				ref_list[j + 1] = temp;
+			}
+		}
+	}
+}
+
+// Build reference lists for current frame
+void dpb_build_ref_lists(dpb_buffer_t *dpb, 
+		uint16_t curr_frame_num,
+		int32_t curr_poc,
+		bool is_b_slice) {
+	dpb->ref_list0_size = 0;
+	dpb->ref_list1_size = 0;
+
+	// First handle short term references
+	for (int i = 0; i < dpb->max_frames; i++) {
+		if (!dpb->frames[i].is_used ||
+			!dpb->frames[i].is_reference ||
+			dpb->frames[i].is_long_term)
+			continue;
+
+		if (is_b_slice) {
+			// For B-slices, sort by POC
+			if (dpb->frames[i].frame_poc < curr_poc) {
+				dpb->ref_list0[dpb->ref_list0_size++] = &dpb->frames[i];
+			} else {
+				dpb->ref_list1[dpb->ref_list1_size++] = &dpb->frames[i];
+			}
+		} else {
+			// For P-slices, sort by frame_num difference
+			dpb->ref_list0[dpb->ref_list0_size++] = &dpb->frames[i];
+		}
+	}
+
+	// Then append long term references to both lists
+	for (int i = 0; i < dpb->max_frames; i++) {
+		if (dpb->frames[i].is_used &&
+			dpb->frames[i].is_reference &&
+			dpb->frames[i].is_long_term) {
+			if (dpb->ref_list0_size < MAX_REF_FRAMES) {
+				dpb->ref_list0[dpb->ref_list0_size++] = &dpb->frames[i];
+			}
+			if (is_b_slice && dpb->ref_list1_size < MAX_REF_FRAMES) {
+				dpb->ref_list1[dpb->ref_list1_size++] = &dpb->frames[i];
+			}
+		}
+	}
+
+	// Sort reference lists
+	if (is_b_slice) {
+		sort_ref_list_by_poc(dpb->ref_list0, dpb->ref_list0_size, curr_poc, true);
+		sort_ref_list_by_poc(dpb->ref_list1, dpb->ref_list1_size, curr_poc, false);
+	} else {
+		sort_ref_list_by_frame_num(dpb->ref_list0, dpb->ref_list0_size, curr_frame_num);
+	}
+}
+
+dpb_entry_t* amlvdec_h264_dpb_frame(dpb_buffer_t *dpb) {
+	dpb->max_frames = umin(dpb->hw_dpb->params.max_reference_frame_num, MAX_DPB_FRAMES);
+
+	// 1. Store new frame in DPB
+	dpb_entry_t* entry = dpb_store_frame(dpb);
+	if (entry == NULL) {
+		return NULL;
+	}
+
+	amlvdec_h264_decode_poc(
+			dpb->hw_dpb,
+			&dpb->poc_state,
+			entry);
+
+	// 3. Build reference lists
+	bool is_b_slice = IS_B_SLICE(dpb->hw_dpb->params.slice_type);
+
+	dpb_build_ref_lists(
+			dpb,
+			entry->frame_num,
+			entry->frame_poc,
+			is_b_slice);
+
+	return entry;
+
+// TODO configure buffers in decoder
+/*
+
+   amlvdec_h264_dpb_process_frame();
+
+	// 2. Configure buffer info registers
+	configure_buffer_info(dpb, current_buf_idx, mb_aff_frame_flag);
+
+	// 4. Configure reference buffers
+	configure_reference_buffers(dpb->ref_list0, dpb->ref_list0_size, dpb->ref_list1, dpb->ref_list1_size);
+
+	// 5. For B-slices, configure colocated buffer
+	if (is_b_slice) {
+		dpb_entry_t *colocated = dpb_get_colocated_ref(dpb);
+		if (colocated) {
+			configure_colocated_buffers(
+					dpb->current_buf,
+					colocated,
+					colocated_buf_size,
+					mb_aff_frame_flag,
+					hw_dpb->first_mb_in_slice
+					);
+		}
+	}
+*/
 }
