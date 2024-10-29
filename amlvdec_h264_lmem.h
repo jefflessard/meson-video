@@ -11,7 +11,10 @@
 #define FRAME_IN_DPB	24
 #define DPB_OFFSET		0x100
 #define MMCO_OFFSET		0x200
-
+#define MAX_REF_LIST_SIZE    33
+#define MAX_MMCO_COMMANDS    44
+#define MAX_REORDER_COMMANDS MAX_REF_LIST_SIZE
+#define MAX_REORDER_PARAMS   MAX_REF_LIST_SIZE
 
 /* VLD waiting states */
 enum vld_wait_state : uint16_t {
@@ -72,6 +75,27 @@ enum picture_structure : uint16_t {
 	TOP_FIELD           = 1,
 	BOTTOM_FIELD        = 2,
 	MBAFF_FRAME         = 3
+};
+
+/* Profile levels */
+enum profile_level : uint16_t {
+	H264_LEVEL_1   = 10,   // Level 1.0
+	H264_LEVEL_1b  = 9,    // Level 1b (variant of Level 1)
+	H264_LEVEL_1_1 = 11,   // Level 1.1
+	H264_LEVEL_1_2 = 12,   // Level 1.2
+	H264_LEVEL_1_3 = 13,   // Level 1.3
+	H264_LEVEL_2   = 20,   // Level 2.0
+	H264_LEVEL_2_1 = 21,   // Level 2.1
+	H264_LEVEL_2_2 = 22,   // Level 2.2
+	H264_LEVEL_3   = 30,   // Level 3.0
+	H264_LEVEL_3_1 = 31,   // Level 3.1
+	H264_LEVEL_3_2 = 32,   // Level 3.2
+	H264_LEVEL_4   = 40,   // Level 4.0
+	H264_LEVEL_4_1 = 41,   // Level 4.1
+	H264_LEVEL_4_2 = 42,   // Level 4.2
+	H264_LEVEL_5   = 50,   // Level 5.0
+	H264_LEVEL_5_1 = 51,   // Level 5.1
+	H264_LEVEL_5_2 = 52,   // Level 5.2
 };
 
 /* Additional bitfield structures */
@@ -361,7 +385,7 @@ struct amlvdec_h264_rpm {
 	uint16_t num_ref_frames_in_pic_order_cnt_cycle; // 0xE6
 	uint8_t profile_idc_mmco;                    // 0xE7 lo
 	uint8_t profile_idc;                         // 0xE7 hi
-	uint16_t level_idc_mmco;                      // 0xE8
+	enum profile_level level_idc_mmco;            // 0xE8
 	uint16_t frame_size_in_mb;                    // 0xE9
 	uint16_t delta_pic_order_always_zero_flag;    // 0xEA
 	uint16_t pps_num_ref_idx_l0_active_minus1;    // 0xEB
@@ -660,7 +684,7 @@ struct amlvdec_h264_rpm {
 	uint16_t pps_num_ref_idx_l0_active_minus1;    // 0xEB
 	uint16_t delta_pic_order_always_zero_flag;    // 0xEA
 	uint16_t frame_size_in_mb;                    // 0xE9
-	uint16_t level_idc_mmco;                      // 0xE8
+	enum profile_level level_idc_mmco;            // 0xE8
 
 	union {                                       // 0xEF
 		uint16_t decode_status_raw;
@@ -922,13 +946,13 @@ struct amlvdec_h264_mmco {
 	/* command and parameter, until command is 3 */
 	/* merged l0_reorder_cmd and l1_reorder_cmd
 	 * to allow risc buffer swapping
-	uint16_t l0_reorder_cmd[66];
-	uint16_t l1_reorder_cmd[66];
+	uint16_t l0_reorder_cmd[MAX_REORDER_COMMANDS + MAX_REORDER_PARAMS];
+	uint16_t l1_reorder_cmd[MAX_REORDER_COMMANDS + MAX_REORDER_PARAMS];
 	*/
-	uint16_t reorder_cmd[132];
+	uint16_t reorder_cmd[(MAX_REORDER_COMMANDS + MAX_REORDER_PARAMS) * 2];
 
 	/* command and parameter, until command is 0 */
-	uint16_t mmco_cmd[44];
+	uint16_t mmco_cmd[MAX_MMCO_COMMANDS];
 
 	uint16_t l0_base[40];
 	uint16_t l1_base[40];
@@ -963,13 +987,27 @@ static_assert(offsetof(struct amlvdec_h264_lmem, mmco) ==
 #define TIME_STAMP_END        0xDF
 
 static inline uint16_t amlvdec_h264_mmco_cmd(const struct amlvdec_h264_lmem *lmem, uint8_t index) {
-	if (index >= ARRAY_SIZE(lmem->mmco.mmco_cmd))
+	if (index >= MAX_MMCO_COMMANDS)
 		return 0;
 
 #ifdef SWAP_LMEM_OFFSETS
 	return lmem->mmco.mmco_cmd[SWAP_OFFSET(index)];
 #else
 	return lmem->mmco.mmco_cmd[index];
+#endif
+
+}
+
+static inline uint16_t amlvdec_h264_reorder_cmd(const struct amlvdec_h264_lmem *lmem, bool l1, uint8_t index) {
+	if (index >= (MAX_REORDER_COMMANDS + MAX_REORDER_PARAMS))
+		return 3;
+
+	int offset = l1 * (MAX_REORDER_COMMANDS + MAX_REORDER_PARAMS) + index;
+
+#ifdef SWAP_LMEM_OFFSETS
+	return lmem->mmco.reorder_cmd[SWAP_OFFSET(offset)];
+#else
+	return lmem->mmco.reorder_cmd[offset];
 #endif
 
 }
@@ -991,6 +1029,8 @@ static inline uint16_t get_time_stamp(const struct amlvdec_h264_rpm *params, uin
 #define IS_P_SLICE(slice_type) ((slice_type) == SLICE_P || (slice_type) == SLICE_P_ONLY)
 #define IS_B_SLICE(slice_type) ((slice_type) == SLICE_B || (slice_type) == SLICE_B_ONLY)
 
+#define IS_IDR(nal_unit_type) ((nal_unit_type) == NAL_SLICE_IDR)
+
 #if 0
 /* Helper function to check if frame needs reordering */
 static inline bool needs_reordering(const struct amlvdec_h264_rpm *params) {
@@ -1001,9 +1041,9 @@ static inline bool needs_reordering(const struct amlvdec_h264_rpm *params) {
 /* Helper function to check if current picture is IDR */
 static inline bool is_idr_pic(const struct amlvdec_h264_lmem *lmem) {
 #if 0
-	return lmem->params.nal_unit_type == NAL_SLICE_IDR;
+	return IS_IDR(lmem->params.nal_unit_type);
 #else
-	return lmem->dpb.nal_info_mmco.nal_unit_type == NAL_SLICE_IDR;
+	return IS_IDR(lmem->dpb.nal_info_mmco.nal_unit_type);
 #endif
 }
 
@@ -1180,12 +1220,16 @@ static inline uint32_t get_dpb_size_bytes(const struct amlvdec_h264_rpm *params)
 	return (uint32_t)params->mb_x_num * params->mb_height * 
 		params->max_reference_frame_num_in_mem * mb_size;
 }
+#endif
 
 /* Check if slice is reference */
-static inline bool is_reference_slice(const struct amlvdec_h264_rpm *params) {
-	return (params->nal_ref_idc != 0);
-}
+static inline bool is_reference_slice(const struct amlvdec_h264_lmem *lmem) {
+#if 0
+	return (lmem->params.nal_ref_idc != 0);
+#else
+	return (lmem->dpb.nal_info_mmco.nal_ref_idc != 0);
 #endif
+}
 
 static const struct {
 	uint8_t width;
