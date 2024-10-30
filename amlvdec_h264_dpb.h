@@ -36,24 +36,18 @@ enum reorder_opcode {
 	REORDER_END = 3,
 };
 
-#if 0
-enum dpb_pic_state: uint8_t {
-	DPB_UNUSED       = 0,
-
-	DPB_INIT         = BIT(0),
-/*	DPB_DECODED      = BIT(1),
-	DPB_FUTURE       = BIT(2), */
-	DPB_REF_IN_USE   = BIT(3),
-	DPB_OUTPUT_READY = BIT(4),
-	DPB_OUTPUT_DONE  = BIT(5),
+enum dpb_pic_state : uint8_t {
+	DPB_UNUSED,
+	DPB_INIT,
+	DPB_REF_IN_USE,
+	DPB_OUTPUT_READY,
 };
 
-enum dpb_ref_type: uint_8t {
+enum dpb_ref_type : uint8_t {
 	DPB_NON_REF,
 	DPB_SHORT_TERM,
 	DPB_LONG_TERM,
 };
-#endif
 
 typedef struct {
     // Frame identification
@@ -74,27 +68,14 @@ typedef struct {
     // Buffer management
     void *buffer;               // Physical buffer
     int buffer_index;           // Physical buffer index
-#if 0
-#else
-    bool is_reference;          // Active reference flag
-    bool is_long_term;          // Long-term reference flag
-    bool is_used;               // Slot is in use
-#endif
+	enum dpb_pic_state state;
+	enum dpb_ref_type ref_type;
 
 	// Long-term reference management
 	int long_term_frame_idx;
 
 	// Frame gap handling
 	bool is_gap_frame;
-
-#if 0
-	enum dpb_pic_state state;
-	enum dpb_ref_type ref_type;
-#else
-	// Decoding & output management
-	bool is_decoded;
-	bool is_output;
-#endif
 } dpb_entry_t;
 
 // Structure to encapsulate POC calculation state

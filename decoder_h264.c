@@ -214,7 +214,6 @@ enum decoder_h264_buffers : u8 {
 
 struct decoder_task_ctx {
 	struct vb2_v4l2_buffer *src_buf;
-	struct vb2_v4l2_buffer *dst_buf;
 	u32 slice_count;
 	dpb_entry_t *dpb_entry;
 };
@@ -826,27 +825,22 @@ void configure_buffer_info(struct decoder_h264_ctx *ctx, dpb_entry_t *entry) {
 
 	// Write info for all frames in DPB
 	for (int i = 0; i < dpb->max_frames; i++) {
-#if 1
-		if (!dpb->frames[i].is_used ||
-			dpb->frames[i].is_output ||
-			(!dpb->frames[i].is_reference &&
-			 &dpb->frames[i] != entry))
+		if (dpb->frames[i].state == DPB_UNUSED)
 			continue;
-#endif
 
 		job_trace(ctx->job, "INFO buffer index=%d\n", dpb->frames[i].buffer_index);
 		dpb_buf = dpb->frames[i].buffer;
 
 		// Update long-term reference flags
 		// Set field long term flag
-		if (dpb->frames[i].is_long_term) {
+		if (dpb->frames[i].ref_type == DPB_LONG_TERM) {
 			dpb_buf->info0 |= (1 << 4);
 		} else {
 			dpb_buf->info0 &= ~(1 << 4);
 		}
 
 		// Set frame long term flag
-		if (dpb->frames[i].is_long_term && (
+		if (dpb->frames[i].ref_type == DPB_LONG_TERM && (
 			dpb->frames[i].picture_structure == MMCO_FRAME ||
 			dpb->frames[i].picture_structure == MMCO_MBAFF_FRAME)) {
 			dpb_buf->info0 |= (1 << 5);
@@ -1051,11 +1045,13 @@ static void picture_done(dpb_buffer_t *dpb, dpb_entry_t *entry) {
 	job_trace(ctx->job, "OUTPUT buffer index=%d\n", entry->buffer_index);
 
 	if (!entry->is_gap_frame) {
-		v4l2_m2m_buf_done(dpb_buf->dst_buf, VB2_BUF_STATE_DONE);
+		if (entry->state == DPB_INIT) {
+			v4l2_m2m_buf_done(dpb_buf->dst_buf, VB2_BUF_STATE_ERROR);
+		} else {
+			v4l2_m2m_buf_done(dpb_buf->dst_buf, VB2_BUF_STATE_DONE);
+		}
 		dpb_buf->dst_buf = NULL;
 	}
-
-	entry->is_output = true;
 }
 
 static bool vdec_h264_header_done(struct decoder_h264_ctx *ctx) {
@@ -1075,19 +1071,33 @@ static bool vdec_h264_header_done(struct decoder_h264_ctx *ctx) {
 		return false;
 	}
 
+	// flush released pictures, if any 
 	amlvdec_h264_dpb_flush_output(&ctx->dpb, false, picture_done);
 
+	/* prepare destination buffer */
+
 	struct decoder_h264_dpb_buffer *dpb_buf = entry->buffer;
-	dpb_buf->dst_buf = t->dst_buf;
+	dpb_buf->dst_buf = v4l2_m2m_dst_buf_remove(ctx->m2m_ctx);
+	if (!dpb_buf->dst_buf) {
+		job_err(ctx->job, "no destination buffer available");
+		return false;
+	}
+
+	v4l2_m2m_buf_copy_metadata(t->src_buf, dpb_buf->dst_buf, true);
+
+	int num_planes = V4L2_FMT_NUMPLANES(ctx->job->dst_fmt);
+	struct vb2_buffer *vb2 = &dpb_buf->dst_buf->vb2_buf;
+	for(int i = 0; i < num_planes; i++) {
+		int size = vb2_plane_size(vb2, i);
+		vb2_set_plane_payload(vb2, i, size);
+	}
+
 
 #if 0
 	config_decode_canvas(ctx, entry);
 #else
 	for (int i = 0; i < ctx->dpb.max_frames; i++) {
-		if (ctx->dpb.frames[i].is_used &&
-			!ctx->dpb.frames[i].is_output &&
-			(ctx->dpb.frames[i].is_reference ||
-			&ctx->dpb.frames[i] == entry)) {
+		if (ctx->dpb.frames[i].state != DPB_UNUSED) {
 			config_decode_canvas(ctx, &ctx->dpb.frames[i]);
 		}
 	}
@@ -1146,36 +1156,16 @@ static void decoder_done(struct decoder_h264_ctx *ctx) {
 
 	ctx->decode_pic_count++;
 
-	v4l2_m2m_buf_copy_metadata(t->src_buf, t->dst_buf, true);
-
 	v4l2_m2m_buf_done(t->src_buf, VB2_BUF_STATE_DONE);
 	t->src_buf = NULL;
 
-	int num_planes = V4L2_FMT_NUMPLANES(ctx->job->dst_fmt);
-	struct vb2_buffer *vb2 = &t->dst_buf->vb2_buf;
-	for(int i = 0; i < num_planes; i++) {
-		int size = vb2_plane_size(vb2, i);
-		vb2_set_plane_payload(vb2, i, size);
-	}
-
 	// holds buffer when reference in use
 	amlvdec_h264_dpb_pic_done(&ctx->dpb, t->dpb_entry);
-
-	bool is_last = ctx->m2m_ctx->is_draining &&
-			v4l2_m2m_num_src_bufs_ready(ctx->m2m_ctx) == 0;
-	if (is_last) {
-		amlvdec_h264_dpb_flush_output(&ctx->dpb, true, picture_done);
-		v4l2_m2m_mark_stopped(ctx->m2m_ctx);
-	} else {
-		amlvdec_h264_dpb_flush_output(&ctx->dpb, false, picture_done);
-	}
-	t->dst_buf = NULL;
+	// flush released pictures, if any
+	amlvdec_h264_dpb_flush_output(&ctx->dpb, false, picture_done);
 	t->dpb_entry = NULL;
 
 	v4l2_m2m_job_finish(ctx->m2m_ctx->m2m_dev, ctx->m2m_ctx); 
-	if (is_last) {
-		meson_vcodec_event_eos(ctx->session);
-	}
 }
 
 static void decoder_abort(struct decoder_h264_ctx *ctx) {
@@ -1192,8 +1182,8 @@ static void decoder_abort(struct decoder_h264_ctx *ctx) {
 	v4l2_m2m_buf_done(t->src_buf, VB2_BUF_STATE_ERROR);
 	t->src_buf = NULL;
 
-	amlvdec_h264_dpb_flush_output(&ctx->dpb, false, picture_done);
-	t->dst_buf = NULL;
+	// force flush remaining pictures
+	amlvdec_h264_dpb_flush_output(&ctx->dpb, true, picture_done);
 
 	v4l2_m2m_job_finish(ctx->m2m_ctx->m2m_dev, ctx->m2m_ctx);
 	
@@ -1201,28 +1191,21 @@ static void decoder_abort(struct decoder_h264_ctx *ctx) {
 }
 
 static void decoder_start(struct decoder_h264_ctx *ctx) {
-	job_trace(ctx->job);
 	struct decoder_task_ctx *t = &ctx->task;
-	struct v4l2_m2m_buffer *buf, *n;
-	int i = 0;
 
-	t->src_buf = v4l2_m2m_next_src_buf(ctx->m2m_ctx);
-	t->dst_buf = v4l2_m2m_next_dst_buf(ctx->m2m_ctx);
-	if (!t->src_buf || !t->dst_buf) {
-		job_trace(ctx->job, "no buffers available");
-		v4l2_m2m_job_finish(ctx->m2m_ctx->m2m_dev, ctx->m2m_ctx);
-		t->src_buf = NULL;
-		t->dst_buf = NULL;
+	job_trace(ctx->job);
+
+	t->src_buf = v4l2_m2m_src_buf_remove(ctx->m2m_ctx);
+	if (!t->src_buf) {
+		job_err(ctx->job, "no source buffer available");
+		decoder_abort(ctx);
 		return;
 	}
 
-	v4l2_m2m_src_buf_remove_by_buf(ctx->m2m_ctx, t->src_buf);
-	v4l2_m2m_dst_buf_remove_by_buf(ctx->m2m_ctx, t->dst_buf);
-
-	job_trace(ctx->job, "src_buf vb2: i=%d, l=%lu, dst_buf vb2: i=%d",
+	job_trace(ctx->job, "src_buf vb2: index=%d, payload=%lu, ts=%llu",
 			t->src_buf->vb2_buf.index,
 			vb2_get_plane_payload(&t->src_buf->vb2_buf, 0),
-			t->dst_buf->vb2_buf.index);
+			t->src_buf->vb2_buf.timestamp);
 
 	vdec_reset_core(ctx);
 	vdec_h264_init(ctx);
@@ -1602,9 +1585,6 @@ static void decoder_h264_run(struct meson_codec_job *job) {
 static void decoder_h264_abort(struct meson_codec_job *job) {
 	struct decoder_h264_ctx *ctx = job->priv;
 
-	v4l2_m2m_job_finish(ctx->m2m_ctx->m2m_dev, ctx->m2m_ctx);
-
-#if 0
 	// v4l2-m2m may call abort even if stopped
 	// and job finished earlier with error state
 	// let finish the job once again to prevent
@@ -1612,19 +1592,17 @@ static void decoder_h264_abort(struct meson_codec_job *job) {
 	if (v4l2_m2m_has_stopped(ctx->m2m_ctx)) {
 		v4l2_m2m_job_finish(ctx->m2m_ctx->m2m_dev, ctx->m2m_ctx);
 	}
-#endif
 }
 
 static int decoder_h264_stop(struct meson_codec_job *job, struct vb2_queue *vq) {
 	struct decoder_h264_ctx *ctx = job->priv;
 
-	v4l2_m2m_update_stop_streaming_state(ctx->m2m_ctx, vq);
+	if (!V4L2_TYPE_IS_OUTPUT(vq->type)) {
+		// force flush remaining pictures
+		amlvdec_h264_dpb_flush_output(&ctx->dpb, true, picture_done);
+	}
 
-#if 0
-	if (V4L2_TYPE_IS_OUTPUT(vq->type) &&
-			v4l2_m2m_has_stopped(ctx->m2m_ctx))
-		meson_vcodec_event_eos(ctx->session);
-#endif
+	v4l2_m2m_update_stop_streaming_state(ctx->m2m_ctx, vq);
 
 	return 0;
 }
