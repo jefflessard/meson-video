@@ -1,4 +1,37 @@
+#include <linux/sort.h>
+
 #include "amlvdec_h264_dpb.h"
+
+static int compare_by_poc_asc(const void *va, const void *vb) {
+	const dpb_entry_t *a = *(const dpb_entry_t **) va;
+	const dpb_entry_t *b = *(const dpb_entry_t **) vb;
+
+	return ((int) a->output_order_key - (int) b->output_order_key);
+}
+
+static int compare_by_poc_desc(const void *va, const void *vb) {
+	return compare_by_poc_asc(vb, va);
+}
+
+static int compare_by_frame_num_asc(const void *va, const void *vb) {
+	const dpb_entry_t *a = *(const dpb_entry_t **) va;
+	const dpb_entry_t *b = *(const dpb_entry_t **) vb;
+
+	return ((int) a->frame_num - (int) b->frame_num) |
+		((int) a->coded_sequence - (int) b->coded_sequence) << 16;
+}
+
+static int compare_by_frame_num_desc(const void *va, const void *vb) {
+	return compare_by_frame_num_asc(vb, va);
+}
+
+static int compare_by_long_term_idx_asc(const void *va, const void *vb) {
+	const dpb_entry_t *a = *(const dpb_entry_t **) va;
+	const dpb_entry_t *b = *(const dpb_entry_t **) vb;
+
+	return (a->long_term_frame_idx - b->long_term_frame_idx) |
+		((int) a->coded_sequence - (int) b->coded_sequence) << 16;
+}
 
 static inline void amlvdec_h264_dpb_dump_pic(const char *prefix, dpb_entry_t *entry) {
 	pr_debug("DPB: %s: frame=%d, idr=%d, seq=%d, poc=%d (%d, %d) index=%d, state=%d, ref=%d\n",
@@ -288,53 +321,6 @@ static dpb_entry_t* amlvdec_h264_dpb_store_pic(dpb_buffer_t *dpb) {
 	return entry;
 }
 
-// Sort reference list by POC
-static void sort_ref_list_by_poc(dpb_entry_t **ref_list, int size, int32_t curr_poc, bool before) {
-	// Simple bubble sort
-	for (int i = 0; i < size - 1; i++) {
-		for (int j = 0; j < size - i - 1; j++) {
-			bool should_swap;
-			if (before) {
-				// For ref_list0: closest POC before current
-				should_swap = abs(ref_list[j]->frame_poc - curr_poc) > abs(ref_list[j + 1]->frame_poc - curr_poc);
-			} else {
-				// For ref_list1: closest POC after current
-				should_swap = abs(ref_list[j]->frame_poc - curr_poc) < abs(ref_list[j + 1]->frame_poc - curr_poc);
-			}
-
-			if (should_swap) {
-				dpb_entry_t *temp = ref_list[j];
-				ref_list[j] = ref_list[j + 1];
-				ref_list[j + 1] = temp;
-			}
-		}
-	}
-}
-
-// Sort reference list by frame number
-static void sort_ref_list_by_frame_num(dpb_entry_t **ref_list, int size, uint16_t curr_frame_num) {
-#define MAX_FRAME_NUM U16_MAX
-
-	// Simple bubble sort
-	for (int i = 0; i < size - 1; i++) {
-		for (int j = 0; j < size - i - 1; j++) {
-			int diff_j = (curr_frame_num >= ref_list[j]->frame_num) ?
-				(curr_frame_num - ref_list[j]->frame_num) :
-				(curr_frame_num + MAX_FRAME_NUM - ref_list[j]->frame_num);
-
-			int diff_next = (curr_frame_num >= ref_list[j + 1]->frame_num) ?
-				(curr_frame_num - ref_list[j + 1]->frame_num) :
-				(curr_frame_num + MAX_FRAME_NUM - ref_list[j + 1]->frame_num);
-
-			if (diff_j > diff_next) {
-				dpb_entry_t *temp = ref_list[j];
-				ref_list[j] = ref_list[j + 1];
-				ref_list[j + 1] = temp;
-			}
-		}
-	}
-}
-
 static void amlvdec_h264_dpb_reorder_refs(dpb_buffer_t *dpb, dpb_entry_t *current_pic) {
 	int max_frame_num = 1 << dpb->hw_dpb->params.log2_max_frame_num;
 
@@ -444,19 +430,19 @@ static void dpb_build_ref_lists(dpb_buffer_t *dpb, dpb_entry_t *entry) {
 	ref_list1_st_size = ref_list1_idx;
 
 	if (is_b_slice) {
-		sort_ref_list_by_poc(
-				dpb->ref_list0,
+		sort(dpb->ref_list0,
 				ref_list0_st_size,
-				entry->frame_poc, true);
-		sort_ref_list_by_poc(
-				dpb->ref_list1,
+				sizeof(dpb_entry_t *),
+				compare_by_poc_desc, NULL);
+		sort(dpb->ref_list1,
 				ref_list1_st_size,
-				entry->frame_poc, false);
+				sizeof(dpb_entry_t *),
+				compare_by_poc_asc, NULL);
 	} else {
-		sort_ref_list_by_frame_num(
-				dpb->ref_list0,
+		sort(dpb->ref_list0,
 				ref_list0_st_size,
-				entry->frame_num);
+				sizeof(dpb_entry_t *),
+				compare_by_frame_num_desc, NULL);
 	}
 
 	// Then append long term references to both lists
@@ -475,19 +461,19 @@ static void dpb_build_ref_lists(dpb_buffer_t *dpb, dpb_entry_t *entry) {
 
 	if (is_b_slice) {
 		// For B-slices long term references, sort by frame_num
-		sort_ref_list_by_frame_num(
-				&dpb->ref_list0[ref_list0_st_size],
+		sort(&dpb->ref_list0[ref_list0_st_size],
 				ref_list0_idx - ref_list0_st_size,
-				entry->frame_num);
-		sort_ref_list_by_frame_num(
-				&dpb->ref_list1[ref_list1_st_size],
+				sizeof(dpb_entry_t *),
+				compare_by_long_term_idx_asc, NULL);
+		sort(&dpb->ref_list1[ref_list1_st_size],
 				ref_list1_idx - ref_list1_st_size,
-				entry->frame_num);
+				sizeof(dpb_entry_t *),
+				compare_by_long_term_idx_asc, NULL);
 	} else {
-		sort_ref_list_by_frame_num(
-				&dpb->ref_list0[ref_list0_st_size],
+		sort(&dpb->ref_list0[ref_list0_st_size],
 				ref_list0_idx - ref_list0_st_size,
-				entry->frame_num);
+				sizeof(dpb_entry_t *),
+				compare_by_long_term_idx_asc, NULL);
 	}
 
 	if (ref_list0_idx > ref_list0_max) {
