@@ -7,6 +7,8 @@
 
 #include "amlvdec_h264_lmem.h"
 
+// #define FILL_FRAME_NUM_GAP
+
 // DPB and Reference List Management
 #define MAX_DPB_FRAMES 32
 #define DPB_SIZE_MARGIN 7
@@ -61,10 +63,14 @@ typedef struct {
 	bool is_idr;
     
     // POC related
-    int32_t frame_poc;          // Constructed from frame_pic_order_cnt[2]
-    int32_t top_poc;            // From top_field_pic_order_cnt
-    int32_t bottom_poc;         // Derived from delta_pic_order_cnt_bottom
-    
+    uint16_t frame_poc;          // Constructed from frame_pic_order_cnt[2]
+    uint16_t top_poc;            // From top_field_pic_order_cnt
+    uint16_t bottom_poc;         // Derived from delta_pic_order_cnt_bottom
+   
+	// Sequence ordering
+	uint16_t coded_sequence;
+	uint32_t output_order_key;	
+
     // Buffer management
     void *buffer;               // Physical buffer
     int buffer_index;           // Physical buffer index
@@ -74,8 +80,10 @@ typedef struct {
 	// Long-term reference management
 	int long_term_frame_idx;
 
+#ifdef FILL_FRAME_NUM_GAP
 	// Frame gap handling
 	bool is_gap_frame;
+#endif
 } dpb_entry_t;
 
 // Structure to encapsulate POC calculation state
@@ -113,6 +121,9 @@ typedef struct {
 
 	// Gap management
 	int prev_frame_num;
+
+	// Sequence ordering
+	uint16_t current_sequence;
 } dpb_buffer_t;
 
 typedef void (*output_pic_callback)(dpb_buffer_t *dpb, dpb_entry_t *pic);
@@ -120,6 +131,7 @@ typedef void (*output_pic_callback)(dpb_buffer_t *dpb, dpb_entry_t *pic);
 void amlvdec_h264_dpb_init(dpb_buffer_t *dpb, const struct amlvdec_h264_lmem *hw_dpb);
 int amlvdec_h264_dpb_adjust_size(dpb_buffer_t *dpb);
 dpb_entry_t* amlvdec_h264_dpb_new_pic(dpb_buffer_t *dpb);
+void amlvdec_h264_dpb_update_pic(dpb_buffer_t *dpb, dpb_entry_t* entry);
 void amlvdec_h264_dpb_pic_done(dpb_buffer_t *dpb, dpb_entry_t *current_pic);
 int amlvdec_h264_dpb_flush_output(dpb_buffer_t *dpb, bool flush_all, output_pic_callback output_pic);
 void amlvdec_h264_dpb_dump(dpb_buffer_t *dpb);

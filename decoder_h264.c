@@ -198,10 +198,6 @@
 #define H264_CO_MB_RW_CTL         VLD_C3D /* 0xc3d */
 #define DCAC_DDR_BYTE64_CTL                   0x0e1d
 
-#define LMEM_TO_DPB_INDEX(idx) ((idx / 4) * 4 + (3 - (idx % 4)))
-#define PROFILE_IDC_MMCO      LMEM_TO_DPB_INDEX(0XE7)
-#define LMEM_GET(ctx, idx) (((u16 *) ctx->buffers[BUF_LMEM].vaddr)[idx])
-
 
 enum decoder_h264_buffers : u8 {
 	BUF_FW,
@@ -743,7 +739,11 @@ static void vdec_h264_init(struct decoder_h264_ctx *ctx) {
 	WRITE_VREG(HEAD_PADDING_REG, 0);
 
 /* begin config_decode_mode */
+#if 0
 	WRITE_VREG(H264_DECODE_MODE, DECODE_MODE_MULTI_FRAMEBASE);
+#else
+	WRITE_VREG(H264_DECODE_MODE, DECODE_MODE_SINGLE);
+#endif
 	WRITE_VREG(INIT_FLAG_REG, ctx->init_flag);
 /* end config_decode_mode */
 
@@ -785,7 +785,7 @@ static void vdec_h264_configure_request(struct decoder_h264_ctx *ctx) {
 	}
 
 	WRITE_VREG(AV_SCRATCH_0,
-			(ctx->lmem->params.max_reference_frame_num << 24) |
+			((ctx->lmem->params.max_reference_frame_num) << 24) |
 			(ctx->dpb.max_frames << 16) |
 			(ctx->dpb.max_frames << 8));
 /* end work DEC_RESULT_CONFIG_PARAM */
@@ -1044,18 +1044,18 @@ static void picture_done(dpb_buffer_t *dpb, dpb_entry_t *entry) {
 
 	job_trace(ctx->job, "OUTPUT buffer index=%d\n", entry->buffer_index);
 
-	if (!entry->is_gap_frame) {
-		if (entry->state == DPB_INIT) {
-			v4l2_m2m_buf_done(dpb_buf->dst_buf, VB2_BUF_STATE_ERROR);
-		} else {
-			v4l2_m2m_buf_done(dpb_buf->dst_buf, VB2_BUF_STATE_DONE);
-		}
-		dpb_buf->dst_buf = NULL;
+	if (entry->state == DPB_INIT) {
+		v4l2_m2m_buf_done(dpb_buf->dst_buf, VB2_BUF_STATE_ERROR);
+	} else {
+		v4l2_m2m_buf_done(dpb_buf->dst_buf, VB2_BUF_STATE_DONE);
 	}
+	dpb_buf->dst_buf = NULL;
 }
 
-static bool vdec_h264_header_done(struct decoder_h264_ctx *ctx) {
+static int vdec_h264_header_done(struct decoder_h264_ctx *ctx) {
 	struct decoder_task_ctx *t = &ctx->task;
+	dpb_entry_t *entry = t->dpb_entry;
+	bool is_new_pic;
 
 	job_trace(ctx->job);
 
@@ -1065,33 +1065,40 @@ static bool vdec_h264_header_done(struct decoder_h264_ctx *ctx) {
 	//dump_mmco(&ctx->lmem->mmco);
 #endif
 
-	t->dpb_entry = amlvdec_h264_dpb_new_pic(&ctx->dpb);
-	dpb_entry_t *entry = t->dpb_entry;
 	if (entry == NULL) {
-		return false;
+		/* new picture */
+		is_new_pic = true;
+
+		entry = t->dpb_entry = amlvdec_h264_dpb_new_pic(&ctx->dpb);
+		if (entry == NULL) {
+			return -EXFULL;
+		}
+
+		/* prepare destination buffer */
+		struct decoder_h264_dpb_buffer *dpb_buf = entry->buffer;
+		dpb_buf->dst_buf = v4l2_m2m_dst_buf_remove(ctx->m2m_ctx);
+		if (!dpb_buf->dst_buf) {
+			job_err(ctx->job, "no destination buffer available");
+			return -ENOSR;
+		}
+
+		v4l2_m2m_buf_copy_metadata(t->src_buf, dpb_buf->dst_buf, true);
+
+		/* set destination buffer size */
+		int num_planes = V4L2_FMT_NUMPLANES(ctx->job->dst_fmt);
+		struct vb2_buffer *vb2 = &dpb_buf->dst_buf->vb2_buf;
+		for(int i = 0; i < num_planes; i++) {
+			int size = vb2_plane_size(vb2, i);
+			vb2_set_plane_payload(vb2, i, size);
+		}
+	} else {
+		/* update existing picture */
+		is_new_pic = false;
+		amlvdec_h264_dpb_update_pic(&ctx->dpb, entry);
 	}
 
 	// flush released pictures, if any 
 	amlvdec_h264_dpb_flush_output(&ctx->dpb, false, picture_done);
-
-	/* prepare destination buffer */
-
-	struct decoder_h264_dpb_buffer *dpb_buf = entry->buffer;
-	dpb_buf->dst_buf = v4l2_m2m_dst_buf_remove(ctx->m2m_ctx);
-	if (!dpb_buf->dst_buf) {
-		job_err(ctx->job, "no destination buffer available");
-		return false;
-	}
-
-	v4l2_m2m_buf_copy_metadata(t->src_buf, dpb_buf->dst_buf, true);
-
-	int num_planes = V4L2_FMT_NUMPLANES(ctx->job->dst_fmt);
-	struct vb2_buffer *vb2 = &dpb_buf->dst_buf->vb2_buf;
-	for(int i = 0; i < num_planes; i++) {
-		int size = vb2_plane_size(vb2, i);
-		vb2_set_plane_payload(vb2, i, size);
-	}
-
 
 #if 0
 	config_decode_canvas(ctx, entry);
@@ -1138,7 +1145,7 @@ static bool vdec_h264_header_done(struct decoder_h264_ctx *ctx) {
 	amlvdec_h264_dpb_dump(&ctx->dpb);
 #endif
 
-	return true;
+	return is_new_pic;
 }
 
 static void decoder_done(struct decoder_h264_ctx *ctx) {
@@ -1270,16 +1277,16 @@ static void decoder_loop(struct decoder_h264_ctx *ctx) {
 			decoder_loop(ctx);
 			return;
 		case H264_SLICE_HEAD_DONE:
-			if (t->slice_count == 0) {
-				if(!vdec_h264_header_done(ctx)) {
-					decoder_abort(ctx);
-					return;
-				}
+			int ret = vdec_h264_header_done(ctx);
+			if (ret < 0) {
+				decoder_abort(ctx);
+				return;
+			}
+			if (ret) {
 				ctx->cmd = H264_ACTION_DECODE_NEWPIC;
 			} else {
 				ctx->cmd = H264_ACTION_DECODE_SLICE;
 			}
-			t->slice_count++;
 			decoder_loop(ctx);
 			return;
 
@@ -1327,6 +1334,8 @@ static irqreturn_t vdec1_isr(int irq, void *data)
 		WRITE_VREG(DPB_STATUS_REG, H264_WRRSP_DONE);
 		return IRQ_HANDLED;
 	}
+
+	wmb();
 
 	complete(&ctx->decoder_completion);
 

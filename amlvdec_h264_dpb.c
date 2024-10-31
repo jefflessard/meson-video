@@ -1,10 +1,11 @@
 #include "amlvdec_h264_dpb.h"
 
 static inline void amlvdec_h264_dpb_dump_pic(const char *prefix, dpb_entry_t *entry) {
-	pr_debug("DPB: %s: frame=%d, idr=%d, poc=%d (%d, %d) index=%d, state=%d, ref=%d\n",
+	pr_debug("DPB: %s: frame=%d, idr=%d, seq=%d, poc=%d (%d, %d) index=%d, state=%d, ref=%d\n",
 			prefix,
 			entry->frame_num,
 			entry->is_idr,
+			entry->coded_sequence,
 			entry->frame_poc,
 			entry->top_poc,
 			entry->bottom_poc,
@@ -196,24 +197,17 @@ static void amlvdec_h264_dpb_decode_poc(const struct amlvdec_h264_lmem *lmem, po
 void amlvdec_h264_dpb_init(dpb_buffer_t *dpb, const struct amlvdec_h264_lmem *hw_dpb) {
 	memset(dpb, 0, sizeof(dpb_buffer_t));
 	dpb->hw_dpb = hw_dpb;
-	dpb->max_frames = 0;
 }
 
 int amlvdec_h264_dpb_adjust_size(dpb_buffer_t *dpb) {
-	int max_num_refs = dpb->hw_dpb->params.max_reference_frame_num;
+	int new_size = 0;
 
-	/* More granular size could potentially be
-	 * determined by using the following values
-	 */
-#if 0
-	int bitstream_restriction_flag = ctx->lmem->params.sps_flags2.bitstream_restriction_flag;
-	int num_reorder_frames = dpb->hw_dpb->params.num_reorder_frames;
-	int max_dec_frame_buffering = dpb->hw_dpb->params.max_buffer_frame;
-	enum profile_level level = dpb->hw_dpb->params.level_idc_mmco;
-	int max_long_term_frame_idx = dpb->max_long_term_frame_idx;
-#endif
+	new_size += dpb->hw_dpb->params.max_reference_frame_num;
+	new_size += dpb->hw_dpb->params.num_reorder_frames;
+	new_size += dpb->hw_dpb->params.max_buffer_frame;
+	new_size += DPB_SIZE_MARGIN;
 
-	int new_size = umin(max_num_refs + DPB_SIZE_MARGIN, MAX_DPB_FRAMES);
+	new_size = umin(new_size, MAX_DPB_FRAMES);
 	if (new_size > dpb->max_frames) {
 		/* increase DPB size */
 		/* shrinking would require to init
@@ -242,32 +236,34 @@ static dpb_entry_t* amlvdec_h264_dpb_alloc_pic(dpb_buffer_t *dpb) {
 	return NULL;
 }
 
+#ifdef FILL_FRAME_NUM_GAP
 static void amlvdec_h264_dpb_fill_gaps(dpb_buffer_t *dpb, int current_frame_num) {
-    int max_frame_num = 1 << dpb->hw_dpb->params.log2_max_frame_num;
+	int max_frame_num = 1 << dpb->hw_dpb->params.log2_max_frame_num;
 
-    if (!dpb->hw_dpb->params.frame_num_gap_allowed)
-        return;
+	if (!dpb->hw_dpb->params.frame_num_gap_allowed)
+		return;
 
-    int expected_frame_num = (dpb->prev_frame_num + 1) % max_frame_num;
-    
-    while (expected_frame_num != current_frame_num) {
+	int expected_frame_num = (dpb->prev_frame_num + 1) % max_frame_num;
+
+	while (expected_frame_num != current_frame_num) {
 		dpb_entry_t *gap_entry = amlvdec_h264_dpb_alloc_pic(dpb);
-        
-        if (gap_entry) {
-            // Initialize gap frame
-            gap_entry->state = DPB_REF_IN_USE;
-            gap_entry->ref_type = DPB_SHORT_TERM;
-            gap_entry->is_gap_frame = true;
-            gap_entry->frame_num = expected_frame_num;
-        }
-        // TODO: Handle error case when no empty slot is available
-        
-        expected_frame_num = (expected_frame_num + 1) % max_frame_num;
-    }
 
-    // Update previous frame number for gap detection
-    dpb->prev_frame_num = current_frame_num;
+		if (gap_entry) {
+			// Initialize gap frame
+			gap_entry->state = DPB_REF_IN_USE;
+			gap_entry->ref_type = DPB_SHORT_TERM;
+			gap_entry->is_gap_frame = true;
+			gap_entry->frame_num = expected_frame_num;
+		}
+		// TODO: Handle error case when no empty slot is available
+
+		expected_frame_num = (expected_frame_num + 1) % max_frame_num;
+	}
+
+	// Update previous frame number for gap detection
+	dpb->prev_frame_num = current_frame_num;
 }
+#endif
 
 // Update DPB with new frame info from hardware registers
 static dpb_entry_t* amlvdec_h264_dpb_store_pic(dpb_buffer_t *dpb) {
@@ -288,14 +284,6 @@ static dpb_entry_t* amlvdec_h264_dpb_store_pic(dpb_buffer_t *dpb) {
 	entry->state = DPB_INIT;
 	if (is_reference_slice(dpb->hw_dpb))
 		entry->ref_type = DPB_SHORT_TERM;
-
-#if 0
-	if (entry->is_idr) {
-		uint16_t cmd = amlvdec_h264_mmco_cmd(hw_dpb, 0);
-		bool long_term_reference_flag = cmd & 1;
-		bool no_output_of_prior_pics_flag = (cmd >> 1) & 1;
-	}
-#endif
 
 	return entry;
 }
@@ -521,6 +509,7 @@ static void mark_all_unused(dpb_buffer_t *dpb) {
 	for (int i = 0; i < dpb->max_frames; i++) {
 		if (dpb->frames[i].state == DPB_REF_IN_USE) {
 			dpb->frames[i].state = DPB_OUTPUT_READY;
+			dpb->frames[i].long_term_frame_idx = -1;
 
 			amlvdec_h264_dpb_dump_pic(__func__, &dpb->frames[i]);
 		}
@@ -535,6 +524,7 @@ static void mark_short_term_unused(dpb_buffer_t *dpb, uint16_t frame_num) {
 	for (int i = 0; i < dpb->max_frames; i++) {
 		if (dpb->frames[i].state == DPB_REF_IN_USE &&
 			dpb->frames[i].ref_type == DPB_SHORT_TERM && 
+			dpb->frames[i].coded_sequence == dpb->current_sequence &&
 			dpb->frames[i].frame_num == frame_num) {
 			dpb->frames[i].state = DPB_OUTPUT_READY;
 
@@ -547,6 +537,7 @@ static void mark_long_term_unused(dpb_buffer_t *dpb, uint16_t frame_num) {
 	for (int i = 0; i < dpb->max_frames; i++) {
 		if (dpb->frames[i].state == DPB_REF_IN_USE &&
 			dpb->frames[i].ref_type == DPB_LONG_TERM && 
+			dpb->frames[i].coded_sequence == dpb->current_sequence &&
 			dpb->frames[i].frame_num == frame_num) {
 			dpb->frames[i].state = DPB_OUTPUT_READY;
 			dpb->frames[i].long_term_frame_idx = -1;
@@ -558,7 +549,8 @@ static void mark_long_term_unused(dpb_buffer_t *dpb, uint16_t frame_num) {
 
 static void mark_long_term_index(dpb_buffer_t *dpb, uint16_t frame_num, int long_term_frame_idx) {
 	for (int i = 0; i < dpb->max_frames; i++) {
-		if (dpb->frames[i].frame_num == frame_num) {
+		if (dpb->frames[i].coded_sequence == dpb->current_sequence &&
+			dpb->frames[i].frame_num == frame_num) {
 			dpb->frames[i].state = DPB_REF_IN_USE;
 			dpb->frames[i].ref_type = DPB_LONG_TERM;
 			dpb->frames[i].long_term_frame_idx = long_term_frame_idx;
@@ -572,6 +564,7 @@ static void mark_long_term_max_index_unused(dpb_buffer_t *dpb, int max_long_term
 	for (int i = 0; i < dpb->max_frames; i++) {
 		if (dpb->frames[i].state == DPB_REF_IN_USE && 
 			dpb->frames[i].ref_type == DPB_LONG_TERM &&
+			dpb->frames[i].coded_sequence == dpb->current_sequence &&
 			dpb->frames[i].long_term_frame_idx > max_long_term_frame_idx) {
 			dpb->frames[i].state = DPB_OUTPUT_READY;
 			dpb->frames[i].long_term_frame_idx = -1;
@@ -581,9 +574,23 @@ static void mark_long_term_max_index_unused(dpb_buffer_t *dpb, int max_long_term
 	}
 }
 
-static void adaptive_memory_management(dpb_buffer_t *dpb, dpb_entry_t *current_pic) {
+static void idr_memory_management(dpb_buffer_t *dpb, dpb_entry_t *current_pic) {
+	uint16_t cmd = amlvdec_h264_mmco_cmd(dpb->hw_dpb, 0);
+	bool long_term_reference_flag = cmd & 1;
+	// TODO bool no_output_of_prior_pics_flag = (cmd >> 1) & 1;
+
+	mark_all_unused(dpb);
+
+	if (long_term_reference_flag) {
+		current_pic->ref_type = DPB_LONG_TERM;
+		current_pic->long_term_frame_idx = 0;
+	}
+}
+
+static bool adaptive_memory_management(dpb_buffer_t *dpb, dpb_entry_t *current_pic) {
 	const struct amlvdec_h264_lmem *hw_dpb = dpb->hw_dpb;
     int max_frame_num = 1 << dpb->hw_dpb->params.log2_max_frame_num;
+	bool has_mmco = false;
 
 	dpb->poc_state.last_mmco_has_reset = false;
 
@@ -592,6 +599,8 @@ static void adaptive_memory_management(dpb_buffer_t *dpb, dpb_entry_t *current_p
 
 		if (cmd == MMCO_END)
 			break;
+
+		has_mmco = true;
 
 		pr_debug("DPB: MMCO CMD: cmd=%u, ", cmd);
 
@@ -662,36 +671,45 @@ static void adaptive_memory_management(dpb_buffer_t *dpb, dpb_entry_t *current_p
 				break;
 		}
 	}
+
+	return has_mmco;
 }
 
 static void sliding_window_reference(dpb_buffer_t *dpb) {
 	int max_num_refs = dpb->hw_dpb->params.max_reference_frame_num;
 	int num_ref_frames = 0;
-	int oldest_ref_idx = -1;
-	int oldest_ref_num = INT_MAX;
+	int oldest_idx = -1;
+	uint32_t oldest_key = U32_MAX;
 
 	// Count reference frames and find oldest one
 	for (int i = 0; i < dpb->max_frames; i++) {
 		if (dpb->frames[i].state == DPB_REF_IN_USE &&
 			dpb->frames[i].ref_type == DPB_SHORT_TERM) {
 			num_ref_frames++;
-			if (dpb->frames[i].frame_num < oldest_ref_num) {
-				oldest_ref_num = dpb->frames[i].frame_num;
-				oldest_ref_idx = i;
+			if (dpb->frames[i].output_order_key < oldest_key) {
+				oldest_key = dpb->frames[i].output_order_key;
+				oldest_idx = i;
 			}
 		}
 	}
 
 	// If we've reached the maximum, remove oldest reference
 	if (num_ref_frames > max_num_refs &&
-		oldest_ref_idx >= 0) {
-		dpb->frames[oldest_ref_idx].state = DPB_OUTPUT_READY;
+		oldest_idx >= 0) {
+		dpb->frames[oldest_idx].state = DPB_OUTPUT_READY;
 
-		amlvdec_h264_dpb_dump_pic(__func__, &dpb->frames[oldest_ref_idx]);
+		amlvdec_h264_dpb_dump_pic(__func__, &dpb->frames[oldest_idx]);
 	}
 }
 
-static void sliding_window_reference(dpb_buffer_t *dpb);
+void amlvdec_h264_dpb_update_pic(dpb_buffer_t *dpb, dpb_entry_t* entry) {
+	adaptive_memory_management(dpb, entry);
+
+	// Build reference lists
+	dpb_build_ref_lists(dpb, entry);
+
+	amlvdec_h264_dpb_dump_pic(__func__, entry);
+}
 
 dpb_entry_t* amlvdec_h264_dpb_new_pic(dpb_buffer_t *dpb) {
 	dpb_entry_t* entry;
@@ -703,13 +721,13 @@ dpb_entry_t* amlvdec_h264_dpb_new_pic(dpb_buffer_t *dpb) {
 	}
 
 	if (entry->is_idr) {
-		mark_all_unused(dpb);
+		idr_memory_management(dpb, entry);
+		dpb->current_sequence++;
 	} else {
 		adaptive_memory_management(dpb, entry);
-		sliding_window_reference(dpb);
 	}
 
-#if 0
+#ifdef FILL_FRAME_NUM_GAP
     // Handle frame gaps if any
     amlvdec_h264_dpb_fill_gaps(dpb, entry->frame_num);
 #endif
@@ -718,6 +736,9 @@ dpb_entry_t* amlvdec_h264_dpb_new_pic(dpb_buffer_t *dpb) {
 			dpb->hw_dpb,
 			&dpb->poc_state,
 			entry);
+
+	entry->coded_sequence = dpb->current_sequence;
+	entry->output_order_key = ((uint32_t) entry->coded_sequence) << 16 | entry->frame_poc;
 
 	// Build reference lists
 	dpb_build_ref_lists(dpb, entry);
@@ -733,29 +754,61 @@ void amlvdec_h264_dpb_pic_done(dpb_buffer_t *dpb, dpb_entry_t *current_pic) {
 	} else {
 		current_pic->state = DPB_REF_IN_USE;
 	}
+
+	sliding_window_reference(dpb);
 }
 
 void amlvdec_h264_dpb_recycle_pic(dpb_buffer_t *dpb, dpb_entry_t *pic) {
 	pic->state = DPB_UNUSED;
 	pic->ref_type = DPB_NON_REF;
 	pic->long_term_frame_idx = -1;
+	pic->frame_num = 0;
+	pic->top_poc = 0;
+	pic->bottom_poc = 0;
+	pic->frame_poc = 0;
+	pic->coded_sequence = 0;
+	pic->output_order_key = 0;
+	amlvdec_h264_dpb_dump_pic(__func__, pic);
 }
 
 int amlvdec_h264_dpb_flush_output(dpb_buffer_t *dpb, bool flush_all, output_pic_callback output_pic) {
-	int count = 0;
+    int output_count = 0;
+	bool output_found;
 
-	for (int i = 0; i < dpb->max_frames; i++) {
-		dpb_entry_t *pic = &dpb->frames[i];
+    do {
+		output_found = false;
 
-		if (pic->state == DPB_OUTPUT_READY || (
-			flush_all && pic->state != DPB_UNUSED)) {
-			output_pic(dpb, pic);
-			amlvdec_h264_dpb_recycle_pic(dpb, pic);
-		}
-		count++;
-	}
+        // Find the next picture that can be safely output
+        for (int i = 0; i < dpb->max_frames; i++) {
+            dpb_entry_t *pic = &dpb->frames[i];
 
-	return count;
+            // Skip pictures that are not ready for output
+            if ((flush_all && pic->state == DPB_UNUSED) ||
+				(!flush_all && pic->state != DPB_OUTPUT_READY)) {
+                continue;
+            }
+
+            // Check if there are any other DPB pictures with a lower POC
+            bool can_output = true;
+            for (int j = 0; j < dpb->max_frames; j++) {
+                if (i != j &&
+					dpb->frames[j].state != DPB_UNUSED &&
+					dpb->frames[j].output_order_key < pic->output_order_key) {
+                    can_output = false;
+                    break;
+                }
+            }
+
+            if (can_output) {
+				output_pic(dpb, pic);
+				amlvdec_h264_dpb_recycle_pic(dpb, pic);
+				output_count++;
+				output_found = true;
+            }
+        }
+    } while (output_found);
+
+    return output_count;
 }
 
 void amlvdec_h264_dpb_dump(dpb_buffer_t *dpb) {
