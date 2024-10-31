@@ -646,20 +646,15 @@ static void vdec_h264_init(struct decoder_h264_ctx *ctx) {
 	*/
 
 	switch (V4L2_FMT_PIXFMT(ctx->job->dst_fmt)) {
-		case V4L2_FMT(NV21):
-		case V4L2_FMT(NV21M):
+		case V4L2_FMT(NV12):
+		case V4L2_FMT(NV12M):
 			SET_VREG_MASK(MDEC_PIC_DC_CTRL, 1<<17);
 			/* cbcr_merge_swap_en */
 			SET_VREG_MASK(MDEC_PIC_DC_CTRL, 1<<16);
 			break;
-		case V4L2_FMT(NV12):
-		case V4L2_FMT(NV12M):
+		case V4L2_FMT(NV21):
+		case V4L2_FMT(NV21M):
 			SET_VREG_MASK(MDEC_PIC_DC_CTRL, 1<<17);
-			CLEAR_VREG_MASK(MDEC_PIC_DC_CTRL, 1 << 16);
-			break;
-		case V4L2_FMT(YUV420):
-		case V4L2_FMT(YUV420M):
-			CLEAR_VREG_MASK(MDEC_PIC_DC_CTRL, 1<<17);
 			CLEAR_VREG_MASK(MDEC_PIC_DC_CTRL, 1 << 16);
 			break;
 		default:

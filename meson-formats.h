@@ -10,6 +10,7 @@
 
 enum meson_formats: u8 {
 	FORMAT_NV12,
+	FORMAT_NV21,
 	FORMAT_YUV420,
 	FORMAT_MPEG1,
 	FORMAT_MPEG2,
@@ -32,6 +33,7 @@ struct meson_format {
 };
 
 extern const struct meson_format nv12;
+extern const struct meson_format nv21;
 extern const struct meson_format yuv420;
 extern const struct meson_format mpeg1;
 extern const struct meson_format mpeg2;

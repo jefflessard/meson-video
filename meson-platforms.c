@@ -731,7 +731,7 @@ static struct meson_ee_pwrc_domain_desc sm1_pwrc_domains[] = {
 static const struct meson_codec_formats gxl_codecs[] = {
 	DECODER(mpeg1, 1920, 1080, nv12, yuv420)
 	DECODER(mpeg2, 1920, 1080, nv12, yuv420)
-	DECODER(h264,  3840, 2160, nv12, yuv420)
+	DECODER(h264,  3840, 2160, nv12, nv21)
 	DECODER(vp9,   3840, 2160, nv12)
 	DECODER(hevc,  3840, 2160, nv12)
 

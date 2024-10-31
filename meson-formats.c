@@ -3,6 +3,17 @@
 #include "meson-formats.h"
 
 
+const struct meson_format nv21 = {
+	.description="NV21 raw pixel format",
+	.pixelformat = V4L2_FMT(NV21M),
+	.bits_per_px = 8,
+	.num_planes = 2,
+	.uvplane_bppx = 8,
+	.uvplane_bppy = 4,
+	.align_width = 32,
+	.align_height = 16,
+};
+
 const struct meson_format nv12 = {
 	.description="NV12 raw pixel format",
 	.pixelformat = V4L2_FMT(NV12M),

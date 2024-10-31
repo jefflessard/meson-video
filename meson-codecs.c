@@ -160,6 +160,9 @@ int meson_vcodec_config_vb2_canvas(struct meson_codec_dev *codec, const struct v
 		case V4L2_FMT(NV12M):
 			s = &nv12;
 			break;
+		case V4L2_FMT(NV21M):
+			s = &nv21;
+			break;
 		case V4L2_FMT(YUV420M):
 			s = &yuv420;
 			break;
