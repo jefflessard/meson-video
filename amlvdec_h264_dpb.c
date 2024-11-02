@@ -269,35 +269,6 @@ static dpb_entry_t* amlvdec_h264_dpb_alloc_pic(dpb_buffer_t *dpb) {
 	return NULL;
 }
 
-#ifdef FILL_FRAME_NUM_GAP
-static void amlvdec_h264_dpb_fill_gaps(dpb_buffer_t *dpb, int current_frame_num) {
-	int max_frame_num = 1 << dpb->hw_dpb->params.log2_max_frame_num;
-
-	if (!dpb->hw_dpb->params.frame_num_gap_allowed)
-		return;
-
-	int expected_frame_num = (dpb->prev_frame_num + 1) % max_frame_num;
-
-	while (expected_frame_num != current_frame_num) {
-		dpb_entry_t *gap_entry = amlvdec_h264_dpb_alloc_pic(dpb);
-
-		if (gap_entry) {
-			// Initialize gap frame
-			gap_entry->state = DPB_REF_IN_USE;
-			gap_entry->ref_type = DPB_SHORT_TERM;
-			gap_entry->is_gap_frame = true;
-			gap_entry->frame_num = expected_frame_num;
-		}
-		// TODO: Handle error case when no empty slot is available
-
-		expected_frame_num = (expected_frame_num + 1) % max_frame_num;
-	}
-
-	// Update previous frame number for gap detection
-	dpb->prev_frame_num = current_frame_num;
-}
-#endif
-
 // Update DPB with new frame info from hardware registers
 static dpb_entry_t* amlvdec_h264_dpb_store_pic(dpb_buffer_t *dpb) {
 	const struct amlvdec_h264_lmem *hw_dpb = dpb->hw_dpb;
@@ -318,7 +289,27 @@ static dpb_entry_t* amlvdec_h264_dpb_store_pic(dpb_buffer_t *dpb) {
 	if (is_reference_slice(dpb->hw_dpb))
 		entry->ref_type = DPB_SHORT_TERM;
 
+	entry->is_output = true;
+
 	return entry;
+}
+
+bool amlvdec_h264_dpb_is_matching_field(dpb_buffer_t *dpb, dpb_entry_t *pic) {
+	uint16_t frame_num = dpb->hw_dpb->dpb.frame_num;
+	enum picture_structure_mmco structure = dpb->hw_dpb->dpb.picture_structure_mmco;
+
+	if (pic != NULL &&
+		pic->frame_num == frame_num &&
+		pic->coded_sequence == dpb->current_sequence &&
+		((pic->picture_structure == MMCO_TOP_FIELD &&
+			structure == MMCO_BOTTOM_FIELD) ||
+		 (pic->picture_structure == MMCO_BOTTOM_FIELD &&
+			structure == MMCO_TOP_FIELD))) {
+
+		return true;
+	}
+
+	return false;
 }
 
 static void amlvdec_h264_dpb_reorder_refs(dpb_buffer_t *dpb, dpb_entry_t *current_pic) {
@@ -688,15 +679,6 @@ static void sliding_window_reference(dpb_buffer_t *dpb) {
 	}
 }
 
-void amlvdec_h264_dpb_update_pic(dpb_buffer_t *dpb, dpb_entry_t* entry) {
-	adaptive_memory_management(dpb, entry);
-
-	// Build reference lists
-	dpb_build_ref_lists(dpb, entry);
-
-	amlvdec_h264_dpb_dump_pic(__func__, entry);
-}
-
 dpb_entry_t* amlvdec_h264_dpb_new_pic(dpb_buffer_t *dpb) {
 	dpb_entry_t* entry;
 
@@ -712,11 +694,6 @@ dpb_entry_t* amlvdec_h264_dpb_new_pic(dpb_buffer_t *dpb) {
 	} else {
 		adaptive_memory_management(dpb, entry);
 	}
-
-#ifdef FILL_FRAME_NUM_GAP
-    // Handle frame gaps if any
-    amlvdec_h264_dpb_fill_gaps(dpb, entry->frame_num);
-#endif
 
 	amlvdec_h264_dpb_decode_poc(
 			dpb->hw_dpb,
@@ -754,6 +731,7 @@ void amlvdec_h264_dpb_recycle_pic(dpb_buffer_t *dpb, dpb_entry_t *pic) {
 	pic->frame_poc = 0;
 	pic->coded_sequence = 0;
 	pic->output_order_key = 0;
+	pic->is_output = false;
 	amlvdec_h264_dpb_dump_pic(__func__, pic);
 }
 
@@ -786,6 +764,8 @@ int amlvdec_h264_dpb_flush_output(dpb_buffer_t *dpb, bool flush_all, output_pic_
             }
 
             if (can_output) {
+				amlvdec_h264_dpb_dump_pic(__func__, pic);
+
 				output_pic(dpb, pic);
 				amlvdec_h264_dpb_recycle_pic(dpb, pic);
 				output_count++;

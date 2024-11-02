@@ -6,6 +6,7 @@ FFMPEG_OPTS="-hide_banner -loglevel info -benchmark -stats"
 
 
 h264_decode() {
+	 local src_file="${1:-sample_h264.mp4}"
 #		-pix_fmt nv12 \
 #		-pix_fmt yuv420p \
 #		-f rawvideo \
@@ -13,9 +14,7 @@ h264_decode() {
 #		-vf select="gte(n\, 2)" \
 	ffmpeg $FFMPEG_OPTS \
 		-c:v h264_v4l2m2m \
-		-i sample_h264.mp4 \
-		-force_key_frames source \
-		-g 300 \
+		-i "${src_file}" \
 		-frames:v 120 \
 		-preset ultrafast \
 		-map 0:v:0 \
@@ -61,7 +60,8 @@ h264_transcode() {
 }
 
 frames() {
-	ffprobe -hide_banner -v warning -select_streams v:0 -show_frames -show_entries frame=display_picture_number,coded_picture_number,pts,pict_type,key_frame -read_intervals "%+2" -print_format csv=p=0 output.ts
+	ffprobe -v error -select_streams v:0 -show_entries stream=codec_type,field_order -of default=noprint_wrappers=1 output.ts
+	ffprobe -hide_banner -v warning -select_streams v:0 -show_frames -show_entries frame=display_picture_number,coded_picture_number,pts,pict_type,key_frame -read_intervals "%+1" -print_format csv=p=0 output.ts
 }
 
 headers() {
@@ -83,10 +83,10 @@ exec_time() {
 test_fn=$1
 if [ -z "$test_fn" ]
 then
-	time h264_decode
-	#time h264_encode
-	#time h264_transcode
+	time h264_decode $@
+	#time h264_encode $@
+	#time h264_transcode $@
 else
-	time $test_fn
+	time $@
 fi
 
