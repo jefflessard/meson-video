@@ -35,6 +35,9 @@
 		(unsigned int)((val)&((1L<<(len))-1)) << (start)) \
 	)
 
+#define CLEAR_VREG_MASK(r, mask)  WRITE_VREG(r, READ_VREG(r) & ~(mask))
+#define SET_VREG_MASK(r, mask)    WRITE_VREG(r, READ_VREG(r) | (mask))
+
 struct meson_vcodec_core;
 extern struct meson_vcodec_core *MESON_VCODEC_CORE;
 

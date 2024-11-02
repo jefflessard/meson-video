@@ -3,8 +3,8 @@
 #include "amlvdec_h264_dpb.h"
 
 static int compare_by_poc_asc(const void *va, const void *vb) {
-	const dpb_entry_t *a = *(const dpb_entry_t **) va;
-	const dpb_entry_t *b = *(const dpb_entry_t **) vb;
+	const dpb_picture_t *a = *(const dpb_picture_t **) va;
+	const dpb_picture_t *b = *(const dpb_picture_t **) vb;
 
 	return ((int) a->output_order_key - (int) b->output_order_key);
 }
@@ -14,8 +14,8 @@ static int compare_by_poc_desc(const void *va, const void *vb) {
 }
 
 static int compare_by_frame_num_asc(const void *va, const void *vb) {
-	const dpb_entry_t *a = *(const dpb_entry_t **) va;
-	const dpb_entry_t *b = *(const dpb_entry_t **) vb;
+	const dpb_picture_t *a = *(const dpb_picture_t **) va;
+	const dpb_picture_t *b = *(const dpb_picture_t **) vb;
 
 	return ((int) a->frame_num - (int) b->frame_num) |
 		((int) a->coded_sequence - (int) b->coded_sequence) << 16;
@@ -26,38 +26,38 @@ static int compare_by_frame_num_desc(const void *va, const void *vb) {
 }
 
 static int compare_by_long_term_idx_asc(const void *va, const void *vb) {
-	const dpb_entry_t *a = *(const dpb_entry_t **) va;
-	const dpb_entry_t *b = *(const dpb_entry_t **) vb;
+	const dpb_picture_t *a = *(const dpb_picture_t **) va;
+	const dpb_picture_t *b = *(const dpb_picture_t **) vb;
 
 	return (a->long_term_frame_idx - b->long_term_frame_idx) |
 		((int) a->coded_sequence - (int) b->coded_sequence) << 16;
 }
 
-static inline void amlvdec_h264_dpb_dump_pic(const char *prefix, dpb_entry_t *entry) {
+static inline void amlvdec_h264_dpb_dump_pic(const char *prefix, dpb_picture_t *pic) {
 	pr_debug("DPB: %s: frame=%d, idr=%d, seq=%d, poc=%d (%d, %d) index=%d, state=%d, ref=%d\n",
 			prefix,
-			entry->frame_num,
-			entry->is_idr,
-			entry->coded_sequence,
-			entry->frame_poc,
-			entry->top_poc,
-			entry->bottom_poc,
-			entry->buffer_index,
-			entry->state,
-			entry->ref_type);
+			pic->frame_num,
+			pic->is_idr,
+			pic->coded_sequence,
+			pic->frame_poc,
+			pic->top_poc,
+			pic->bottom_poc,
+			pic->buffer_index,
+			pic->state,
+			pic->ref_type);
 }
 
-static void amlvdec_h264_dpb_decode_poc(const struct amlvdec_h264_lmem *lmem, poc_state_t *poc, dpb_entry_t *entry)
+static void amlvdec_h264_dpb_decode_poc(const struct amlvdec_h264_lmem *lmem, poc_state_t *poc, dpb_picture_t *pic)
 {
 	const struct amlvdec_h264_rpm *params = &lmem->params;
 	const struct amlvdec_h264_dpb *dpb = &lmem->dpb;
 	const struct amlvdec_h264_mmco *mmco = &lmem->mmco;
 
 	const bool field_pic_flag =
-		entry->picture_structure == MMCO_TOP_FIELD ||
-		entry->picture_structure == MMCO_BOTTOM_FIELD;
+		pic->picture_structure == MMCO_TOP_FIELD ||
+		pic->picture_structure == MMCO_BOTTOM_FIELD;
 	const bool bottom_field_flag =
-		entry->picture_structure == MMCO_BOTTOM_FIELD;
+		pic->picture_structure == MMCO_BOTTOM_FIELD;
 	const uint16_t pic_order_cnt_lsb = dpb->pic_order_cnt_lsb;
 	const int frame_num = dpb->frame_num;
 	const int delta_pic_order_cnt_bottom = 
@@ -72,14 +72,14 @@ static void amlvdec_h264_dpb_decode_poc(const struct amlvdec_h264_lmem *lmem, po
 	const uint32_t MaxPicOrderCntLsb = (1 << (params->log2_max_pic_order_cnt_lsb));
 	const int max_frame_num = 1 << params->log2_max_frame_num;
 	const uint16_t *offset_for_ref_frame = mmco->offset_for_ref_frame_base;
-	const bool is_reference = entry->ref_type != DPB_NON_REF;
+	const bool is_reference = pic->ref_type != DPB_NON_REF;
 
 	int ThisPOC = 0;
 
 	switch (params->pic_order_cnt_type) {
 		case 0: /* POC MODE 0 */
 			// Reset POC MSB and LSB for IDR pictures or after MMCO5
-			if (entry->is_idr) {
+			if (pic->is_idr) {
 				poc->PrevPicOrderCntMsb = 0;
 				poc->PrevPicOrderCntLsb = 0;
 			} else if (poc->last_mmco_has_reset) {
@@ -88,7 +88,7 @@ static void amlvdec_h264_dpb_decode_poc(const struct amlvdec_h264_lmem *lmem, po
 					poc->PrevPicOrderCntLsb = 0;
 				} else {
 					poc->PrevPicOrderCntMsb = 0;
-					poc->PrevPicOrderCntLsb = entry->top_poc;
+					poc->PrevPicOrderCntLsb = pic->top_poc;
 				}
 			}
 
@@ -104,18 +104,18 @@ static void amlvdec_h264_dpb_decode_poc(const struct amlvdec_h264_lmem *lmem, po
 
 			// Calculate POC based on picture type
 			if (!field_pic_flag) {
-				entry->top_poc = poc->PicOrderCntMsb + pic_order_cnt_lsb;
-				entry->bottom_poc = entry->top_poc + delta_pic_order_cnt_bottom;
-				ThisPOC = entry->frame_poc = 
-					(entry->top_poc < entry->bottom_poc) ? entry->top_poc : entry->bottom_poc;
+				pic->top_poc = poc->PicOrderCntMsb + pic_order_cnt_lsb;
+				pic->bottom_poc = pic->top_poc + delta_pic_order_cnt_bottom;
+				ThisPOC = pic->frame_poc = 
+					(pic->top_poc < pic->bottom_poc) ? pic->top_poc : pic->bottom_poc;
 			} else if (!bottom_field_flag) {
-				ThisPOC = entry->top_poc = 
+				ThisPOC = pic->top_poc = 
 					poc->PicOrderCntMsb + pic_order_cnt_lsb;
 			} else {
-				ThisPOC = entry->bottom_poc = 
+				ThisPOC = pic->bottom_poc = 
 					poc->PicOrderCntMsb + pic_order_cnt_lsb;
 			}
-			entry->frame_poc = ThisPOC;
+			pic->frame_poc = ThisPOC;
 
 			// Update previous values for reference pictures
 			poc->PreviousFrameNum = frame_num;
@@ -127,7 +127,7 @@ static void amlvdec_h264_dpb_decode_poc(const struct amlvdec_h264_lmem *lmem, po
 
 		case 1: /* POC MODE 1 */
 			// Calculate FrameNumOffset
-			if (entry->is_idr) {
+			if (pic->is_idr) {
 				poc->FrameNumOffset = 0;
 			} else {
 				if (poc->last_mmco_has_reset) {
@@ -176,18 +176,18 @@ static void amlvdec_h264_dpb_decode_poc(const struct amlvdec_h264_lmem *lmem, po
 
 			// Calculate final POC values
 			if (!field_pic_flag) {
-				entry->top_poc = poc->ExpectedPicOrderCnt + delta_pic_order_cnt_0;
-				entry->bottom_poc = entry->top_poc + params->offset_for_top_to_bottom_field + delta_pic_order_cnt_1;
-				ThisPOC = entry->frame_poc = 
-					(entry->top_poc < entry->bottom_poc) ? entry->top_poc : entry->bottom_poc;
+				pic->top_poc = poc->ExpectedPicOrderCnt + delta_pic_order_cnt_0;
+				pic->bottom_poc = pic->top_poc + params->offset_for_top_to_bottom_field + delta_pic_order_cnt_1;
+				ThisPOC = pic->frame_poc = 
+					(pic->top_poc < pic->bottom_poc) ? pic->top_poc : pic->bottom_poc;
 			} else if (!bottom_field_flag) {
-				ThisPOC = entry->top_poc = 
+				ThisPOC = pic->top_poc = 
 					poc->ExpectedPicOrderCnt + delta_pic_order_cnt_0;
 			} else {
-				ThisPOC = entry->bottom_poc = poc->ExpectedPicOrderCnt + 
+				ThisPOC = pic->bottom_poc = poc->ExpectedPicOrderCnt + 
 					params->offset_for_top_to_bottom_field + delta_pic_order_cnt_0;
 			}
-			entry->frame_poc = ThisPOC;
+			pic->frame_poc = ThisPOC;
 
 			// Update previous values
 			poc->PreviousFrameNum = frame_num;
@@ -195,9 +195,9 @@ static void amlvdec_h264_dpb_decode_poc(const struct amlvdec_h264_lmem *lmem, po
 			break;
 
 		case 2: /* POC MODE 2 */
-			if (entry->is_idr) {
+			if (pic->is_idr) {
 				poc->FrameNumOffset = 0;
-				ThisPOC = entry->frame_poc = entry->top_poc = entry->bottom_poc = 0;
+				ThisPOC = pic->frame_poc = pic->top_poc = pic->bottom_poc = 0;
 			} else {
 				if (poc->last_mmco_has_reset) {
 					poc->PreviousFrameNum = 0;
@@ -213,11 +213,11 @@ static void amlvdec_h264_dpb_decode_poc(const struct amlvdec_h264_lmem *lmem, po
 					(2 * poc->AbsFrameNum - 1) : (2 * poc->AbsFrameNum);
 
 				if (!field_pic_flag)
-					entry->top_poc = entry->bottom_poc = entry->frame_poc = ThisPOC;
+					pic->top_poc = pic->bottom_poc = pic->frame_poc = ThisPOC;
 				else if (!bottom_field_flag)
-					entry->top_poc = entry->frame_poc = ThisPOC;
+					pic->top_poc = pic->frame_poc = ThisPOC;
 				else
-					entry->bottom_poc = entry->frame_poc = ThisPOC;
+					pic->bottom_poc = pic->frame_poc = ThisPOC;
 			}
 
 			poc->PreviousFrameNum = frame_num;
@@ -255,7 +255,7 @@ int amlvdec_h264_dpb_adjust_size(dpb_buffer_t *dpb) {
 	return dpb->max_frames;
 }
 
-static dpb_entry_t* amlvdec_h264_dpb_alloc_pic(dpb_buffer_t *dpb) {
+static dpb_picture_t* amlvdec_h264_dpb_alloc_pic(dpb_buffer_t *dpb) {
 
 	// Count reference frames and find oldest one
 	for (int i = 0; i < dpb->max_frames; i++) {
@@ -270,31 +270,31 @@ static dpb_entry_t* amlvdec_h264_dpb_alloc_pic(dpb_buffer_t *dpb) {
 }
 
 // Update DPB with new frame info from hardware registers
-static dpb_entry_t* amlvdec_h264_dpb_store_pic(dpb_buffer_t *dpb) {
+static dpb_picture_t* amlvdec_h264_dpb_store_pic(dpb_buffer_t *dpb) {
 	const struct amlvdec_h264_lmem *hw_dpb = dpb->hw_dpb;
 
-	dpb_entry_t *entry = amlvdec_h264_dpb_alloc_pic(dpb);
-	if (entry == NULL) {
+	dpb_picture_t *pic = amlvdec_h264_dpb_alloc_pic(dpb);
+	if (pic == NULL) {
 		return NULL;
 	}
 
-	// Fill entry with current frame info
-	entry->frame_num = hw_dpb->dpb.frame_num;
-	entry->picture_structure = hw_dpb->dpb.picture_structure_mmco;
-	entry->slice_type = dpb->hw_dpb->params.slice_type;
-	entry->is_idr = is_idr_pic(hw_dpb);
+	// Fill pic with current frame info
+	pic->frame_num = hw_dpb->dpb.frame_num;
+	pic->picture_structure = hw_dpb->dpb.picture_structure_mmco;
+	pic->slice_type = dpb->hw_dpb->params.slice_type;
+	pic->is_idr = is_idr_pic(hw_dpb);
 
 	// Set buffer management flags
-	entry->state = DPB_INIT;
+	pic->state = DPB_INIT;
 	if (is_reference_slice(dpb->hw_dpb))
-		entry->ref_type = DPB_SHORT_TERM;
+		pic->ref_type = DPB_SHORT_TERM;
 
-	entry->is_output = true;
+	pic->is_output = true;
 
-	return entry;
+	return pic;
 }
 
-bool amlvdec_h264_dpb_is_matching_field(dpb_buffer_t *dpb, dpb_entry_t *pic) {
+bool amlvdec_h264_dpb_is_matching_field(dpb_buffer_t *dpb, dpb_picture_t *pic) {
 	uint16_t frame_num = dpb->hw_dpb->dpb.frame_num;
 	enum picture_structure_mmco structure = dpb->hw_dpb->dpb.picture_structure_mmco;
 
@@ -312,10 +312,10 @@ bool amlvdec_h264_dpb_is_matching_field(dpb_buffer_t *dpb, dpb_entry_t *pic) {
 	return false;
 }
 
-static void amlvdec_h264_dpb_reorder_refs(dpb_buffer_t *dpb, dpb_entry_t *current_pic) {
+static void amlvdec_h264_dpb_reorder_refs(dpb_buffer_t *dpb, dpb_picture_t *pic) {
 	int max_frame_num = 1 << dpb->hw_dpb->params.log2_max_frame_num;
 
-	if (current_pic->is_idr) {
+	if (pic->is_idr) {
 		return;
 	}
 
@@ -332,7 +332,7 @@ static void amlvdec_h264_dpb_reorder_refs(dpb_buffer_t *dpb, dpb_entry_t *curren
 			switch (opcode) {
 				case REORDER_SHORT_TERM_DECREASE:
 				case REORDER_SHORT_TERM_INCREASE: {
-					int pic_num_pred = current_pic->frame_num;
+					int pic_num_pred = pic->frame_num;
 					int abs_diff_pic_num = param + 1;
 
 					if (opcode == REORDER_SHORT_TERM_DECREASE)
@@ -349,8 +349,8 @@ static void amlvdec_h264_dpb_reorder_refs(dpb_buffer_t *dpb, dpb_entry_t *curren
 					for (int i = 0; i < dpb->ref_list0_size; i++) {
 						if (dpb->ref_list0[i]->ref_type == DPB_SHORT_TERM &&
 							dpb->ref_list0[i]->frame_num == pic_num_pred) {
-							dpb_entry_t *temp = dpb->ref_list0[i];
-							memmove(&dpb->ref_list0[1], &dpb->ref_list0[0], i * sizeof(dpb_entry_t*));
+							dpb_picture_t *temp = dpb->ref_list0[i];
+							memmove(&dpb->ref_list0[1], &dpb->ref_list0[0], i * sizeof(dpb_picture_t*));
 							dpb->ref_list0[0] = temp;
 							break;
 						}
@@ -363,8 +363,8 @@ static void amlvdec_h264_dpb_reorder_refs(dpb_buffer_t *dpb, dpb_entry_t *curren
 					for (int i = 0; i < dpb->ref_list0_size; i++) {
 						if (dpb->ref_list0[i]->ref_type == DPB_LONG_TERM &&
 							dpb->ref_list0[i]->long_term_frame_idx == param) {
-							dpb_entry_t *temp = dpb->ref_list0[i];
-							memmove(&dpb->ref_list0[1], &dpb->ref_list0[0], i * sizeof(dpb_entry_t*));
+							dpb_picture_t *temp = dpb->ref_list0[i];
+							memmove(&dpb->ref_list0[1], &dpb->ref_list0[0], i * sizeof(dpb_picture_t*));
 							dpb->ref_list0[0] = temp;
 							break;
 						}
@@ -377,13 +377,13 @@ static void amlvdec_h264_dpb_reorder_refs(dpb_buffer_t *dpb, dpb_entry_t *curren
 }
 
 // Build reference lists for current frame
-static void dpb_build_ref_lists(dpb_buffer_t *dpb, dpb_entry_t *entry) { 
-	bool is_b_slice = IS_B_SLICE(entry->slice_type);
+static void dpb_build_ref_lists(dpb_buffer_t *dpb, dpb_picture_t *pic) { 
+	bool is_b_slice = IS_B_SLICE(pic->slice_type);
 
 	memset(dpb->ref_list0, 0, sizeof(dpb->ref_list0));
 	memset(dpb->ref_list1, 0, sizeof(dpb->ref_list1));
 
-	if (IS_I_SLICE(entry->slice_type)) {
+	if (IS_I_SLICE(pic->slice_type)) {
 		dpb->ref_list0_size = 0;
 		dpb->ref_list1_size = 0;
 		return;
@@ -406,7 +406,7 @@ static void dpb_build_ref_lists(dpb_buffer_t *dpb, dpb_entry_t *entry) {
 
 		if (is_b_slice) {
 			// For B-slices, sort by POC
-			if (dpb->frames[i].frame_poc < entry->frame_poc) {
+			if (dpb->frames[i].frame_poc < pic->frame_poc) {
 				dpb->ref_list0[ref_list0_idx++] = &dpb->frames[i];
 			} else {
 				dpb->ref_list1[ref_list1_idx++] = &dpb->frames[i];
@@ -423,16 +423,16 @@ static void dpb_build_ref_lists(dpb_buffer_t *dpb, dpb_entry_t *entry) {
 	if (is_b_slice) {
 		sort(dpb->ref_list0,
 				ref_list0_st_size,
-				sizeof(dpb_entry_t *),
+				sizeof(dpb_picture_t *),
 				compare_by_poc_desc, NULL);
 		sort(dpb->ref_list1,
 				ref_list1_st_size,
-				sizeof(dpb_entry_t *),
+				sizeof(dpb_picture_t *),
 				compare_by_poc_asc, NULL);
 	} else {
 		sort(dpb->ref_list0,
 				ref_list0_st_size,
-				sizeof(dpb_entry_t *),
+				sizeof(dpb_picture_t *),
 				compare_by_frame_num_desc, NULL);
 	}
 
@@ -454,16 +454,16 @@ static void dpb_build_ref_lists(dpb_buffer_t *dpb, dpb_entry_t *entry) {
 		// For B-slices long term references, sort by frame_num
 		sort(&dpb->ref_list0[ref_list0_st_size],
 				ref_list0_idx - ref_list0_st_size,
-				sizeof(dpb_entry_t *),
+				sizeof(dpb_picture_t *),
 				compare_by_long_term_idx_asc, NULL);
 		sort(&dpb->ref_list1[ref_list1_st_size],
 				ref_list1_idx - ref_list1_st_size,
-				sizeof(dpb_entry_t *),
+				sizeof(dpb_picture_t *),
 				compare_by_long_term_idx_asc, NULL);
 	} else {
 		sort(&dpb->ref_list0[ref_list0_st_size],
 				ref_list0_idx - ref_list0_st_size,
-				sizeof(dpb_entry_t *),
+				sizeof(dpb_picture_t *),
 				compare_by_long_term_idx_asc, NULL);
 	}
 
@@ -478,7 +478,7 @@ static void dpb_build_ref_lists(dpb_buffer_t *dpb, dpb_entry_t *entry) {
 
 	dpb->ref_list0_size = ref_list0_idx;
 	dpb->ref_list1_size = ref_list1_idx;
-	amlvdec_h264_dpb_reorder_refs(dpb, entry);
+	amlvdec_h264_dpb_reorder_refs(dpb, pic);
 }
 
 static void mark_all_unused(dpb_buffer_t *dpb) {
@@ -551,7 +551,7 @@ static void mark_long_term_max_index_unused(dpb_buffer_t *dpb, int max_long_term
 	}
 }
 
-static void idr_memory_management(dpb_buffer_t *dpb, dpb_entry_t *current_pic) {
+static void idr_memory_management(dpb_buffer_t *dpb, dpb_picture_t *pic) {
 	uint16_t cmd = amlvdec_h264_mmco_cmd(dpb->hw_dpb, 0);
 	bool long_term_reference_flag = cmd & 1;
 	// TODO bool no_output_of_prior_pics_flag = (cmd >> 1) & 1;
@@ -559,12 +559,12 @@ static void idr_memory_management(dpb_buffer_t *dpb, dpb_entry_t *current_pic) {
 	mark_all_unused(dpb);
 
 	if (long_term_reference_flag) {
-		current_pic->ref_type = DPB_LONG_TERM;
-		current_pic->long_term_frame_idx = 0;
+		pic->ref_type = DPB_LONG_TERM;
+		pic->long_term_frame_idx = 0;
 	}
 }
 
-static bool adaptive_memory_management(dpb_buffer_t *dpb, dpb_entry_t *current_pic) {
+static bool adaptive_memory_management(dpb_buffer_t *dpb, dpb_picture_t *pic) {
 	const struct amlvdec_h264_lmem *hw_dpb = dpb->hw_dpb;
     int max_frame_num = 1 << dpb->hw_dpb->params.log2_max_frame_num;
 	bool has_mmco = false;
@@ -586,7 +586,7 @@ static bool adaptive_memory_management(dpb_buffer_t *dpb, dpb_entry_t *current_p
 				int difference_of_pic_nums_minus1 = amlvdec_h264_mmco_cmd(hw_dpb, i++);
 				pr_cont("difference_of_pic_nums_minus1=%u\n", difference_of_pic_nums_minus1);
 
-				int pic_num_x = current_pic->frame_num - (difference_of_pic_nums_minus1 + 1);
+				int pic_num_x = pic->frame_num - (difference_of_pic_nums_minus1 + 1);
 				if (pic_num_x < 0)
 					pic_num_x += max_frame_num;
 
@@ -607,7 +607,7 @@ static bool adaptive_memory_management(dpb_buffer_t *dpb, dpb_entry_t *current_p
 				int long_term_frame_idx = amlvdec_h264_mmco_cmd(hw_dpb, i++);
 				pr_cont("difference_of_pic_nums_minus1=%u, long_term_frame_idx=%u\n", difference_of_pic_nums_minus1, long_term_frame_idx);
 
-				int pic_num_x = current_pic->frame_num - (difference_of_pic_nums_minus1 + 1);
+				int pic_num_x = pic->frame_num - (difference_of_pic_nums_minus1 + 1);
 				if (pic_num_x < 0)
 					pic_num_x += max_frame_num;
 				
@@ -635,10 +635,10 @@ static bool adaptive_memory_management(dpb_buffer_t *dpb, dpb_entry_t *current_p
 				int long_term_frame_idx = amlvdec_h264_mmco_cmd(hw_dpb, i++);
 				pr_cont("long_term_frame_idx=%u\n", long_term_frame_idx);
 
-				current_pic->state = DPB_REF_IN_USE;
-				current_pic->ref_type = DPB_LONG_TERM;
-				current_pic->long_term_frame_idx = long_term_frame_idx;
-				amlvdec_h264_dpb_dump_pic(__func__, current_pic);
+				pic->state = DPB_REF_IN_USE;
+				pic->ref_type = DPB_LONG_TERM;
+				pic->long_term_frame_idx = long_term_frame_idx;
+				amlvdec_h264_dpb_dump_pic(__func__, pic);
 				break;
 			}
 
@@ -679,49 +679,49 @@ static void sliding_window_reference(dpb_buffer_t *dpb) {
 	}
 }
 
-dpb_entry_t* amlvdec_h264_dpb_new_pic(dpb_buffer_t *dpb) {
-	dpb_entry_t* entry;
+dpb_picture_t* amlvdec_h264_dpb_new_pic(dpb_buffer_t *dpb) {
+	dpb_picture_t* pic;
 
 	// Store new frame in DPB
-	entry = amlvdec_h264_dpb_store_pic(dpb);
-	if (entry == NULL) {
+	pic = amlvdec_h264_dpb_store_pic(dpb);
+	if (pic == NULL) {
 		return NULL;
 	}
 
-	if (entry->is_idr) {
-		idr_memory_management(dpb, entry);
+	if (pic->is_idr) {
+		idr_memory_management(dpb, pic);
 		dpb->current_sequence++;
 	} else {
-		adaptive_memory_management(dpb, entry);
+		adaptive_memory_management(dpb, pic);
 	}
 
 	amlvdec_h264_dpb_decode_poc(
 			dpb->hw_dpb,
 			&dpb->poc_state,
-			entry);
+			pic);
 
-	entry->coded_sequence = dpb->current_sequence;
-	entry->output_order_key = ((uint32_t) entry->coded_sequence) << 16 | entry->frame_poc;
+	pic->coded_sequence = dpb->current_sequence;
+	pic->output_order_key = ((uint32_t) pic->coded_sequence) << 16 | pic->frame_poc;
 
 	// Build reference lists
-	dpb_build_ref_lists(dpb, entry);
+	dpb_build_ref_lists(dpb, pic);
 
-	amlvdec_h264_dpb_dump_pic(__func__, entry);
+	amlvdec_h264_dpb_dump_pic(__func__, pic);
 
-	return entry;
+	return pic;
 }
 
-void amlvdec_h264_dpb_pic_done(dpb_buffer_t *dpb, dpb_entry_t *current_pic) {
-	if (current_pic->ref_type == DPB_NON_REF) {
-		current_pic->state = DPB_OUTPUT_READY;
+void amlvdec_h264_dpb_pic_done(dpb_buffer_t *dpb, dpb_picture_t *pic) {
+	if (pic->ref_type == DPB_NON_REF) {
+		pic->state = DPB_OUTPUT_READY;
 	} else {
-		current_pic->state = DPB_REF_IN_USE;
+		pic->state = DPB_REF_IN_USE;
 	}
 
 	sliding_window_reference(dpb);
 }
 
-void amlvdec_h264_dpb_recycle_pic(dpb_buffer_t *dpb, dpb_entry_t *pic) {
+void amlvdec_h264_dpb_recycle_pic(dpb_buffer_t *dpb, dpb_picture_t *pic) {
 	pic->state = DPB_UNUSED;
 	pic->ref_type = DPB_NON_REF;
 	pic->long_term_frame_idx = -1;
@@ -744,7 +744,7 @@ int amlvdec_h264_dpb_flush_output(dpb_buffer_t *dpb, bool flush_all, output_pic_
 
         // Find the next picture that can be safely output
         for (int i = 0; i < dpb->max_frames; i++) {
-            dpb_entry_t *pic = &dpb->frames[i];
+            dpb_picture_t *pic = &dpb->frames[i];
 
             // Skip pictures that are not ready for output
             if ((flush_all && pic->state == DPB_UNUSED) ||

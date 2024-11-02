@@ -80,7 +80,7 @@ typedef struct {
 
 	/* output management */
 	bool is_output;
-} dpb_entry_t;
+} dpb_picture_t;
 
 // Structure to encapsulate POC calculation state
 typedef struct {
@@ -106,12 +106,12 @@ typedef struct {
 	const struct amlvdec_h264_lmem *hw_dpb;
 	poc_state_t poc_state;
 
-	dpb_entry_t frames[MAX_DPB_FRAMES];
+	dpb_picture_t frames[MAX_DPB_FRAMES];
     int max_frames;
 
     // Reference list construction
-    dpb_entry_t *ref_list0[MAX_REF_LIST_SIZE];
-    dpb_entry_t *ref_list1[MAX_REF_LIST_SIZE];
+    dpb_picture_t *ref_list0[MAX_REF_LIST_SIZE];
+    dpb_picture_t *ref_list1[MAX_REF_LIST_SIZE];
     int ref_list0_size;
     int ref_list1_size;
 
@@ -122,18 +122,18 @@ typedef struct {
 	uint16_t current_sequence;
 } dpb_buffer_t;
 
-typedef void (*output_pic_callback)(dpb_buffer_t *dpb, dpb_entry_t *pic);
+typedef void (*output_pic_callback)(dpb_buffer_t *dpb, dpb_picture_t *pic);
 
 void amlvdec_h264_dpb_init(dpb_buffer_t *dpb, const struct amlvdec_h264_lmem *hw_dpb);
 int amlvdec_h264_dpb_adjust_size(dpb_buffer_t *dpb);
-bool amlvdec_h264_dpb_is_matching_field(dpb_buffer_t *dpb, dpb_entry_t *pic);
-dpb_entry_t* amlvdec_h264_dpb_new_pic(dpb_buffer_t *dpb);
-void amlvdec_h264_dpb_pic_done(dpb_buffer_t *dpb, dpb_entry_t *current_pic);
+bool amlvdec_h264_dpb_is_matching_field(dpb_buffer_t *dpb, dpb_picture_t *pic);
+dpb_picture_t* amlvdec_h264_dpb_new_pic(dpb_buffer_t *dpb);
+void amlvdec_h264_dpb_pic_done(dpb_buffer_t *dpb, dpb_picture_t *pic);
 int amlvdec_h264_dpb_flush_output(dpb_buffer_t *dpb, bool flush_all, output_pic_callback output_pic);
 void amlvdec_h264_dpb_dump(dpb_buffer_t *dpb);
 
 // Get colocated reference frame (first frame from ref_list1)
-static inline dpb_entry_t* amlvdec_h264_dpb_colocated_ref(dpb_buffer_t *dpb) {
+static inline dpb_picture_t* amlvdec_h264_dpb_colocated_ref(dpb_buffer_t *dpb) {
 	return (dpb->ref_list1_size > 0) ? dpb->ref_list1[0] : NULL;
 }
 

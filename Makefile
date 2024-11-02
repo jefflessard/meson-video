@@ -14,6 +14,7 @@ meson_vcodec-objs += \
 	vdec/vdec_1.o \
 	vdec/vdec_hevc.o \
 	amlogic.o \
+	amlvdec_vdec.o \
 	amlvdec_h264_lmem.o \
 	amlvdec_h264_dpb.o \
 	decoder_h264.o \
