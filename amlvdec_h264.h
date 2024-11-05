@@ -9,8 +9,6 @@
 #define MC_OFFSET_SLICE     0x4000
 #define MC_OFFSET_MAIN      0x5000
 
-#define MC_MAX_SIZE         (16 * SZ_4K)
-#define MC_AMRISC_SIZE      (SZ_4K)
 #define MC_TOTAL_SIZE       ((20 + 16) * SZ_1K)
 #define MC_SWAP_SIZE        (4 * SZ_1K)
 #define LMEM_SIZE           PAGE_SIZE
@@ -19,10 +17,6 @@
 #define AUX_SIZE            AUX_PREFIX_SIZE + AUX_SUFFIX_SIZE
 #define WORKSPACE_SIZE      0x200000
 #define WORKSPACE_OFFSET    (64 * SZ_1K)
-
-#define ASSIST_MBOX1_CLR_REG VDEC_ASSIST_MBOX1_CLR_REG
-#define ASSIST_MBOX1_MASK    VDEC_ASSIST_MBOX1_MASK
-#define ASSIST_MBOX1_IRQ_REG VDEC_ASSIST_MBOX1_IRQ_REG
 
 /* unmapped                 AV_SCRATCH_0 */
 	/* (max_reference_size << 24) |

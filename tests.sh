@@ -4,6 +4,30 @@
 FFMPEG_OPTS="-hide_banner -loglevel info -benchmark -stats"
 #FFMPEG_OPTS="-hide_banner -loglevel debug -benchmark -stats"
 
+mpeg2_decode() {
+	 local src_file="${1:-sample_mpeg2.ts}"
+#		-pix_fmt nv12 \
+#		-pix_fmt yuv420p \
+#		-f rawvideo \
+#		-y /dev/null
+#		-vf select="gte(n\, 2)" \
+#		-c:v libx264 \
+#		-preset ultrafast \
+#		-crf 17 \
+#		-y output.ts
+#		-c:v huffyuv \
+#		-y output.avi
+	ffmpeg $FFMPEG_OPTS \
+		-c:v mpeg2_v4l2m2m \
+		-i "${src_file}" \
+		-frames:v 120 \
+		-map 0:v:0 \
+		-c:v libx264 \
+		-preset ultrafast \
+		-crf 17 \
+		-y output.ts
+#	ffmpeg $FFMPEG_OPTS -c:v h264_v4l2m2m -i sample_h264.mp4 -map 0:v:0 -f null -
+}
 
 h264_decode() {
 	 local src_file="${1:-sample_h264.mp4}"

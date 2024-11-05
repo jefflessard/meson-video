@@ -9,7 +9,6 @@
 #include "meson-vcodec.h"
 
 #include "vdec/vdec.h"
-#include "vdec/codec_mpeg12.h"
 #include "vdec/codec_vp9.h"
 #include "vdec/codec_hevc.h"
 #include "vdec/vdec_1.h"
@@ -21,8 +20,8 @@
 #define SIZE_VIFIFO SZ_16M
 
 static struct amvdec_codec_ops *vdec_decoders[MAX_CODECS] = {
-	[MPEG1_DECODER] = &codec_mpeg12_ops,
-	[MPEG2_DECODER] = &codec_mpeg12_ops,
+	//[MPEG1_DECODER] = NULL,
+	//[MPEG2_DECODER] = NULL,
 	//[H264_DECODER] = NULL,
 	[VP9_DECODER] = &codec_vp9_ops,
 	[HEVC_DECODER] = &codec_hevc_ops,
@@ -570,9 +569,6 @@ static void meson_vdec_adapter_unprepare(struct meson_codec_job *job) {
 	kfree(adapter);
 }
 
-static const struct v4l2_ctrl_config mpeg12_decoder_ctrls[] = {
-};
-
 static const struct v4l2_ctrl_config vp9_decoder_ctrls[] = {
 };
 
@@ -587,22 +583,6 @@ const struct meson_codec_ops codec_ops_vdec_adapter = {
 	.abort = &meson_vdec_adapter_abort,
 	.stop = &meson_vdec_adapter_stop,
 	.unprepare = &meson_vdec_adapter_unprepare,
-};
-
-const struct meson_codec_spec mpeg1_decoder = {
-	.type = MPEG1_DECODER,
-	.name = "mpeg1_decoder",
-	.ops = &codec_ops_vdec_adapter,
-	.ctrls = mpeg12_decoder_ctrls,
-	.num_ctrls = ARRAY_SIZE(mpeg12_decoder_ctrls),
-};
-
-const struct meson_codec_spec mpeg2_decoder = {
-	.type = MPEG2_DECODER,
-	.name = "mpeg2_decoder",
-	.ops = &codec_ops_vdec_adapter,
-	.ctrls = mpeg12_decoder_ctrls,
-	.num_ctrls = ARRAY_SIZE(mpeg12_decoder_ctrls),
 };
 
 const struct meson_codec_spec vp9_decoder = {

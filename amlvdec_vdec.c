@@ -154,7 +154,7 @@ void amlvdec_vdec_configure_input(dma_addr_t buf_paddr, u32 buf_size, u32 data_l
 	WRITE_VREG(VLD_MEM_VIFIFO_BUF_CNTL, 3);
 	WRITE_VREG(VLD_MEM_VIFIFO_BUF_CNTL, 2);
 
-
+#if 0
 #define MEM_VFIFO_BUF_400        BIT(23)
 #define MEM_VFIFO_BUF_200        BIT(22)
 #define MEM_VFIFO_BUF_100        BIT(21)
@@ -174,5 +174,14 @@ void amlvdec_vdec_configure_input(dma_addr_t buf_paddr, u32 buf_size, u32 data_l
 			MEM_VFIFO_BUF_200 | MEM_VFIFO_16DW |
 			MEM_VFIFO_USE_LEVEL |
 			MEM_VFIFO_NO_PARSER);
+#else
+	WRITE_VREG(VLD_MEM_VIFIFO_CONTROL,
+			(0x11 << 16) | (1<<10) | (7<<3));
+#endif
 /* end vdec_prepare_input */
+}
+
+void amlvdec_vdec_enable_input(void) {
+	/* vdec_enable_input */
+	SET_VREG_MASK(VLD_MEM_VIFIFO_CONTROL, (1<<2) | (1<<1));
 }

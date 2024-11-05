@@ -42,8 +42,8 @@ const struct meson_format mpeg1 = {
 	.flags = V4L2_FMT_FLAG_COMPRESSED,
 	.bits_per_px = 16,
 	.num_planes = 1,
-	.align_width = 32,
-	.align_height = 16,
+	.align_width = 64,
+	.align_height = 32,
 };
 
 const struct meson_format mpeg2 = {
@@ -52,8 +52,8 @@ const struct meson_format mpeg2 = {
 	.flags = V4L2_FMT_FLAG_COMPRESSED,
 	.bits_per_px = 8,
 	.num_planes = 1,
-	.align_width = 32,
-	.align_height = 16,
+	.align_width = 64,
+	.align_height = 32,
 };
 
 const struct meson_format h264 = {
