@@ -211,6 +211,7 @@ static inline void dump_registers(struct decoder_mpeg_ctx *ctx, const char *pref
 			"VFIFO lvl=0x%x cur=0x%x rp=0x%x wp=0x%x, "
 			"BCNT 0x%x, "
 			"MPEG1_2_REG 0x%x, "
+			"PIC_HEAD_INFO 0x%x, "
 			"MREG_FRAME_OFFSET 0x%x, "
 			"MREG_SEQ_INFO 0x%x (dur=%d), "
 			"MREG_PIC_INFO 0x%x (type=%d, error=%d, prog=%d, frame=%d, top=%d, rpt=%d), "
@@ -231,6 +232,7 @@ static inline void dump_registers(struct decoder_mpeg_ctx *ctx, const char *pref
 			READ_VREG(VLD_MEM_VIFIFO_WP),
 			READ_VREG(VIFF_BIT_CNT) >> 3,
 			READ_VREG(MPEG1_2_REG),
+			READ_VREG(PIC_HEAD_INFO),
 			READ_VREG(MREG_FRAME_OFFSET),
 			READ_VREG(MREG_SEQ_INFO),
 			frame_rate_tab[(READ_VREG(MREG_SEQ_INFO) >> 4) & 0xf],
@@ -248,6 +250,16 @@ static inline void dump_registers(struct decoder_mpeg_ctx *ctx, const char *pref
 			READ_VREG(AV_SCRATCH_J),
 			READ_VREG(AV_SCRATCH_L));
 
+#if 0
+		int size = ctx->buffers[BUF_WORKSPACE].size;
+		char *buf = ctx->buffers[BUF_WORKSPACE].vaddr;
+		for (int i = size - 1; i>= 0; i--) {
+			if (buf[i] != 0) {
+				job_trace(ctx->job, "last non-zero offset: 0x%x", i);
+				break;
+			}
+		}
+#endif
 }
 
 static int config_decode_canvas(struct decoder_mpeg_ctx *ctx, enum decoder_mpeg_canvas index, void *buffer)
@@ -257,7 +269,8 @@ static int config_decode_canvas(struct decoder_mpeg_ctx *ctx, enum decoder_mpeg_
 	struct vb2_v4l2_buffer *dst_buf = buffer;
 
 	if (buffer == NULL) {
-		return 0;
+		job_err(ctx->job, "Failed to configure: no buffer specified");
+		return -ENOENT;
 	}
 
 	job_trace(ctx->job, "canvas=%d, vb2=%d", index, dst_buf->vb2_buf.index);
@@ -335,14 +348,25 @@ static int amlvdec_mpeg_init(struct decoder_mpeg_ctx *ctx) {
 	WRITE_VREG(AV_SCRATCH_H, hw->reg_signal_type);
 
 	WRITE_VREG(AV_SCRATCH_J, hw->userdata_wp_ctx);
-#else
-	if (!ctx->init_flag) {
-		/* set to mpeg1 default */
-		WRITE_VREG(MPEG1_2_REG, 0);
-		/* for Mpeg1 default value */
-		WRITE_VREG(PIC_HEAD_INFO, 0x380);
-		WRITE_VREG(MREG_CMD, 0);
-	}
+#endif
+#if 0
+	/* set to mpeg1 default */
+	WRITE_VREG(MPEG1_2_REG, 0);
+	/* for Mpeg1 default value */
+	WRITE_VREG(PIC_HEAD_INFO, 0x380);
+	/* set reference width and height */
+	WRITE_VREG(MREG_CMD, 0);
+
+	WRITE_VREG(MREG_PIC_WIDTH, 0);
+	WRITE_VREG(MREG_PIC_HEIGHT, 0);
+	WRITE_VREG(MREG_SEQ_INFO, 0);
+	WRITE_VREG(F_CODE_REG, 0);
+	WRITE_VREG(SLICE_VER_POS_PIC_TYPE, 0);
+	WRITE_VREG(MB_INFO, 0);
+	WRITE_VREG(VCOP_CTRL_REG, 0);
+	WRITE_VREG(AV_SCRATCH_H, 0);
+
+	WRITE_VREG(AV_SCRATCH_J, 0);
 #endif
 	/* end vmpeg12_hw_ctx_restore */
 
@@ -356,7 +380,7 @@ static int amlvdec_mpeg_configure_input(struct decoder_mpeg_ctx *ctx) {
 	u32 buf_size = vb2_plane_size(vb2, 0);
 	u32 data_len = vb2_get_plane_payload(vb2, 0);
 
-#if 1
+#if 0
 	WRITE_VREG(MREG_CMD,
 			(ctx->pic_width << 16) | ctx->pic_height);
 	WRITE_VREG(MREG_PIC_WIDTH, ctx->pic_width);
@@ -418,21 +442,24 @@ static int amlvdec_mpeg_configure_output(struct decoder_mpeg_ctx *ctx) {
 	int backward_canvas = 0;
 
 	current_canvas = config_decode_canvas(ctx, CANVAS_CURRENT_FRAME, t->dst_buf);
-	if (current_canvas <= 0 ||
-		forward_canvas < 0 ||
-		backward_canvas < 0) {
-		return -EINVAL;
+	if (current_canvas < 0)
+		return current_canvas;
+
+	if (ctx->dpb.forward_ref) {
+		forward_canvas = config_decode_canvas(ctx, CANVAS_FORWARD_REF, ctx->dpb.forward_ref->buffer);
+		if (forward_canvas < 0)
+			return forward_canvas;
+	} else {
+		forward_canvas = 0xffffffff;
 	}
 
-	if (ctx->dpb.forward_ref)
-		forward_canvas = config_decode_canvas(ctx, CANVAS_FORWARD_REF, ctx->dpb.forward_ref->buffer);
-	if (forward_canvas == 0)
-		forward_canvas = 0xffffffff;
-
-	if (ctx->dpb.backward_ref)
+	if (ctx->dpb.backward_ref) {
 		backward_canvas = config_decode_canvas(ctx, CANVAS_BACKWARD_REF, ctx->dpb.backward_ref->buffer);
-	if (backward_canvas == 0)
+		if (backward_canvas < 0)
+			return backward_canvas;
+	} else {
 		backward_canvas = 0xffffffff;
+	}
 
 	/* prepare REF0 & REF1
 	   points to the past two IP buffers
