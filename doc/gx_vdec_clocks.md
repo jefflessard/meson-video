@@ -30,6 +30,8 @@
 
 ## cts_vdec2_clk Configuration
 
+Only available on MESON_CPU_MAJOR_ID_M8B and MESON_CPU_MAJOR_ID_TL1
+
 | Register         | Field         | Bit Range   | Values/Description                                                                          |
 |------------------|--------------|-------------|---------------------------------------------------------------------------------------------|
 | HHI_VDEC2_CLK_CNTL (0x79) | CLK_SEL       | 11–9        | 0: fclk_div4<br>1: fclk_div3<br>2: fclk_div5<br>3: fclk_div7<br>4: mp1<br>5: mp2<br>6: gp0<br>7: xtal   |
