@@ -527,7 +527,7 @@ static int vdec_mpeg_picture_done(struct decoder_mpeg_ctx *ctx) {
 		return -ENOSPC;
 	}
 
-	t->dpb_pic->data = val;
+	t->dpb_pic->data = (void *)val;
 	t->dst_buf = NULL;
 
 	amlvdec_mpeg_dpb_pic_done(&ctx->dpb, t->dpb_pic);

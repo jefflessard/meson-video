@@ -1,3 +1,6 @@
+#include <linux/iopoll.h>
+#include <linux/delay.h>
+
 #include "decoder_common.h"
 #include "register.h"
 

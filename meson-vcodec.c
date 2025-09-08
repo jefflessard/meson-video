@@ -55,7 +55,6 @@
 static const char* reg_names[MAX_BUS] = {
 	[BUS_DOS] = "dos",
 	[BUS_PARSER] = "esparser",
-	[BUS_WAVE420L] = "wave420l",
 };
 
 static const char* regmap_names[MAX_BUS] = {
@@ -70,7 +69,6 @@ static const char* clk_names[MAX_CLKS] = {
 	[CLK_HEVC] = "vdec_hevc",
 	[CLK_HEVCF] = "vdec_hevcf",
 	[CLK_HCODEC] = "vdec_hcodec",
-	[CLK_WAVE420L] = "wave420l",
 };
 
 static const char* reset_names[MAX_RESETS] = {
@@ -83,7 +81,6 @@ static const char* irq_names[MAX_IRQS] = {
 	[IRQ_MBOX0]    = "mbox0",
 	[IRQ_MBOX1]    = "mbox1",
 	[IRQ_MBOX2]    = "mbox2",
-	[IRQ_WAVE420L] = "wave420l",
 };
 
 const struct meson_codec_spec *codec_specs[MAX_CODECS] = {
@@ -93,8 +90,12 @@ const struct meson_codec_spec *codec_specs[MAX_CODECS] = {
 	[VP9_DECODER]   = &vp9_decoder,
 	[HEVC_DECODER]  = &hevc_decoder,
 	[H264_ENCODER]  = &h264_encoder,
-	[HEVC_ENCODER]  = &hevc_encoder,
+//	[HEVC_ENCODER]  = &hevc_encoder,
 };
+
+// TODO
+const struct meson_codec_spec vp9_decoder;
+const struct meson_codec_spec hevc_decoder;
 
 
 /* helper functions */
@@ -623,7 +624,7 @@ static int meson_vcodec_m2m_queue_init(void *priv, struct vb2_queue *src_vq, str
 	src_vq->mem_ops = &vb2_dma_contig_memops;
 	src_vq->drv_priv = session;
 	src_vq->buf_struct_size = sizeof(struct v4l2_m2m_buffer);
-	src_vq->min_buffers_needed = 1;
+	src_vq->min_queued_buffers = 1;
 	src_vq->dev = session->core->dev;
 	src_vq->lock = &session->lock;
 
@@ -634,7 +635,7 @@ static int meson_vcodec_m2m_queue_init(void *priv, struct vb2_queue *src_vq, str
 	dst_vq->mem_ops = &vb2_dma_contig_memops;
 	dst_vq->drv_priv = session;
 	dst_vq->buf_struct_size = sizeof(struct v4l2_m2m_buffer);
-	dst_vq->min_buffers_needed = 1;
+	dst_vq->min_queued_buffers = 1;
 	dst_vq->dev = session->core->dev;
 	dst_vq->lock = &session->lock;
 
@@ -1400,23 +1401,11 @@ static int meson_vcodec_probe(struct platform_device *pdev)
 		}
 	}
 
-	ret = meson_platform_register_clks(core);
-	if (ret) {
-		dev_err(&pdev->dev, "Failed to registers platform clocks\n");
-		return ret;
-	}
-
 	for (i = 0; i < MAX_CLKS; i++) {
 		if (i == CLK_HEVCF && platform_specs->platform_id < AM_MESON_CPU_MAJOR_ID_G12A)
 			continue;
 
-		// prefer platform defined clocks when defined
-		if (platform_specs->hwclks[i]) {
-			dev_dbg(&pdev->dev, "Using driver defined %s clock\n", clk_names[i]);
-			core->clks[i] = platform_specs->hwclks[i]->clk;
-		} else {
-			core->clks[i] = devm_clk_get(&pdev->dev, clk_names[i]);
-		}
+		core->clks[i] = devm_clk_get(&pdev->dev, clk_names[i]);
 
 		if (IS_ERR(core->clks[i])) {
 			dev_err(&pdev->dev, "Failed to get %s clock\n", clk_names[i]);
@@ -1497,7 +1486,7 @@ err_v4l2_unregister:
 	return ret;
 }
 
-static int meson_vcodec_remove(struct platform_device *pdev)
+static void meson_vcodec_remove(struct platform_device *pdev)
 {
 	struct meson_vcodec_core *core = platform_get_drvdata(pdev);
 
@@ -1506,8 +1495,6 @@ static int meson_vcodec_remove(struct platform_device *pdev)
 	v4l2_m2m_release(core->m2m_dev);
 	v4l2_device_unregister(&core->v4l2_dev);
 	mutex_destroy(&core->lock);
-
-	return 0;
 }
 
 static const struct of_device_id meson_vcodec_match[] = {

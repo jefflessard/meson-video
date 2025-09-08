@@ -3,14 +3,6 @@ obj-m += meson_vcodec.o
 meson_vcodec-objs += \
 	meson-formats.o \
 	meson-codecs.o \
-	meson-vdec-adapter.o \
-	vdec/codec_hevc_common.o \
-	vdec/codec_vp9.o \
-	vdec/codec_hevc.o \
-	vdec/esparser.o \
-	vdec/vdec_helpers.o \
-	vdec/vdec_1.o \
-	vdec/vdec_hevc.o \
 	amlogic.o \
 	amlvdec_vdec.o \
 	decoder_common.o \
@@ -22,7 +14,6 @@ meson_vcodec-objs += \
 	amlvenc_h264.o \
 	amlvenc_h264_cbr.o \
 	encoder_h264.o \
-	encoder_hevc.o \
 	meson-platforms.o \
 	meson-vcodec.o
 

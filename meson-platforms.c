@@ -1,4 +1,5 @@
 #include <linux/clk.h>
+#include <linux/regmap.h>
 #include <linux/reset.h>
 #include <linux/types.h>
 
@@ -11,212 +12,120 @@
 #include "regs/ao_regs.h"
 #include "regs/dos_regs.h"
 
-// AO_RTI_GEN_PWR_SLEEP0
-	#define DOS_WAVE420L_D1_PWR_OFF	BIT(25)
-	#define DOS_WAVE420L_PWR_OFF	BIT(24)
-	#define DOS_WAVE420L_PWR		(DOS_WAVE420L_D1_PWR_OFF | DOS_WAVE420L_PWR_OFF)
-	#define DOS_HEVC_D1_PWR_OFF		BIT(7)
-	#define DOS_HEVC_PWR_OFF		BIT(6)
-	#define DOS_HEVC_PWR			(DOS_HEVC_D1_PWR_OFF | DOS_HEVC_PWR_OFF)
-	#define DOS_VDEC2_D1_PWR_OFF	BIT(5)
-	#define DOS_VDEC2_PWR_OFF		BIT(4)
-	#define DOS_VDEC2_PWR			(DOS_VDEC2_D1_PWR_OFF | DOS_VDEC2_PWR_OFF)
-	#define DOS_VDEC1_D1_PWR_OFF	BIT(3)
-	#define DOS_VDEC1_PWR_OFF		BIT(2)
-	#define DOS_VDEC1_PWR			(DOS_VDEC1_D1_PWR_OFF | DOS_VDEC1_PWR_OFF)
-	#define DOS_HCODEC_D1_PWR_OFF	BIT(1)
-	#define DOS_HCODEC_PWR_OFF		BIT(0)
-	#define DOS_HCODEC_PWR			(DOS_HCODEC_D1_PWR_OFF | DOS_HCODEC_PWR_OFF)
+/* AO_RTI_GEN_PWR_SLEEP0 */
+#define DOS_WAVE420L_D1_PWR_OFF		BIT(25)
+#define DOS_WAVE420L_PWR_OFF		BIT(24)
+#define DOS_WAVE420L_PWR		(DOS_WAVE420L_D1_PWR_OFF | DOS_WAVE420L_PWR_OFF)
+#define DOS_HEVC_D1_PWR_OFF		BIT(7)
+#define DOS_HEVC_PWR_OFF		BIT(6)
+#define DOS_HEVC_PWR			(DOS_HEVC_D1_PWR_OFF | DOS_HEVC_PWR_OFF)
+#define DOS_VDEC2_D1_PWR_OFF		BIT(5)
+#define DOS_VDEC2_PWR_OFF		BIT(4)
+#define DOS_VDEC2_PWR			(DOS_VDEC2_D1_PWR_OFF | DOS_VDEC2_PWR_OFF)
+#define DOS_VDEC1_D1_PWR_OFF		BIT(3)
+#define DOS_VDEC1_PWR_OFF		BIT(2)
+#define DOS_VDEC1_PWR			(DOS_VDEC1_D1_PWR_OFF | DOS_VDEC1_PWR_OFF)
+#define DOS_HCODEC_D1_PWR_OFF		BIT(1)
+#define DOS_HCODEC_PWR_OFF		BIT(0)
+#define DOS_HCODEC_PWR			(DOS_HCODEC_D1_PWR_OFF | DOS_HCODEC_PWR_OFF)
 
-// AO_RTI_GEN_PWR_ISO0
-	#define DOS_WAVE420L_ISO_OUT_EN	BIT(13)
-	#define DOS_WAVE420L_ISO_IN_EN	BIT(12)
-	#define DOS_WAVE420L_ISO		(DOS_WAVE420L_ISO_OUT_EN | DOS_WAVE420L_ISO_IN_EN)
-	#define DOS_HEVC_ISO_OUT_EN		BIT(11)
-	#define DOS_HEVC_ISO_IN_EN		BIT(10)
-	#define DOS_HEVC_ISO		    (DOS_HEVC_ISO_OUT_EN | DOS_HEVC_ISO_IN_EN)
-	#define DOS_VDEC2_ISO_OUT_EN	BIT( 9)	
-	#define DOS_VDEC2_ISO_IN_EN		BIT( 8)	
-	#define DOS_VDEC2_ISO		    (DOS_VDEC2_ISO_OUT_EN | DOS_VDEC2_ISO_IN_EN)
-	#define DOS_VDEC1_ISO_OUT_EN	BIT( 7)	
-	#define DOS_VDEC1_ISO_IN_EN		BIT( 6)	
-	#define DOS_VDEC1_ISO		    (DOS_VDEC1_ISO_OUT_EN | DOS_VDEC1_ISO_IN_EN)
-	#define DOS_HCODEC_ISO_OUT_EN	BIT( 5)
-	#define DOS_HCODEC_ISO_IN_EN	BIT( 4)	
-	#define DOS_HCODEC_ISO		    (DOS_HCODEC_ISO_OUT_EN | DOS_HCODEC_ISO_IN_EN)
-	#define GPU_ISO_OUT_EN			BIT( 3)
-	#define GPU_ISO_IN_EN			BIT( 2)
-	#define GPU_ISO				    (GPU_ISO_OUT_EN | GPU_ISO_IN_EN)
+/* AO_RTI_GEN_PWR_ISO0 */
+#define DOS_WAVE420L_ISO_OUT_EN		BIT(13)
+#define DOS_WAVE420L_ISO_IN_EN		BIT(12)
+#define DOS_WAVE420L_ISO		(DOS_WAVE420L_ISO_OUT_EN | DOS_WAVE420L_ISO_IN_EN)
+#define DOS_HEVC_ISO_OUT_EN		BIT(11)
+#define DOS_HEVC_ISO_IN_EN		BIT(10)
+#define DOS_HEVC_ISO			(DOS_HEVC_ISO_OUT_EN | DOS_HEVC_ISO_IN_EN)
+#define DOS_VDEC2_ISO_OUT_EN		BIT( 9)	
+#define DOS_VDEC2_ISO_IN_EN		BIT( 8)	
+#define DOS_VDEC2_ISO			(DOS_VDEC2_ISO_OUT_EN | DOS_VDEC2_ISO_IN_EN)
+#define DOS_VDEC1_ISO_OUT_EN		BIT( 7)	
+#define DOS_VDEC1_ISO_IN_EN		BIT( 6)	
+#define DOS_VDEC1_ISO			(DOS_VDEC1_ISO_OUT_EN | DOS_VDEC1_ISO_IN_EN)
+#define DOS_HCODEC_ISO_OUT_EN		BIT( 5)
+#define DOS_HCODEC_ISO_IN_EN		BIT( 4)	
+#define DOS_HCODEC_ISO			(DOS_HCODEC_ISO_OUT_EN | DOS_HCODEC_ISO_IN_EN)
+#define GPU_ISO_OUT_EN			BIT( 3)
+#define GPU_ISO_IN_EN			BIT( 2)
+#define GPU_ISO				(GPU_ISO_OUT_EN | GPU_ISO_IN_EN)
 
-// DOS_MEM_PD_VDEC
-	#define DOS_MEM_PD_VDEC_PRE_ARB GENMASK(17,16)
-	#define DOS_MEM_PD_VDEC_PIC_DC  GENMASK(15,14)
-	#define DOS_MEM_PD_VDEC_PSCALE  GENMASK(13,12)
-	#define DOS_MEM_PD_VDEC_MCRCC   GENMASK(11,10)
-	#define DOS_MEM_PD_VDEC_DBLK    GENMASK( 9, 8)
-	#define DOS_MEM_PD_VDEC_MC      GENMASK( 7, 6)
-	#define DOS_MEM_PD_VDEC_IQIDCT  GENMASK( 5, 4)
-	#define DOS_MEM_PD_VDEC_VLD     GENMASK( 3, 2)
-	#define DOS_MEM_PD_VDEC_VCPU    GENMASK( 1, 0)
-	#define DOS_MEM_PD_VDEC_ALL     GENMASK(31, 0)
+/* DOS_MEM_PD_VDEC */
+#define DOS_MEM_PD_VDEC_PRE_ARB		GENMASK(17,16)
+#define DOS_MEM_PD_VDEC_PIC_DC		GENMASK(15,14)
+#define DOS_MEM_PD_VDEC_PSCALE		GENMASK(13,12)
+#define DOS_MEM_PD_VDEC_MCRCC		GENMASK(11,10)
+#define DOS_MEM_PD_VDEC_DBLK		GENMASK( 9, 8)
+#define DOS_MEM_PD_VDEC_MC		GENMASK( 7, 6)
+#define DOS_MEM_PD_VDEC_IQIDCT		GENMASK( 5, 4)
+#define DOS_MEM_PD_VDEC_VLD		GENMASK( 3, 2)
+#define DOS_MEM_PD_VDEC_VCPU		GENMASK( 1, 0)
+#define DOS_MEM_PD_VDEC_ALL		GENMASK(31, 0)
 
-// DOS_MEM_PD_HCODEC
-	#define DOS_MEM_PD_HCODEC_PRE_ARB GENMASK(17,16)
-	#define DOS_MEM_PD_HCODEC_PIC_DC  GENMASK(15,14)
-	#define DOS_MEM_PD_HCODEC_MFDIN   GENMASK(13,12)
-	#define DOS_MEM_PD_HCODEC_MCRCC   GENMASK(11,10)
-	#define DOS_MEM_PD_HCODEC_DBLK    GENMASK( 9, 8)
-	#define DOS_MEM_PD_HCODEC_MC      GENMASK( 7, 6)
-	#define DOS_MEM_PD_HCODEC_QDCT    GENMASK( 5, 4)
-	#define DOS_MEM_PD_HCODEC_VLC     GENMASK( 3, 2)
-	#define DOS_MEM_PD_HCODEC_VCPU    GENMASK( 1, 0)
-	#define DOS_MEM_PD_HCODEC_ALL     GENMASK(31, 0)
+/* DOS_MEM_PD_HCODEC */
+#define DOS_MEM_PD_HCODEC_PRE_ARB	GENMASK(17,16)
+#define DOS_MEM_PD_HCODEC_PIC_DC	GENMASK(15,14)
+#define DOS_MEM_PD_HCODEC_MFDIN		GENMASK(13,12)
+#define DOS_MEM_PD_HCODEC_MCRCC		GENMASK(11,10)
+#define DOS_MEM_PD_HCODEC_DBLK		GENMASK( 9, 8)
+#define DOS_MEM_PD_HCODEC_MC		GENMASK( 7, 6)
+#define DOS_MEM_PD_HCODEC_QDCT		GENMASK( 5, 4)
+#define DOS_MEM_PD_HCODEC_VLC		GENMASK( 3, 2)
+#define DOS_MEM_PD_HCODEC_VCPU		GENMASK( 1, 0)
+#define DOS_MEM_PD_HCODEC_ALL		GENMASK(31, 0)
 
-// DOS_MEM_PD_HEVC
-	#define DOS_MEM_PD_HEVC_DDR     GENMASK(15,14)
-	#define DOS_MEM_PD_HEVC_SAO     GENMASK(13,12)
-	#define DOS_MEM_PD_HEVC_DBLK    GENMASK(11,10)
-	#define DOS_MEM_PD_HEVC_IPP     GENMASK( 9, 8)
-	#define DOS_MEM_PD_HEVC_MPRED   GENMASK( 7, 6)
-	#define DOS_MEM_PD_HEVC_IQIT    GENMASK( 5, 4)
-	#define DOS_MEM_PD_HEVC_PARSER  GENMASK( 3, 2)
-	#define DOS_MEM_PD_HEVC_VCPU    GENMASK( 1, 0)
-	#define DOS_MEM_PD_HEVC_ALL     GENMASK(31, 0)
+/* DOS_MEM_PD_HEVC */
+#define DOS_MEM_PD_HEVC_DDR		GENMASK(15,14)
+#define DOS_MEM_PD_HEVC_SAO		GENMASK(13,12)
+#define DOS_MEM_PD_HEVC_DBLK		GENMASK(11,10)
+#define DOS_MEM_PD_HEVC_IPP		GENMASK( 9, 8)
+#define DOS_MEM_PD_HEVC_MPRED		GENMASK( 7, 6)
+#define DOS_MEM_PD_HEVC_IQIT		GENMASK( 5, 4)
+#define DOS_MEM_PD_HEVC_PARSER		GENMASK( 3, 2)
+#define DOS_MEM_PD_HEVC_VCPU		GENMASK( 1, 0)
+#define DOS_MEM_PD_HEVC_ALL		GENMASK(31, 0)
 
-// DOS_MEM_PD_WAVE420L
-	#define DOS_MEM_PD_WAVE420L_VCORE   GENMASK(31, 2)
-	#define DOS_MEM_PD_WAVE420L_VCPU    GENMASK( 1, 0)
-	#define DOS_MEM_PD_WAVE420L_ALL     GENMASK(31, 0)
+/* DOS_MEM_PD_WAVE420L */
+#define DOS_MEM_PD_WAVE420L_VCORE	GENMASK(31, 2)
+#define DOS_MEM_PD_WAVE420L_VCPU	GENMASK( 1, 0)
+#define DOS_MEM_PD_WAVE420L_ALL		GENMASK(31, 0)
 
-// DOS_GCLK_EN0
-	#define DOS_GCLK_EN0_VDEC1      GENMASK( 9, 0)
-	#define DOS_GCLK_EN0_HCODEC     GENMASK(26,12)
+/* DOS_GCLK_EN0 */
+#define DOS_GCLK_EN0_VDEC1		GENMASK( 9, 0)
+#define DOS_GCLK_EN0_HCODEC		GENMASK(26,12)
 
-// DOS_GCLK_EN1
-	#define DOS_GCLK_EN1_VDEC2      GENMASK( 9, 0)
+/* DOS_GCLK_EN1 */
+#define DOS_GCLK_EN1_VDEC2		GENMASK( 9, 0)
 
-// DOS_GCLK_EN3
-	#define DOS_GCLK_EN3_HEVC       GENMASK(31, 0)
+/* DOS_GCLK_EN3 */
+#define DOS_GCLK_EN3_HEVC		GENMASK(31, 0)
 
-/* DOS clock gating */
-
-struct clk_regmap_dos_gate {
-	u32  offset;
-	u32  mask;
-	u8   flags;
-};
-
-static inline struct clk_regmap_dos_gate* clk_get_regmap_dos_gate(struct clk_regmap *clk)
-{
-	return (struct clk_regmap_dos_gate*)clk->data;
-}
-
-static int clk_regmap_dos_gate_endisable(struct clk_hw *hw, bool enable)
-{
-	struct clk_regmap *clk = to_clk_regmap(hw);
-	struct clk_regmap_dos_gate *gate = clk_get_regmap_dos_gate(clk);
-	int set = gate->flags & CLK_GATE_SET_TO_DISABLE ? 1 : 0;
-
-	set ^= enable;
-
-	return regmap_update_bits(
-			clk->map,
-			gate->offset,
-			gate->mask,
-			set ? gate->mask : 0);
-}
-
-static int clk_regmap_dos_gate_enable(struct clk_hw *hw)
-{
-	return clk_regmap_dos_gate_endisable(hw, true);
-}
-
-static void clk_regmap_dos_gate_disable(struct clk_hw *hw)
-{
-	clk_regmap_dos_gate_endisable(hw, false);
-}
-
-static int clk_regmap_dos_gate_is_enabled(struct clk_hw *hw)
-{
-	struct clk_regmap *clk = to_clk_regmap(hw);
-	struct clk_regmap_dos_gate *gate = clk_get_regmap_dos_gate(clk);
-	unsigned int val;
-
-	regmap_read(
-			clk->map,
-			gate->offset,
-			&val);
-	if (gate->flags & CLK_GATE_SET_TO_DISABLE)
-		val ^= gate->mask;
-
-	val &= gate->mask;
-
-	return val ? 1 : 0;
-}
-
-const struct clk_ops clk_regmap_dos_gate_ops = {
-	.enable = clk_regmap_dos_gate_enable,
-	.disable = clk_regmap_dos_gate_disable,
-	.is_enabled = clk_regmap_dos_gate_is_enabled,
-};
-EXPORT_SYMBOL_NS_GPL(clk_regmap_dos_gate_ops, CLK_MESON);
-
-const struct clk_ops clk_regmap_dos_gate_ro_ops = {
-	.is_enabled = clk_regmap_dos_gate_is_enabled,
-};
-EXPORT_SYMBOL_NS_GPL(clk_regmap_dos_gate_ro_ops, CLK_MESON);
-
-
-/* BEGIN taken from meson-ee-pwrc.c */
-
-struct meson_ee_pwrc_mem_domain {
-	unsigned int reg;
-	unsigned int mask;
-};
-
-struct meson_ee_pwrc_top_domain {
+struct meson_dos_pwrc_domain {
+	char *name;
 	unsigned int sleep_reg;
 	unsigned int sleep_mask;
 	unsigned int iso_reg;
 	unsigned int iso_mask;
+	unsigned int gate_reg;
+	unsigned int gate_mask;
+	unsigned int mem_reg;
+	unsigned int mem_mask;
 };
 
-struct meson_ee_pwrc_domain_desc {
-	char *name;
-	struct meson_ee_pwrc_top_domain *top_pd;
-	unsigned int mem_pd_count;
-	struct meson_ee_pwrc_mem_domain *mem_pd;
-};
-
-#define SM1_EE_PD(__bit) \
+#define DOS_PDG(__name, __sleep_mask, __iso_mask, __mem_reg, __mem_mask, __gate_reg, __gate_mask) \
 { \
-	.sleep_reg = AO_RTI_GEN_PWR_SLEEP0, \
-	.sleep_mask = BIT(__bit), \
-	.iso_reg = AO_RTI_GEN_PWR_ISO0, \
-	.iso_mask = BIT(__bit), \
-}
-
-/* END taken from meson-ee-pwrc.c */
-
-#define GX_EE_PD(__sleep_mask, __iso_mask) \
-{ \
+	.name = __name, \
 	.sleep_reg = AO_RTI_GEN_PWR_SLEEP0, \
 	.sleep_mask = __sleep_mask, \
 	.iso_reg = AO_RTI_GEN_PWR_ISO0, \
 	.iso_mask = __iso_mask, \
+	.gate_reg = __gate_reg, \
+	.gate_mask = __gate_mask, \
+	.mem_reg = __mem_reg, \
+	.mem_mask = __mem_mask, \
 }
 
-#define DOS_PD(__name, __top_pd, __mem_reg, __mem_mask) \
-{ \
-	.name = __name, \
-	.top_pd = &(struct meson_ee_pwrc_top_domain) __top_pd, \
-	.mem_pd_count = 1, \
-	.mem_pd = \
-		&(struct meson_ee_pwrc_mem_domain) { \
-			.reg = __mem_reg, \
-			.mask = __mem_mask, \
-		}, \
-}
+#define DOS_PD(__name, __sleep_mask, __iso_mask, __mem_reg, __mem_mask) \
+	DOS_PDG(__name, __sleep_mask, __iso_mask, __mem_reg, __mem_mask, 0, 0)
 
 /* Helper macros for iteration */
 
@@ -319,31 +228,43 @@ int meson_vcodec_clk_prepare(struct meson_vcodec_core *core, enum meson_vcodec_c
 }
 
 int meson_vcodec_pwrc_on(struct meson_vcodec_core *core, enum meson_vcodec_pwrc index) {
-	const struct meson_ee_pwrc_domain_desc *pd;
-	int ret, i;
+	const struct meson_dos_pwrc_domain *pd;
+	int ret;
 
 	pd = &core->platform_specs->pwrc[index];
 
-	if (pd->top_pd) {
+	/* Clear sleep state */
+	if (pd->sleep_reg) {
 		ret = regmap_clear_bits(core->regmaps[BUS_AO],
-				AO_REMAP(pd->top_pd->sleep_reg),
-				pd->top_pd->sleep_mask);
+					AO_REMAP(pd->sleep_reg),
+					pd->sleep_mask);
 		if (ret < 0)
 			return ret;
 	}
 
-	for (i = 0 ; i < pd->mem_pd_count ; ++i) {
+	/* Enable DOS gates */
+	if (pd->gate_reg) {
+		ret = regmap_set_bits(core->regmaps[BUS_DOS],
+				      VREG_REMAP(pd->gate_reg),
+				      pd->gate_mask);
+		if (ret < 0)
+			return ret;
+	}
+
+	/* Power up memories */
+	if (pd->mem_reg) {
 		ret = regmap_clear_bits(core->regmaps[BUS_DOS],
-				   VREG_REMAP(pd->mem_pd[i].reg),
-				   pd->mem_pd[i].mask);
+					VREG_REMAP(pd->mem_reg),
+					pd->mem_mask);
 		if (ret < 0)
 			return ret;
 	}
 
-	if (pd->top_pd) {
+	/* Remove isolation */
+	if (pd->iso_reg) {
 		ret = regmap_clear_bits(core->regmaps[BUS_AO],
-				AO_REMAP(pd->top_pd->iso_reg),
-				pd->top_pd->iso_mask);
+					AO_REMAP(pd->iso_reg),
+					pd->iso_mask);
 		if (ret < 0)
 			return ret;
 	}
@@ -352,379 +273,102 @@ int meson_vcodec_pwrc_on(struct meson_vcodec_core *core, enum meson_vcodec_pwrc 
 }
 
 int meson_vcodec_pwrc_off(struct meson_vcodec_core *core, enum meson_vcodec_pwrc index) {
-	const struct meson_ee_pwrc_domain_desc *pd;
-	int ret, i;
+	const struct meson_dos_pwrc_domain *pd;
+	int ret;
 
 	pd = &core->platform_specs->pwrc[index];
 
-	if (pd->top_pd) {
+	/* Enable isolation */
+	if (pd->iso_reg) {
 		ret = regmap_set_bits(core->regmaps[BUS_AO],
-				AO_REMAP(pd->top_pd->sleep_reg),
-				pd->top_pd->sleep_mask);
+				      AO_REMAP(pd->iso_reg),
+				      pd->iso_mask);
 		if (ret < 0)
 			return ret;
 	}
 
-	for (i = 0 ; i < pd->mem_pd_count ; ++i) {
+	/* Power down memories */
+	if (pd->mem_reg) {
 		ret = regmap_set_bits(core->regmaps[BUS_DOS],
-				   VREG_REMAP(pd->mem_pd[i].reg),
-				   pd->mem_pd[i].mask);
+				      VREG_REMAP(pd->mem_reg),
+				      pd->mem_mask);
 		if (ret < 0)
 			return ret;
 	}
 
-	if (pd->top_pd) {
+	/* Disable DOS gates */
+	if (pd->gate_reg) {
+		ret = regmap_clear_bits(core->regmaps[BUS_DOS],
+					VREG_REMAP(pd->gate_reg),
+					pd->gate_mask);
+		if (ret < 0)
+			return ret;
+	}
+
+	/* Set sleep state */
+	if (pd->sleep_reg) {
 		ret = regmap_set_bits(core->regmaps[BUS_AO],
-				AO_REMAP(pd->top_pd->iso_reg),
-				pd->top_pd->iso_mask);
+				      AO_REMAP(pd->sleep_reg),
+				      pd->sleep_mask);
 		if (ret < 0)
 			return ret;
 	}
 
 	return 0;
 }
-
-/* platform functions */
-
-int meson_platform_register_clks(struct meson_vcodec_core *core) {
-	struct device *dev = core->dev;
-	struct regmap *hhi = core->regmaps[BUS_HHI];
-	struct regmap *dos = core->regmaps[BUS_DOS];
-	const struct meson_eeclkc_data *data = core->platform_specs->clks;
-	int ret, i;
-
-	if (!data) {
-		return 0;
-	}
-
-	for (i = 0; i < data->regmap_clk_num; i++) {
-		if (strstr(data->hw_clks.hws[i]->init->name, "dos_gate")) {
-  			data->regmap_clks[i]->map = dos;
-		} else {
-			data->regmap_clks[i]->map = hhi;
-		}
-	}
-
-	for (i = 0; i < data->hw_clks.num; i++) {
-		/* array might be sparse */
-		if (!data->hw_clks.hws[i])
-			continue;
-
-		dev_dbg(dev,"Registering clock %s (%s)\n",  data->hw_clks.hws[i]->init->name, data->regmap_clks[i]->map == dos ? "DOS" : "HHI");
-		ret = devm_clk_hw_register(dev, data->hw_clks.hws[i]);
-		if (ret) {
-			dev_err(dev, "Clock registration failed\n");
-			return ret;
-		}
-	}
-
-	return 0;
-}
-
 
 /* platform specific specs */
 
-static struct clk_regmap gxbb_dos_gate_vdec1 = {
-	.data = &(struct clk_regmap_dos_gate){
-		.offset = VREG_REMAP(DOS_GCLK_EN0),
-		.mask = DOS_GCLK_EN0_VDEC1,
-	},
-	.hw.init = &(struct clk_init_data) {
-		.name = "dos_gate_vdec1",
-		.ops = &clk_regmap_dos_gate_ops,
-		.parent_names = (const char*[]) {
-			"vdec_1",
-		},
-		.num_parents = 1,
-		.flags = CLK_SET_RATE_NO_REPARENT,
-	},
-};
-
-static struct clk_regmap gxbb_dos_gate_hevc = {
-	.data = &(struct clk_regmap_dos_gate){
-		.offset = VREG_REMAP(DOS_GCLK_EN3),
-		.mask = DOS_GCLK_EN3_HEVC,
-	},
-	.hw.init = &(struct clk_init_data) {
-		.name = "dos_gate_hevc",
-		.ops = &clk_regmap_dos_gate_ops,
-		.parent_names = (const char*[]) {
-			"vdec_hevc",
-		},
-		.num_parents = 1,
-		.flags = CLK_SET_RATE_NO_REPARENT,
-	},
-};
-
-static struct clk_regmap gxbb_vdec_hcodec_sel = {
-	.data = &(struct clk_regmap_mux_data){
-		.offset = HHI_REMAP(HHI_VDEC_CLK_CNTL),
-		.mask = 0x3,
-		.shift = 25,
-		.flags = CLK_MUX_ROUND_CLOSEST,
-	},
-	.hw.init = &(struct clk_init_data){
-		.name = "vdec_hcodec_sel",
-		.ops = &clk_regmap_mux_ops,
-		.parent_names = (const char*[]) {
-			"fclk_div4",
-			"fclk_div3",
-			"fclk_div5",
-			"fclk_div7",
-		},
-		.num_parents = 4,
-		.flags = CLK_SET_RATE_PARENT,
-	},
-};
-
-static struct clk_regmap gxbb_vdec_hcodec_div = {
-	.data = &(struct clk_regmap_div_data){
-		.offset = HHI_REMAP(HHI_VDEC_CLK_CNTL),
-		.shift = 16,
-		.width = 7,
-		.flags = CLK_DIVIDER_ROUND_CLOSEST,
-	},
-	.hw.init = &(struct clk_init_data){
-		.name = "vdec_hcodec_div",
-		.ops = &clk_regmap_divider_ops,
-		.parent_hws = (const struct clk_hw *[]) {
-			&gxbb_vdec_hcodec_sel.hw
-		},
-		.num_parents = 1,
-		.flags = CLK_SET_RATE_PARENT,
-	},
-};
-
-static struct clk_regmap gxbb_vdec_hcodec = {
-	.data = &(struct clk_regmap_gate_data){
-		.offset = HHI_REMAP(HHI_VDEC_CLK_CNTL),
-		.bit_idx = 24,
-	},
-	.hw.init = &(struct clk_init_data) {
-		.name = "vdec_hcodec",
-		.ops = &clk_regmap_gate_ops,
-		.parent_hws = (const struct clk_hw *[]) {
-			&gxbb_vdec_hcodec_div.hw,
-		},
-		.num_parents = 1,
-		.flags = CLK_SET_RATE_PARENT,
-	},
-};
-
-static struct clk_regmap gxbb_dos_gate_hcodec = {
-	.data = &(struct clk_regmap_dos_gate){
-		.offset = VREG_REMAP(DOS_GCLK_EN0),
-		.mask = DOS_GCLK_EN0_HCODEC,
-	},
-	.hw.init = &(struct clk_init_data) {
-		.name = "dos_gate_hcodec",
-		.ops = &clk_regmap_dos_gate_ops,
-		.parent_hws = (const struct clk_hw *[]) {
-			&gxbb_vdec_hcodec.hw,
-		},
-		.num_parents = 1,
-		.flags = CLK_SET_RATE_NO_REPARENT,
-	},
-};
-
-static struct clk_regmap gxbb_wave420l_0_sel = {
-	.data = &(struct clk_regmap_mux_data){
-		.offset = HHI_REMAP(HHI_WAVE420L_CLK_CNTL),
-		.mask = 0x4,
-		.shift = 9,
-		.flags = CLK_MUX_ROUND_CLOSEST | CLK_MUX_INDEX_ONE,
-	},
-	.hw.init = &(struct clk_init_data){
-		.name = "wave420l_0_sel",
-		.ops = &clk_regmap_mux_ops,
-		.parent_names = (const char*[]) {
-			"fclk_div4",
-			"fclk_div3",
-			"fclk_div5",
-			"fclk_div7",
-		},
-		.num_parents = 4,
-		.flags = CLK_SET_RATE_NO_REPARENT,
-	},
-};
-
-static struct clk_regmap gxbb_wave420l_0_div = {
-	.data = &(struct clk_regmap_div_data){
-		.offset = HHI_REMAP(HHI_WAVE420L_CLK_CNTL),
-		.shift = 0,
-		.width = 7,
-		.flags = CLK_DIVIDER_ROUND_CLOSEST,
-	},
-	.hw.init = &(struct clk_init_data){
-		.name = "wave420l_0_div",
-		.ops = &clk_regmap_divider_ops,
-		.parent_hws = (const struct clk_hw *[]) {
-			&gxbb_wave420l_0_sel.hw
-		},
-		.num_parents = 1,
-		.flags = CLK_SET_RATE_PARENT,
-	},
-};
-
-static struct clk_regmap gxbb_wave420l_0 = {
-	.data = &(struct clk_regmap_gate_data){
-		.offset = HHI_REMAP(HHI_WAVE420L_CLK_CNTL),
-		.bit_idx = 8,
-	},
-	.hw.init = &(struct clk_init_data) {
-		.name = "wave420l_0",
-		.ops = &clk_regmap_gate_ops,
-		.parent_hws = (const struct clk_hw *[]) {
-			&gxbb_wave420l_0_div.hw
-		},
-		.num_parents = 1,
-		.flags = CLK_SET_RATE_PARENT | CLK_IGNORE_UNUSED,
-	},
-};
-
-static struct clk_regmap gxbb_wave420l_1_sel = {
-	.data = &(struct clk_regmap_mux_data){
-		.offset = HHI_REMAP(HHI_WAVE420L_CLK_CNTL),
-		.mask = 0x4,
-		.shift = 25,
-		.flags = CLK_MUX_ROUND_CLOSEST | CLK_MUX_INDEX_ONE,
-	},
-	.hw.init = &(struct clk_init_data){
-		.name = "wave420l_1_sel",
-		.ops = &clk_regmap_mux_ops,
-		.parent_names = (const char*[]) {
-			"fclk_div4",
-			"fclk_div3",
-			"fclk_div5",
-			"fclk_div7",
-		},
-		.num_parents = 4,
-		.flags = CLK_SET_RATE_NO_REPARENT,
-	},
-};
-
-static struct clk_regmap gxbb_wave420l_1_div = {
-	.data = &(struct clk_regmap_div_data){
-		.offset = HHI_REMAP(HHI_WAVE420L_CLK_CNTL),
-		.shift = 16,
-		.width = 7,
-		.flags = CLK_DIVIDER_ROUND_CLOSEST,
-	},
-	.hw.init = &(struct clk_init_data){
-		.name = "wave420l_1_div",
-		.ops = &clk_regmap_divider_ops,
-		.parent_hws = (const struct clk_hw *[]) {
-			&gxbb_wave420l_1_sel.hw
-		},
-		.num_parents = 1,
-		.flags = CLK_SET_RATE_PARENT,
-	},
-};
-
-static struct clk_regmap gxbb_wave420l_1 = {
-	.data = &(struct clk_regmap_gate_data){
-		.offset = HHI_REMAP(HHI_WAVE420L_CLK_CNTL),
-		.bit_idx = 24,
-	},
-	.hw.init = &(struct clk_init_data) {
-		.name = "wave420l_1",
-		.ops = &clk_regmap_gate_ops,
-		.parent_hws = (const struct clk_hw *[]) {
-			&gxbb_wave420l_1_div.hw
-		},
-		.num_parents = 1,
-		.flags = CLK_SET_RATE_PARENT | CLK_IGNORE_UNUSED,
-	},
-};
-
-static struct clk_regmap gxbb_wave420l = {
-	.data = &(struct clk_regmap_mux_data){
-		.offset = HHI_REMAP(HHI_WAVE420L_CLK_CNTL),
-		.mask = 1,
-		.shift = 31,
-	},
-	.hw.init = &(struct clk_init_data){
-		.name = "wave420l",
-		.ops = &clk_regmap_mux_ops,
-		.parent_hws = (const struct clk_hw *[]) {
-			&gxbb_wave420l_0.hw,
-			&gxbb_wave420l_1.hw
-		},
-		.num_parents = 2,
-		.flags = CLK_SET_RATE_NO_REPARENT,
-	},
-};
-
-static struct clk_hw *gxbb_hw_clks[] = {
-	&gxbb_dos_gate_vdec1.hw,
-	&gxbb_dos_gate_hevc.hw,
-	&gxbb_vdec_hcodec_sel.hw,
-	&gxbb_vdec_hcodec_div.hw,
-	&gxbb_vdec_hcodec.hw,
-	&gxbb_dos_gate_hcodec.hw,
-	&gxbb_wave420l_0_sel.hw,
-	&gxbb_wave420l_0_div.hw,
-	&gxbb_wave420l_0.hw,
-	&gxbb_wave420l_1_sel.hw,
-	&gxbb_wave420l_1_div.hw,
-	&gxbb_wave420l_1.hw,
-	&gxbb_wave420l.hw,
-};
-
-static struct clk_regmap *const gxbb_clk_regmaps[] = {
-	&gxbb_dos_gate_vdec1,
-	&gxbb_dos_gate_hevc,
-	&gxbb_vdec_hcodec_sel,
-	&gxbb_vdec_hcodec_div,
-	&gxbb_vdec_hcodec,
-	&gxbb_dos_gate_hcodec,
-	&gxbb_wave420l_0_sel,
-	&gxbb_wave420l_0_div,
-	&gxbb_wave420l_0,
-	&gxbb_wave420l_1_sel,
-	&gxbb_wave420l_1_div,
-	&gxbb_wave420l_1,
-	&gxbb_wave420l,
-};
-
-static const struct meson_eeclkc_data gxbb_clkc_data = {
-	.regmap_clks = gxbb_clk_regmaps,
-	.regmap_clk_num = ARRAY_SIZE(gxbb_clk_regmaps),
-	.hw_clks = {
-		.hws = gxbb_hw_clks,
-		.num = ARRAY_SIZE(gxbb_hw_clks),
-	},
-};
-
-static struct meson_ee_pwrc_domain_desc gx_pwrc_domains[] = {
-	[PWRC_VDEC1] = DOS_PD("VDEC1",
-		GX_EE_PD(DOS_VDEC1_PWR, DOS_VDEC1_ISO),
-		DOS_MEM_PD_VDEC, DOS_MEM_PD_VDEC_ALL),
-	[PWRC_HEVC] = DOS_PD("HEVC",
-		GX_EE_PD(DOS_HEVC_PWR, DOS_HEVC_ISO),
-		DOS_MEM_PD_HEVC, DOS_MEM_PD_HEVC_ALL),
-	[PWRC_HCODEC] = DOS_PD("HCODEC",
-		GX_EE_PD(DOS_HCODEC_PWR, DOS_HCODEC_ISO),
-		DOS_MEM_PD_HCODEC, DOS_MEM_PD_HCODEC_ALL),
-	[PWRC_WAVE420L] = DOS_PD("WAVE420L",
-		GX_EE_PD(DOS_WAVE420L_PWR, DOS_WAVE420L_ISO),
-		DOS_MEM_PD_WAVE420L, DOS_MEM_PD_WAVE420L_ALL),
+static struct meson_dos_pwrc_domain gx_pwrc_domains[] = {
+	[PWRC_VDEC1] = DOS_PDG("VDEC1",
+		DOS_VDEC1_PWR, DOS_VDEC1_ISO,
+		DOS_MEM_PD_VDEC, DOS_MEM_PD_VDEC_ALL,
+		DOS_GCLK_EN0, DOS_GCLK_EN0_VDEC1),
+	[PWRC_HEVC] = DOS_PDG("HEVC",
+		DOS_HEVC_PWR, DOS_HEVC_ISO,
+		DOS_MEM_PD_HEVC, DOS_MEM_PD_HEVC_ALL,
+		DOS_GCLK_EN3, DOS_GCLK_EN3_HEVC),
+	[PWRC_HCODEC] = DOS_PDG("HCODEC",
+		DOS_HCODEC_PWR, DOS_HCODEC_ISO,
+		DOS_MEM_PD_HCODEC, DOS_MEM_PD_HCODEC_ALL,
+		DOS_GCLK_EN0, DOS_GCLK_EN0_HCODEC),
 };
 
 #if 0
-static struct meson_ee_pwrc_domain_desc sm1_pwrc_domains[] = {
-	[PWRC_VDEC1] = DOS_PD("VDEC1",
-			SM1_EE_PD(1),
-			DOS_MEM_PD_VDEC, DOS_MEM_PD_VDEC_ALL),
-	[PWRC_HEVC] = DOS_PD("HEVC",
-			SM1_EE_PD(2),
-			DOS_MEM_PD_HEVC, DOS_MEM_PD_HEVC_ALL),
-	[PWRC_HCODEC] = DOS_PD("HCODEC",
-			SM1_EE_PD(1),
-			DOS_MEM_PD_HCODEC, DOS_MEM_PD_HCODEC_ALL),
+static struct meson_dos_pwrc_domain gxm_pwrc_domains[] = {
+	[PWRC_VDEC1] = DOS_PDG("VDEC1",
+		DOS_VDEC1_PWR, DOS_VDEC1_ISO,
+		DOS_MEM_PD_VDEC, DOS_MEM_PD_VDEC_ALL,
+		DOS_GCLK_EN0, DOS_GCLK_EN0_VDEC1),
+	[PWRC_HEVC] = DOS_PDG("HEVC",
+		DOS_HEVC_PWR, DOS_HEVC_ISO,
+		DOS_MEM_PD_HEVC, DOS_MEM_PD_HEVC_ALL,
+		DOS_GCLK_EN3, DOS_GCLK_EN3_HEVC),
+	[PWRC_HCODEC] = DOS_PDG("HCODEC",
+		DOS_HCODEC_PWR, DOS_HCODEC_ISO,
+		DOS_MEM_PD_HCODEC, DOS_MEM_PD_HCODEC_ALL,
+		DOS_GCLK_EN0, DOS_GCLK_EN0_HCODEC),
 	[PWRC_WAVE420L] = DOS_PD("WAVE420L",
-			SM1_EE_PD(8),
-			DOS_MEM_PD_WAVE420L, DOS_MEM_PD_WAVE420L_ALL),
+		DOS_WAVE420L_PWR, DOS_WAVE420L_ISO,
+		DOS_MEM_PD_WAVE420L, DOS_MEM_PD_WAVE420L_ALL),
+};
+
+static struct meson_ee_pwrc_domain_desc sm1_pwrc_domains[] = {
+	[PWRC_VDEC1] = DOS_PDG("VDEC1",
+		BIT(1), BIT(1),
+		DOS_MEM_PD_VDEC, DOS_MEM_PD_VDEC_ALL,
+		DOS_GCLK_EN0, DOS_GCLK_EN0_VDEC1),
+	[PWRC_HEVC] = DOS_PDG("HEVC",
+		BIT(2), BIT(2),
+		DOS_MEM_PD_HEVC, DOS_MEM_PD_HEVC_ALL,
+		DOS_GCLK_EN3, DOS_GCLK_EN3_HEVC),
+	[PWRC_HCODEC] = DOS_PDG("HCODEC",
+		BIT(0), BIT(0),
+		DOS_MEM_PD_HCODEC, DOS_MEM_PD_HCODEC_ALL,
+		DOS_GCLK_EN0, DOS_GCLK_EN0_HCODEC),
+	[PWRC_WAVE420L] = DOS_PD("WAVE420L",
+		BIT(3), BIT(3),
+		DOS_MEM_PD_WAVE420L, DOS_MEM_PD_WAVE420L_ALL),
 };
 #endif
 
@@ -736,7 +380,6 @@ static const struct meson_codec_formats gxl_codecs[] = {
 	DECODER(hevc,  3840, 2160, nv12)
 
 	ENCODER(h264,  1920, 1280, nv12, yuv420)
-	// ENCODER(hevc, 1920, 1280, nv12, yuv420)
 	
 	// TRANSCODER(h264, nv12, 1920, 1280, mpeg1, mpeg2, h264, vp9, hevc)
 	// TRANSCODER(hevc, nv12, 1920, 1280, mpeg1, mpeg2, h264, vp9, hevc)
@@ -744,13 +387,6 @@ static const struct meson_codec_formats gxl_codecs[] = {
 
 const struct meson_platform_specs gxl_platform_specs = {
 	.platform_id = AM_MESON_CPU_MAJOR_ID_GXL,
-	.clks = &gxbb_clkc_data,
-	.hwclks = {
-		[CLK_VDEC1] = &gxbb_dos_gate_vdec1.hw,
-		[CLK_HEVC] = &gxbb_dos_gate_hevc.hw,
-		[CLK_HCODEC] = &gxbb_dos_gate_hcodec.hw,
-		[CLK_WAVE420L] = &gxbb_wave420l.hw,
-	},
 	.pwrc = gx_pwrc_domains,
 	.codecs = gxl_codecs,
 	.num_codecs = ARRAY_SIZE(gxl_codecs),

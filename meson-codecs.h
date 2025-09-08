@@ -105,8 +105,9 @@ extern const struct meson_codec_spec mpeg2_decoder;
 extern const struct meson_codec_spec h264_decoder;
 extern const struct meson_codec_spec vp9_decoder;
 extern const struct meson_codec_spec hevc_decoder;
+
 extern const struct meson_codec_spec h264_encoder;
-extern const struct meson_codec_spec hevc_encoder;
+// extern const struct meson_codec_spec hevc_encoder;
 
 int meson_vcodec_request_firmware(struct meson_codec_dev *codec, struct meson_vcodec_buffer *buf);
 void meson_vcodec_release_firmware(struct meson_codec_dev *codec, struct meson_vcodec_buffer *buf);
